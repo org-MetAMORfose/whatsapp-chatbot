@@ -1,0 +1,41 @@
+[build-system]
+requires = ["setuptools>=61.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "metamorfose-whatsapp-chatbot"
+version = "0.1.0"
+description = "FastAPI backend scaffold for Metamorfose WhatsApp chatbot."
+readme = "README.md"
+requires-python = ">=3.11"
+dependencies = [
+  "fastapi",
+  "uvicorn[standard]",
+  "pydantic-settings",
+  "python-dotenv",
+  "sqlalchemy",
+  "httpx",
+]
+
+[tool.ruff]
+line-length = 88
+target-version = "py311"
+exclude = ["__pycache__", ".venv", "build", "dist", ".eggs"]
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "N", "Q", "S", "B", "C4", "TID"]
+
+[tool.ruff.lint.per-file-ignores]
+"tests/*" = ["S101"]
+
+[tool.mypy]
+python_version = "3.11"
+strict = true
+ignore_missing_imports = true
+warn_unused_ignores = true
+warn_redundant_casts = true
+warn_unused_configs = true
+
+[tool.pytest.ini_options]
+pythonpath = ["."]
+testpaths = ["tests"]
