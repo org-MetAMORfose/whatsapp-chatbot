@@ -1,65 +1,77 @@
 # Metamorfose WhatsApp Chatbot (FastAPI)
 
-## Overview
+## Visao geral
 
-Backend scaffold for Metamorfose WhatsApp chatbot using **FastAPI**.
+Scaffold de backend para o chatbot de WhatsApp da Metamorfose, construído com **FastAPI**.
 
-## Setup
+## Requisitos
 
-Create and activate a virtual environment:
+- Python 3.11+
+- `uv`
+
+Se quiser saber como instalar o `uv`, consulte a documentação oficial:
+https://docs.astral.sh/uv/
+
+## Setup com uv
+
+1. Crie e ative o ambiente virtual:
 
 ```bash
-python -m venv .venv
+uv venv .venv
 source .venv/bin/activate
 ```
 
-Install dependencies and configure environment:
+2. Instale as dependências do projeto:
 
 ```bash
-pip install -r requirements.txt
+uv sync --dev
+```
+
+3. Configure as variáveis de ambiente:
+
+```bash
 cp .env.example .env
 ```
 
-## Run locally
+## Executar localmente
 
 ```bash
-uvicorn app.main:app --reload
+uv run uvicorn app.main:app --reload
 ```
 
-## Run with Docker
+## Executar com Docker
 
 ```bash
 docker build -t app .
 docker run -p 8000:8000 app
 ```
 
-## Tests
+## Testes
 
 ```bash
-pytest
+uv run pytest
 ```
 
-## Quality checks
+## Checagens de qualidade
 
-Run all checks in one command:
+Execute tudo em um comando:
 
 ```bash
-ruff check . && mypy . && pytest
+uv run ruff check . && uv run mypy . && uv run pytest
 ```
 
 ## Pre-commit
 
-Install and enable the Git hook:
+Instale e habilite o hook:
 
 ```bash
-pip install pre-commit
-pre-commit install
+uv run pre-commit install
 ```
 
-Run manually:
+Execute manualmente:
 
 ```bash
-pre-commit run --all-files
+uv run pre-commit run --all-files
 ```
 
-> The pre-commit hooks run **ruff**, **mypy**, and **pytest** before each commit.
+> Os hooks de pre-commit executam **ruff**, **mypy** e **pytest** antes de cada commit.

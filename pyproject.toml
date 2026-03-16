@@ -17,6 +17,20 @@ dependencies = [
   "httpx",
 ]
 
+[project.scripts]
+dev = "app.main:main"
+
+
+[dependency-groups]
+dev = [
+  "pytest",
+  "ruff",
+  "mypy",
+  "pre-commit",
+  "autopep8>=2.3.2",
+  "pylint>=4.0.5",
+]
+
 [tool.ruff]
 line-length = 88
 target-version = "py311"
