@@ -3,18 +3,18 @@ repos:
     hooks:
       - id: ruff
         name: ruff
-        entry: ruff check .
+        entry: uv run ruff check .
         language: system
         pass_filenames: false
 
       - id: mypy
         name: mypy
-        entry: mypy .
+        entry: uv run mypy .
         language: system
         pass_filenames: false
 
       - id: pytest
         name: pytest
-        entry: pytest
+        entry: uv run pytest
         language: system
         pass_filenames: false
