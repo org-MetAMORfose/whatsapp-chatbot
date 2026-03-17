@@ -17,6 +17,7 @@ dependencies = [
   "httpx",
   "redis>=7.3.0",
   "python-telegram-bot>=22.7",
+  "dotenv>=0.9.9",
 ]
 
 [project.scripts]

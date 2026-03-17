@@ -1,11 +1,14 @@
 import pytest
+from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
-from app.main import app
+from app.controllers.health_controller import router as health_router
 
 
 @pytest.fixture
 def client() -> TestClient:
+    app = FastAPI()
+    app.include_router(health_router)
     return TestClient(app)
 
 

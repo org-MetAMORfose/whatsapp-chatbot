@@ -2,7 +2,7 @@
 
 from app.bot import BotContext, MessageHandler
 from app.domain.message import Message
-from app.queue import MessageQueue
+from app.message_queue import MessageQueue
 
 from .repository import ChatRepository
 
