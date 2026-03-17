@@ -1,0 +1,41 @@
+services:
+  redis:
+    image: redis:7-alpine
+    container_name: chatbot-redis
+    restart: unless-stopped
+    environment:
+      REDIS_PASSWORD: ${REDIS_PASSWORD:?REDIS_PASSWORD is required}
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    command:
+      [
+        "redis-server",
+        "--appendonly",
+        "yes",
+        "--requirepass",
+        "${REDIS_PASSWORD:?REDIS_PASSWORD is required}",
+      ]
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "redis-cli",
+          "-a",
+          "${REDIS_PASSWORD:?REDIS_PASSWORD is required}",
+          "ping",
+        ]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+  chatbot:
+    build: .
+    container_name: whatsapp-chatbot
+    restart: unless-stopped
+    env_file: .env.docker
+    depends_on:
+      - redis
+
+volumes:
+  redis_data:

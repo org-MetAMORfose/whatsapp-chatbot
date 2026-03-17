@@ -1,4 +1,5 @@
 import logging
+import sys
 
 import redis
 
@@ -30,8 +31,8 @@ def main() -> None:
             config.REDIS_PORT,
         )
     except redis.RedisError as e:
-        logger.error("Failed to connect to Redis: %s", e)
-        raise
+        logger.fatal("Failed to connect to Redis: %s", e)
+        sys.exit(1)
 
     message_queue = MessageQueue(redis_client)
     chat_repo = ChatRepository(redis_client)

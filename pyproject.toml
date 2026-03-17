@@ -6,6 +6,9 @@ build-backend = "setuptools.build_meta"
 name = "metamorfose-whatsapp-chatbot"
 version = "0.1.0"
 description = "FastAPI backend scaffold for Metamorfose WhatsApp chatbot."
+authors = [
+  { name = "Felipe Kelemen Bernardino", email = "felipe.kelemen@usp.br" },
+]
 readme = "README.md"
 requires-python = ">=3.11"
 dependencies = [
@@ -21,12 +24,13 @@ dependencies = [
 ]
 
 [project.scripts]
-dev = "app.main:main"
-test = "pytest:main"
-lint = "ruff.__main__:_run"
+app = "app.__main__:main"
+
+[tool.setuptools.packages.find]
+include = ["app"]
 
 [dependency-groups]
-dev = ["pytest", "ruff", "mypy", "pre-commit", "autopep8>=2.3.2"]
+dev = ["pytest", "ruff", "mypy", "pre-commit", "autopep8>=2.3.2", "build"]
 
 [tool.ruff]
 line-length = 88
