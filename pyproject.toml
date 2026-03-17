@@ -18,18 +18,11 @@ dependencies = [
 ]
 
 [project.scripts]
-dev = "app.main:main"
-
+test = "pytest:main"
+lint = "ruff.__main__:_run"
 
 [dependency-groups]
-dev = [
-  "pytest",
-  "ruff",
-  "mypy",
-  "pre-commit",
-  "autopep8>=2.3.2",
-  "pylint>=4.0.5",
-]
+dev = ["pytest", "ruff", "mypy", "pre-commit", "autopep8>=2.3.2"]
 
 [tool.ruff]
 line-length = 88
