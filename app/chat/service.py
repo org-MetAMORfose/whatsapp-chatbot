@@ -11,11 +11,13 @@ class ChatService(MessageHandler):
     """Encapsulates business logic for managing chat interactions and state."""
 
     def __init__(
-        self, chat_repository: ChatRepository, message_queue: MessageQueue
+        self,
+        chat_repository: ChatRepository,
+        inbound_queue: MessageQueue,
     ) -> None:
 
         self.chat_repository = chat_repository
-        self.message_queue = message_queue
+        self.inbound_queue = inbound_queue
 
     async def on_message(self, ctx: BotContext, message: Message) -> None:
         """Handle incoming messages, update chat state, and enqueue for processing."""
@@ -24,6 +26,6 @@ class ChatService(MessageHandler):
         await self.chat_repository.append_message_to_history(thread_id, message)
 
         # Enqueue the message for processing by the agent workers
-        await self.message_queue.publish(thread_id=thread_id, text=message.content)
+        await self.inbound_queue.publish(thread_id=thread_id, text=message.content)
 
     async def on_option_selected(self, option_key: str, ctx: BotContext) -> None: ...

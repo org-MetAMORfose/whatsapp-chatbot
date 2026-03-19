@@ -1,9 +1,12 @@
+import asyncio
 import logging
+import signal
 import sys
 
-import redis
+from redis.asyncio import Redis, RedisError
 
 from app import config
+from app.agent import AgentWorker
 from app.bot.telegram_bot import TelegramBot
 from app.chat import ChatRepository, ChatService
 from app.message_queue import MessageQueue
@@ -11,8 +14,11 @@ from app.message_queue import MessageQueue
 logger = logging.getLogger(__name__)
 
 
-def main() -> None:
-    redis_client = redis.Redis(
+shutdown_event = asyncio.Event()
+
+
+async def _async_main() -> None:
+    redis_client = Redis(
         host=config.REDIS_HOST,
         port=config.REDIS_PORT,
         db=config.REDIS_DB,
@@ -24,23 +30,53 @@ def main() -> None:
     )
 
     try:
-        redis_client.ping()
+        await redis_client.ping()
         logger.info(
             "Successfully connected to Redis at %s:%d",
             config.REDIS_HOST,
             config.REDIS_PORT,
         )
-    except redis.RedisError as e:
+    except RedisError as e:
         logger.fatal("Failed to connect to Redis: %s", e)
         sys.exit(1)
 
-    message_queue = MessageQueue(redis_client)
+    inbound_queue = MessageQueue(redis_client, queue_name="inbound")
+    outbound_queue = MessageQueue(redis_client, queue_name="outbound")
     chat_repo = ChatRepository(redis_client)
-    chat_service = ChatService(chat_repository=chat_repo, message_queue=message_queue)
+    chat_service = ChatService(chat_repository=chat_repo, inbound_queue=inbound_queue)
+    agent_worker = AgentWorker(inbound=inbound_queue, outbound=outbound_queue)
 
-    app = TelegramBot(message_handler=chat_service)
+    bot = TelegramBot(message_handler=chat_service)
 
-    app.run()
+    tasks = [
+        asyncio.create_task(bot.run()),
+        asyncio.create_task(agent_worker.start()),
+    ]
+
+    await shutdown_event.wait()
+
+    for task in tasks:
+        task.cancel()
+
+    asyncio.gather(*tasks, return_exceptions=True)
+    await redis_client.close()
+
+
+def _shutdown() -> None:
+    logger.info("Shutting down gracefully...")
+
+    shutdown_event.set()
+
+
+def main() -> None:
+    loop = asyncio.get_event_loop()
+    loop.add_signal_handler(signal.SIGINT, _shutdown)
+    loop.add_signal_handler(signal.SIGTERM, _shutdown)
+
+    try:
+        loop.run_until_complete(_async_main())
+    finally:
+        loop.close()
 
 
 if __name__ == "__main__":

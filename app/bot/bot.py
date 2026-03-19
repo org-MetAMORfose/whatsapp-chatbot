@@ -9,7 +9,7 @@ class Bot(ABC):
     """Base bot contract responsible for starting the runtime loop."""
 
     @abstractmethod
-    def run(self) -> None:
+    async def run(self) -> None:
         """Start the bot event loop."""
 
 

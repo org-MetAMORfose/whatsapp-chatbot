@@ -132,10 +132,10 @@ class TelegramBot(Bot):
         app.add_handler(CallbackQueryHandler(self.on_callback_query))
         return app
 
-    def run(self) -> None:
+    async def run(self) -> None:
         """Start the Telegram polling loop."""
         logger.info("Setting up Telegram application...")
         app = self.__setup_application()
 
         logger.info("Bot started and waiting for messages...")
-        app.run_polling()
+        await app.start()
