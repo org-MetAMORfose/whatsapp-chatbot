@@ -1,7 +1,5 @@
 """High-level message queue API to manage AgentWorkers workloads."""
 
-from typing import Any
-
 from redis.asyncio import Redis
 
 from .models import QueuedMessage
@@ -10,11 +8,9 @@ from .models import QueuedMessage
 class MessageQueue:
     """Service-style facade for pending messages and worker acknowledgements."""
 
-    redis_client: Redis[Any]
+    redis_client: Redis  # type: ignore[type-arg]
 
-    def __init__(
-        self, redis_client: Redis[Any], queue_name: str = "agent-workers"
-    ) -> None:
+    def __init__(self, redis_client: Redis, queue_name: str = "agent-workers") -> None:  # type: ignore[type-arg]
         self.redis_client = redis_client
         self.queue_name = queue_name
 

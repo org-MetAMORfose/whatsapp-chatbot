@@ -3,7 +3,7 @@
 import json
 import logging
 from dataclasses import asdict
-from typing import Any, cast
+from typing import cast
 
 import redis.asyncio as redis
 
@@ -16,9 +16,9 @@ logger = logging.getLogger(__name__)
 class ChatRepository:
     """Encapsulates Redis operations for loading and saving chat state."""
 
-    redis_client: redis.Redis[Any]
+    redis_client: redis.Redis  # type: ignore[type-arg]
 
-    def __init__(self, redis_client: redis.Redis[Any]):
+    def __init__(self, redis_client: redis.Redis):  # type: ignore[type-arg]
         """Create a chat repository with an initialized Redis client."""
         self.redis_client = redis_client
 
