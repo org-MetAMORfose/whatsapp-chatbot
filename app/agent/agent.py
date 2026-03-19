@@ -1,6 +1,7 @@
 import asyncio
 import logging
 
+from app.context import AppContext
 from app.message_queue import MessageQueue
 from app.message_queue.models import QueuedMessage
 
@@ -8,11 +9,19 @@ logger = logging.getLogger(__name__)
 
 
 class AgentWorker:
-    def __init__(self, inbound: MessageQueue, outbound: MessageQueue):
+    def __init__(
+        self,
+        ctx: AppContext,
+        inbound: MessageQueue,
+        outbound: MessageQueue,
+    ):
+        self.ctx = ctx
         self.inbound_queue = inbound
         self.outbound_queue = outbound
 
-    async def start(self, timeout_seconds: int = 30) -> ModuleNotFoundError:
+    async def start(
+        self,
+    ) -> None:
         """Start the agent worker and wait for messages in the queue.
 
         Args:
@@ -21,12 +30,10 @@ class AgentWorker:
         """
         logger.info("Agent worker started, waiting for messages...")
 
-        while True:
+        while not self.ctx.is_shutting_down():
             try:
                 # Wait for the next message in the queue
-                message = await self.inbound_queue.claim_next(
-                    timeout_seconds=timeout_seconds
-                )
+                message = await self.inbound_queue.claim_next()
 
                 if message is None:
                     # No message available within timeout, continue waiting
@@ -39,14 +46,20 @@ class AgentWorker:
                 )
 
                 # Process the message here
-                await self._process_message(message)
+                response = await self._process_message(message)
                 logger.info(f"Message {message.message_id} processed successfully")
 
+                await self.outbound_queue.publish(
+                    thread_id=message.thread_id, text=response
+                )
+
+            except asyncio.CancelledError:
+                break
             except Exception as e:
                 logger.error(f"Error processing message: {e}", exc_info=True)
-                await asyncio.sleep(1)  # Brief pause before retrying
+        logger.info("Agent worker shutting down...")
 
-    async def _process_message(self, message: QueuedMessage) -> None:
+    async def _process_message(self, message: QueuedMessage) -> str:
         """Process a message from the queue.
 
         Args:
@@ -58,3 +71,5 @@ class AgentWorker:
         # - Calling external APIs
         # - Sending responses back to the user
         logger.debug(f"Processing message content: {message.text}")
+
+        return f"Processed: {message.text}"

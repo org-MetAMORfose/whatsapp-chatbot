@@ -13,6 +13,7 @@ from telegram.ext import (
     filters,
 )
 
+from app.context import AppContext
 from app.domain.message import Message
 
 from .bot import Bot, BotContext
@@ -61,8 +62,14 @@ class TelegramBot(Bot):
 
     token: str
     handler: BaseMessageHandler
+    ctx: AppContext
 
-    def __init__(self, message_handler: BaseMessageHandler, token: str | None = None):
+    def __init__(
+        self,
+        ctx: AppContext,
+        message_handler: BaseMessageHandler,
+        token: str | None = None,
+    ):
         """Initialize bot credentials and handler callbacks."""
         t = token or os.getenv(TOKEN_ENV_VAR)
 
@@ -73,6 +80,7 @@ class TelegramBot(Bot):
             )
         self.token = t
         self.handler = message_handler
+        self.ctx = ctx
 
     async def on_message(
         self, update: telegram.Update, context: ContextTypes.DEFAULT_TYPE
@@ -139,3 +147,9 @@ class TelegramBot(Bot):
 
         logger.info("Bot started and waiting for messages...")
         await app.start()
+
+        # Wait for shutdown signal
+        await self.ctx.wait_for_shutdown()
+
+        logger.info("Bot shutting down...")
+        await app.stop()
