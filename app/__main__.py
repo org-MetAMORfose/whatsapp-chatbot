@@ -56,11 +56,14 @@ async def _async_main(app_context: AppContext) -> None:
     loop.add_signal_handler(signal.SIGTERM, app_context.request_shutdown)
 
     tasks = [
-        asyncio.create_task(bot.run()),
         asyncio.create_task(agent_worker.start()),
     ]
 
+    await bot.start()
+
     await app_context.wait_for_shutdown()
+
+    await bot.stop()
 
     for task in tasks:
         task.cancel()

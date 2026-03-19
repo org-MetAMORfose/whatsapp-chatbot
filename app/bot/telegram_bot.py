@@ -82,6 +82,9 @@ class TelegramBot(Bot):
         self.handler = message_handler
         self.ctx = ctx
 
+        logger.info("Setting up Telegram application...")
+        self.app = self.__setup_application()
+
     async def on_message(
         self, update: telegram.Update, context: ContextTypes.DEFAULT_TYPE
     ) -> None:
@@ -140,16 +143,15 @@ class TelegramBot(Bot):
         app.add_handler(CallbackQueryHandler(self.on_callback_query))
         return app
 
-    async def run(self) -> None:
-        """Start the Telegram polling loop."""
-        logger.info("Setting up Telegram application...")
-        app = self.__setup_application()
+    async def start(self) -> None:
+        """Start the Telegram bot application."""
+        await self.app.initialize()
+        await self.app.start()
+        if self.app.updater:
+            await self.app.updater.start_polling()
 
         logger.info("Bot started and waiting for messages...")
-        await app.start()
 
-        # Wait for shutdown signal
-        await self.ctx.wait_for_shutdown()
-
-        logger.info("Bot shutting down...")
-        await app.stop()
+    async def stop(self) -> None:
+        """Stop the Telegram bot application."""
+        await self.app.stop()
