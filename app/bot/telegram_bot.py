@@ -14,7 +14,6 @@ from telegram.ext import (
 )
 
 from app.context import AppContext
-from app.domain.message import Message
 
 from .bot import Bot, BotContext
 from .bot import MessageHandler as BaseMessageHandler
@@ -104,16 +103,16 @@ class TelegramBot(Bot):
         logger.info("Message received - User: %s, Chat: %s", user_id, chat_id)
         logger.debug("Message text: %s", message_text)
 
-        message = Message(
-            chat_id=str(chat_id),
-            user_id=str(user_id),
-            content=message_text,
-            origin="telegram",
-        )
+        # message = Message(
+        #     chat_id=str(chat_id),
+        #     user_id=str(user_id),
+        #     content=message_text,
+        #     origin="telegram",
+        # )
 
-        bot_context = TelegramBotContext(update, context)
+        _bot_context = TelegramBotContext(update, context)
 
-        await self.handler.on_message(bot_context, message)
+        # await self.handler.on_message(bot_context, message)
 
     async def on_callback_query(
         self, update: telegram.Update, context: ContextTypes.DEFAULT_TYPE

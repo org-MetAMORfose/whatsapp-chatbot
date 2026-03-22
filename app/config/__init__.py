@@ -27,3 +27,5 @@ REDIS_PORT = int(__get_env_variable("REDIS_PORT", "6379"))
 REDIS_DB = int(__get_env_variable("REDIS_DB", "0"))
 REDIS_USERNAME = __get_env_variable("REDIS_USERNAME", "default")
 REDIS_PASSWORD = __get_env_variable("REDIS_PASSWORD", "")
+
+TELEGRAM_BOT_TOKEN = __get_env_variable("TELEGRAM_BOT_TOKEN", "")
