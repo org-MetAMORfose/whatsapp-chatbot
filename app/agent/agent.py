@@ -40,18 +40,13 @@ class AgentWorker:
                     logger.debug("No message available, continuing to wait...")
                     continue
 
-                logger.info(
-                    f"Processing message {message.message_id} "
-                    f"for thread {message.thread_id}: {message.text}"
-                )
-
                 # Process the message here
-                response = await self._process_message(message)
+                # response = await self._process_message(message)
                 logger.info(f"Message {message.message_id} processed successfully")
 
-                await self.outbound_queue.publish(
-                    thread_id=message.thread_id, text=response
-                )
+                # await self.outbound_queue.publish(
+                #     thread_id=message.thread_id, text=response
+                # )
 
             except asyncio.CancelledError:
                 break
