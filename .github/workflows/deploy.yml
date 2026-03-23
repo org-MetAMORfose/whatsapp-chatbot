@@ -20,7 +20,7 @@ jobs:
           username: ${{ secrets.EC2_USER }}
           key: ${{ secrets.EC2_SSH_KEY }}
           source: "."
-          target: ${{ secrets.EC2_DEPLOY_PATH }}
+          target: ${{ secrets.EC2_APP_PATH }}
           rm: false
           strip_components: 0
           overwrite: true
