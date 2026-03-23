@@ -25,8 +25,9 @@ class TelegramAdapter(BotAdapter):
         self.token = token or config.TELEGRAM_BOT_TOKEN
         self.bot = telegram.Bot(token=self.token)
 
-    def send_message(self, message: str) -> None:
+    async def send_message(self, chat_id: str, message: str) -> None:
         print(f"Sending message to Telegram: {message}")
+        await self.bot.send_message(chat_id=chat_id, text=message)
 
     def __callback_wrapper(
         self, callback: MessageCallback
@@ -49,9 +50,13 @@ class TelegramAdapter(BotAdapter):
                 str(update.effective_user.id) if update.effective_user else "ANONYMOUS"
             )
             content = update.message.text
+            message_id = update.message.message_id
+            created_at = update.message.date
 
             message = Message(
+                message_id=message_id,
                 channel=self.channel,
+                created_at=created_at,
                 chat_id=chat_id,
                 user_id=user_id,
                 content=content,

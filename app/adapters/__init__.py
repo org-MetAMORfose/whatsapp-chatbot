@@ -5,6 +5,6 @@ class BotAdapter(ABC):
     """Base adapter contract responsible for connecting to a messaging platform."""
 
     @abstractmethod
-    def send_message(self, message: str) -> None:
+    async def send_message(self, chat_id: str, message: str) -> None:
         """Send a message to the messaging platform."""
         pass
