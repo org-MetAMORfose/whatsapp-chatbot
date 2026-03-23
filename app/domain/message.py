@@ -12,7 +12,7 @@ class Message(BaseModel):
 
     message_id: int
     channel: Channel
-    created_at: datetime
+    created_at: datetime | None
     user_id: str
     chat_id: str
     content: str
