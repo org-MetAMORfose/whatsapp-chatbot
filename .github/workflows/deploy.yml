@@ -46,4 +46,4 @@ jobs:
             fi
 
             docker compose ps
-            echo "Finished"
+            echo "Finished!"
