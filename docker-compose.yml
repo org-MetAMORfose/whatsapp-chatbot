@@ -5,8 +5,6 @@ services:
     restart: unless-stopped
     environment:
       REDIS_PASSWORD: ${REDIS_PASSWORD:?REDIS_PASSWORD is required}
-    ports:
-      - "6379:6379"
     volumes:
       - redis_data:/data
     command:
@@ -29,13 +27,16 @@ services:
       interval: 10s
       timeout: 5s
       retries: 5
+
   chatbot:
     build: .
     container_name: whatsapp-chatbot
     restart: unless-stopped
     env_file: .env
     depends_on:
-      - redis
+      redis:
+        condition: service_healthy
 
 volumes:
   redis_data:
+
