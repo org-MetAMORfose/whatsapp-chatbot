@@ -4,12 +4,11 @@ from typing import Any, Callable, Coroutine
 import telegram
 from telegram.ext import Application, ContextTypes, MessageHandler, filters
 
-import app.config as config
+import app.config.settings as config
 from app.context import AppContext
 from app.domain.channels import Channel
 from app.domain.message import Message
-
-from . import BotAdapter
+from app.interfaces.bot_adapter import BotAdapter
 
 logger = logging.getLogger(__name__)
 
@@ -27,7 +26,7 @@ class TelegramAdapter(BotAdapter):
 
     async def send_message(self, message: Message) -> None:
         print(f"Sending message to Telegram: {message}")
-        await self.bot.send_message(chat_id=message.chat_id, text=message.content)
+        await self.bot.send_message(chat_id=message.chat_id, text=message.content or "")
 
     def __callback_wrapper(
         self, callback: MessageCallback

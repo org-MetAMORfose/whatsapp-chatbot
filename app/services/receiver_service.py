@@ -1,29 +1,29 @@
 import logging
 
-from app.chat import ChatService
 from app.domain.message import Message
 from app.message_queue import MessageQueue
+from app.repository.redis_repository import ChatRepository
 
 logger = logging.getLogger(__name__)
 
 
-class MessageReceiver:
+class MessageReceiverService:
     def __init__(
         self,
-        chat_service: ChatService,
+        chat_repository: ChatRepository,
         inbound_queue: MessageQueue,
-    ):
+    ) -> None:
+        self.chat_repository = chat_repository
         self.inbound_queue = inbound_queue
-        self.chat_service = chat_service
 
-    async def callback(self, message: Message) -> None:
+    async def handle(self, message: Message) -> None:
         logger.info("Received message: %s", message)
 
         if not message.chat_id:
             logger.warning("Received message without chat_id: %s", message)
             return
 
-        await self.chat_service.add_message(message)
-
         thread_id = str(message.chat_id)
+
+        await self.chat_repository.append_message_to_history(thread_id, message)
         await self.inbound_queue.publish(thread_id, message)

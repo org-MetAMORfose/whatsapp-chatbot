@@ -15,4 +15,7 @@ class Message(BaseModel):
     created_at: datetime | None
     user_id: str
     chat_id: str
-    content: str
+    content: str | None
+
+    image_url: str | None = None
+    document_url: str | None = None
