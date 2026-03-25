@@ -17,5 +17,5 @@ class Message(BaseModel):
     chat_id: str
     content: str | None
 
-    image_url: str | None = None
-    document_url: str | None = None
+    image: str | None = None
+    document: str | None = None

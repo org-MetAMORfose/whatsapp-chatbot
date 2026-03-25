@@ -87,17 +87,17 @@ class WhatsAppController:
                 return None
 
             content: str | None = None
-            image_url: str | None = None
-            document_url: str | None = None
+            image: str | None = None
+            document: str | None = None
 
             if message_type == "text":
                 content = msg.get("text", {}).get("body")
 
             elif message_type == "image":
-                image_url = msg.get("image", {}).get("id")
+                image = msg.get("image", {}).get("id")
 
             elif message_type == "document":
-                document_url = msg.get("document", {}).get("id")
+                document = msg.get("document", {}).get("id")
 
             else:
                 logger.info("Ignoring unsupported WhatsApp message type: %s", message_type)
@@ -114,8 +114,8 @@ class WhatsAppController:
                 user_id=str(user_id),
                 chat_id=str(user_id),
                 content=content,
-                image_url=image_url,
-                document_url=document_url,
+                image=image,
+                document=document,
             )
 
         except Exception as e:
