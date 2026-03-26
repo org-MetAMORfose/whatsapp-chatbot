@@ -34,12 +34,29 @@ jobs:
           script: |
             cd ${{ secrets.EC2_APP_PATH }}
 
+            cat > .env << EOF
+            LOG_LEVEL=${{ secrets.LOG_LEVEL }}
+            OPENAI_API_KEY=${{ secrets.OPENAI_API_KEY }}
+            TELEGRAM_BOT_TOKEN=${{ secrets.TELEGRAM_BOT_TOKEN }}
+            LANGSMITH_TRACING=${{ secrets.LANGSMITH_TRACING }}
+            LANGSMITH_ENDPOINT=${{ secrets.LANGSMITH_ENDPOINT }}
+            LANGSMITH_API_KEY=${{ secrets.LANGSMITH_API_KEY }}
+            LANGSMITH_PROJECT=${{ secrets.LANGSMITH_PROJECT }}
+            REDIS_HOST=redis
+            REDIS_PORT=6379
+            REDIS_DB=0
+            REDIS_USERNAME=${{ secrets.REDIS_USERNAME }}
+            REDIS_PASSWORD=${{ secrets.REDIS_PASSWORD }}
+            WHATSAPP_VERIFY_TOKEN=${{ secrets.WHATSAPP_VERIFY_TOKEN }}
+            WHATSAPP_ACCESS_TOKEN=${{ secrets.WHATSAPP_ACCESS_TOKEN }}
+            WHATSAPP_PHONE_NUMBER_ID=${{ secrets.WHATSAPP_PHONE_NUMBER_ID }}
+            EOF
+
             # Se o container da API estiver rodando, apenas subsititui ela.
             # Caso não, subsititui tudo;
             if docker compose ps --services --filter status=running | grep -q "^chatbot$"; then
               echo "Stack already running, rebuilding chatbot service only"
               docker compose up -d --build chatbot
-              
             else
               echo "Stack not running — starting full stack"
               docker compose up -d --build
