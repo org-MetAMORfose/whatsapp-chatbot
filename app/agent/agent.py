@@ -28,6 +28,7 @@ class AgentWorker:
             timeout_seconds: How long to wait for a message before checking again.
                            Defaults to 30 seconds.
         """
+        
         logger.info("Agent worker started, waiting for messages...")
 
         while not self.ctx.is_shutting_down():
