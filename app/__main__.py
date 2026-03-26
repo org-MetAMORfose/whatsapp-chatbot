@@ -5,12 +5,14 @@ import sys
 
 from redis.asyncio import Redis, RedisError
 
-from app import config
-from app.agent import AgentWorker
-from app.bot.telegram_bot import TelegramBot
-from app.chat import ChatRepository, ChatService
+import app.config.settings as config
+from app.agent.agent import AgentWorker
 from app.context import AppContext
 from app.message_queue import MessageQueue
+from app.repository.redis_repository import ChatRepository
+from app.runners.telegram_runner import TelegramRunner
+from app.runners.whatsapp_runner import WhatsAppRunner
+from app.services.receiver_service import MessageReceiverService
 
 logger = logging.getLogger(__name__)
 
@@ -23,52 +25,64 @@ async def _async_main(app_context: AppContext) -> None:
         username=config.REDIS_USERNAME,
         password=config.REDIS_PASSWORD,
         decode_responses=True,
-        socket_connect_timeout=5,
-        socket_timeout=5,
     )
 
     try:
         await redis_client.ping()
-        logger.info(
-            "Successfully connected to Redis at %s:%d",
-            config.REDIS_HOST,
-            config.REDIS_PORT,
-        )
     except RedisError as e:
         logger.fatal("Failed to connect to Redis: %s", e)
         sys.exit(1)
 
     inbound_queue = MessageQueue(redis_client, queue_name="inbound")
     outbound_queue = MessageQueue(redis_client, queue_name="outbound")
+
     chat_repo = ChatRepository(redis_client)
-    chat_service = ChatService(chat_repository=chat_repo, inbound_queue=inbound_queue)
+
+    message_receiver_service = MessageReceiverService(
+        chat_repository=chat_repo,
+        inbound_queue=inbound_queue,
+    )
+
     agent_worker = AgentWorker(
         ctx=app_context,
         inbound=inbound_queue,
         outbound=outbound_queue,
     )
 
-    bot = TelegramBot(message_handler=chat_service, ctx=app_context)
+    telegram_runner = TelegramRunner(
+        ctx=app_context,
+        outbound_queue=outbound_queue,
+        message_receiver=message_receiver_service,
+        token=config.TELEGRAM_BOT_TOKEN,
+    )
 
-    # Set up signal handlers for graceful shutdown
-    loop = asyncio.get_event_loop()
+    whatsapp_runner = WhatsAppRunner(
+        ctx=app_context,
+        outbound_queue=outbound_queue,
+        message_handler=message_receiver_service,
+    )
+
+    loop = asyncio.get_running_loop()
     loop.add_signal_handler(signal.SIGINT, app_context.request_shutdown)
     loop.add_signal_handler(signal.SIGTERM, app_context.request_shutdown)
 
-    tasks = [
-        asyncio.create_task(agent_worker.start()),
-    ]
+    await agent_worker.start()
 
-    await bot.start()
+    if config.USE_TELEGRAM:
+        await telegram_runner.start()
+
+    if config.USE_WHATSAPP:
+        await whatsapp_runner.start()
 
     await app_context.wait_for_shutdown()
 
-    await bot.stop()
+    if config.USE_TELEGRAM:
+        await telegram_runner.stop()
 
-    for task in tasks:
-        task.cancel()
+    if config.USE_WHATSAPP:
+        await whatsapp_runner.stop()
 
-    await asyncio.gather(*tasks, return_exceptions=True)
+    await agent_worker.stop()
     await redis_client.close()
 
 

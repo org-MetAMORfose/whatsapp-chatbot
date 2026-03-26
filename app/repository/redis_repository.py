@@ -81,8 +81,8 @@ class ChatRepository:
         context = await self.get_chat_context(thread_id, user_id=message.user_id)
         context.history.append(
             {
-                "origin": message.origin,
-                "content": message.content,
+                "origin": message.channel,
+                "content": message.content or "",
             }
         )
         await self.save_chat_context(thread_id, context)

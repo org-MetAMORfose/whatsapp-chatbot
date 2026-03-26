@@ -2,7 +2,7 @@
 
 from redis.asyncio import Redis
 
-from .models import QueuedMessage
+from app.domain.message import Message
 
 
 class MessageQueue:
@@ -17,13 +17,12 @@ class MessageQueue:
     def _pending_key(self) -> str:
         return f"message_queue:{self.queue_name}:pending"
 
-    async def publish(self, thread_id: str, text: str) -> QueuedMessage:
+    async def publish(self, thread_id: str, message: Message) -> None:
         """Create and enqueue a message to be processed by AgentWorkers."""
-        message = QueuedMessage.create(thread_id=thread_id, text=text)
-        await self.redis_client.lpush(self._pending_key(), message.to_json())
-        return message
+        json_str = message.model_dump_json()
+        await self.redis_client.lpush(self._pending_key(), json_str)
 
-    async def claim_next(self, timeout_seconds: int = 0) -> QueuedMessage | None:
+    async def claim_next(self, timeout_seconds: int = 0) -> Message | None:
         """Claim next message for processing by popping from queue.
 
         Args:
@@ -41,7 +40,7 @@ class MessageQueue:
         if payload is None:
             return None
 
-        return QueuedMessage.from_json(payload)
+        return Message.model_validate_json(payload)
 
     async def get_metrics(self) -> dict[str, int]:
         """Return queue metrics for pending messages."""
