@@ -1,12 +1,14 @@
 name: CI
 
 on:
-  push:
   pull_request:
+    branches:
+      - main
+    paths: ['app/**']
 
 jobs:
-  lint-and-test:
-    name: lint-and-test
+  test:
+    name: "Build, Lint and Test"
     runs-on: ubuntu-latest
 
     steps:
@@ -28,4 +30,4 @@ jobs:
         run: uv run mypy .
 
       - name: Run tests
-        run: uv run pytest
+        run: uv run pytest --cov=app --cov-report=term
