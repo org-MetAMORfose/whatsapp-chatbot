@@ -6,11 +6,13 @@ on:
 
 jobs:
   lint-and-test:
+    name: lint-and-test
     runs-on: ubuntu-latest
 
     steps:
       - uses: actions/checkout@v4
 
+<<<<<<< HEAD
       - uses: astral-sh/setup-uv@v5
         with:
           enable-cache: true
@@ -26,3 +28,22 @@ jobs:
 
       - name: Run tests
         run: uv run pytest
+=======
+      - name: Install uv
+        uses: astral-sh/setup-uv@v7
+
+      - name: Set up Python
+        run: uv python install 3.11
+
+      - name: Sync dependencies
+        run: uv sync --dev
+
+      - name: Lint
+        run: uv run ruff check .
+
+      - name: Type check
+        run: uv run mypy .
+
+      - name: Run tests
+        run: uv run pytest
+>>>>>>> 4d1201f90352c89b58d0600b7b60dc5bd7ad031e

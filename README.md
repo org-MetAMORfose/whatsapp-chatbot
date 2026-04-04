@@ -36,7 +36,7 @@ cp .env.example .env
 ## Executar localmente
 
 ```bash
-uv run uvicorn app.main:app --reload
+uv run app
 ```
 
 ## Executar com Docker
