@@ -1,8 +1,7 @@
-name: Deploy
-
+name: CD
 on:
   workflow_run:
-    workflows: ["Build, Lint and Test"]      # 👈 nome exato do workflow anterior
+    workflows: ["CI"]     
     types: [completed]
     branches: [main]
 
