@@ -48,6 +48,7 @@ jobs:
           target: ${{ secrets.EC2_APP_PATH }}
           rm: false
           overwrite: true
+          tar_exec: "tar --exclude='.git'"
 
       - name: Deploy on EC2
         uses: appleboy/ssh-action@v1.0.3
