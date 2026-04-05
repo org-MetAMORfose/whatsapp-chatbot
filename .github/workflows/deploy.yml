@@ -28,12 +28,15 @@ jobs:
 
       - name: Wait for SSH
         run: |
+          echo "${{ secrets.EC2_SSH_KEY }}" > /tmp/ssh_key
+          chmod 600 /tmp/ssh_key
           for i in $(seq 1 30); do
             ssh -o StrictHostKeyChecking=no -o ConnectTimeout=5 \
-              -i <(echo "${{ secrets.EC2_SSH_KEY }}") \
+              -i /tmp/ssh_key \
               ${{ secrets.EC2_USER }}@${{ secrets.EC2_HOST }} "echo ok" && break
             sleep 5
           done
+          rm -f /tmp/ssh_key
 
       - name: Copy to EC2
         uses: appleboy/scp-action@v0.1.7
