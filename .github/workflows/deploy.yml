@@ -31,12 +31,20 @@ jobs:
           echo "${{ secrets.EC2_SSH_KEY }}" > /tmp/ssh_key
           chmod 600 /tmp/ssh_key
           for i in $(seq 1 30); do
-            ssh -o StrictHostKeyChecking=no -o ConnectTimeout=5 \
+            if ssh -o StrictHostKeyChecking=no -o ConnectTimeout=5 \
               -i /tmp/ssh_key \
-              ${{ secrets.EC2_USER }}@${{ secrets.EC2_HOST }} "echo ok" && break
+              ${{ secrets.EC2_USER }}@${{ secrets.EC2_HOST }} "echo ok"; then
+              rm -f /tmp/ssh_key
+              exit 0
+            fi
             sleep 5
           done
           rm -f /tmp/ssh_key
+          echo "SSH connection failed after 30 attempts"
+          exit 1
+
+      - name: Remove .git before copy
+        run: rm -rf .git
 
       - name: Copy to EC2
         uses: appleboy/scp-action@v0.1.7
@@ -48,7 +56,6 @@ jobs:
           target: ${{ secrets.EC2_APP_PATH }}
           rm: false
           overwrite: true
-          tar_exec: "tar --exclude='.git'"
 
       - name: Deploy on EC2
         uses: appleboy/ssh-action@v1.0.3
@@ -76,7 +83,7 @@ jobs:
           script: |
             cd "$EC2_APP_PATH"
 
-            cat > .env << 'EOF'
+            cat > .env << EOF
             LANGSMITH_API_KEY=$LANGSMITH_API_KEY
             LANGSMITH_ENDPOINT=$LANGSMITH_ENDPOINT
             LANGSMITH_PROJECT=$LANGSMITH_PROJECT
