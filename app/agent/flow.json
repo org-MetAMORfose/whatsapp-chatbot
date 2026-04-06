@@ -1,0 +1,15 @@
+{
+  "start": {
+    "message": "Você gostaria de atendimento?",
+    "yes": "yes_response",
+    "no": "no_response"
+  },
+  "yes_response": {
+    "message": "Ótimo! Podemos prosseguir com o atendimento. 😊",
+    "end": true
+  },
+  "no_response": {
+    "message": "Tudo bem, tenha um bom dia. 😊",
+    "end": true
+  }
+}
