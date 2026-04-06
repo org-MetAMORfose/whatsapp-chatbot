@@ -93,6 +93,6 @@ class AgentWorker:
         # - Running the agent's AI logic
         # - Calling external APIs
         # - Sending responses back to the user
-        logger.debug(f"Processing message content: {message.text}")
+        logger.debug("Processing message content: {message.text}")
 
         return f"Processed: {message.text}"

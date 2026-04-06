@@ -99,28 +99,28 @@ class AgentWorker:
         """
         content = message.content.strip().lower() if message.content else ""
         chat_id = message.chat_id
-        logger.debug(f"Processing message content: {content} for chat {chat_id}")
+        logger.debug("Processing message content: {content} for chat {chat_id}")
 
         # Use a different key for flow state to avoid conflicts with chat context
         current_state = await self.redis.get(f"flow_state:{chat_id}")
-        logger.debug(f"Current state from Redis: {current_state}")
-        logger.debug(f"Available flow states: {list(self.flow.keys())}")
+        logger.debug("Current state from Redis: {current_state}")
+        logger.debug("Available flow states: {list(self.flow.keys())}")
 
         if current_state is None:
             # Start the flow
             current_state = "start"
-            logger.debug(f"Starting flow with state: {current_state}")
+            logger.debug("Starting flow with state: {current_state}")
             node = self.flow.get(current_state)
             if node and not node.get("end"):
                 await self.redis.set(f"flow_state:{chat_id}", "start")
-                logger.debug(f"Set redis flow_state to: start")
+                logger.debug("Set redis flow_state to: start")
                 return node["message"]
             else:
                 return "Erro ao iniciar o fluxo."
 
         # Continue the flow
         node = self.flow.get(current_state)
-        logger.debug(f"Node for state {current_state}: {node}")
+        logger.debug("Node for state {current_state}: {node}")
         if not node:
             logger.error(f"No node found for state: {current_state}")
             return "Erro no fluxo."
@@ -142,10 +142,10 @@ class AgentWorker:
             logger.error(f"Flow node {current_state} has no transition.")
             return "Erro no fluxo."
 
-        logger.debug(f"Next state: {next_state}")
+        logger.debug("Next state: {next_state}")
         if next_state:
             next_node = self.flow.get(next_state)
-            logger.debug(f"Next node: {next_node}")
+            logger.debug("Next node: {next_node}")
             if next_node:
                 if next_node.get("end"):
                     await self.redis.delete(f"flow_state:{chat_id}")
