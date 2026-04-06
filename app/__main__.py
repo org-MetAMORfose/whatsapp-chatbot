@@ -6,7 +6,7 @@ import sys
 from redis.asyncio import Redis, RedisError
 
 import app.config.settings as config
-from app.agent.agent_professional import AgentWorker
+from app.agent.agent import AgentWorker
 from app.context import AppContext
 from app.message_queue import MessageQueue
 from app.repository.redis_repository import ChatRepository

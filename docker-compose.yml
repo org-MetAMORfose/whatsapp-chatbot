@@ -3,6 +3,8 @@ services:
     image: redis:7-alpine
     container_name: chatbot-redis
     restart: unless-stopped
+    ports:
+      - "6379:6379"
     environment:
       REDIS_PASSWORD: ${REDIS_PASSWORD:?REDIS_PASSWORD is required}
     volumes:
@@ -39,4 +41,3 @@ services:
 
 volumes:
   redis_data:
-

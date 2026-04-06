@@ -1,90 +1,92 @@
 {
-  "start": {
-    "message": "MENSAGEM 1: Apresentação e convite. [preencher texto de abertura aqui]",
-    "yes": "m2",
-    "no": "feedback"
-  },
-  "feedback": {
-    "message": "AGRADECE + feedback. [perguntar por feedback ou motivo do não]",
-    "end": true
-  },
-  "m2": {
-    "message": "MENSAGEM 2: Explicação de valores e regras. [descrever valores e regras aqui]",
-    "yes": "m3",
-    "no": "feedback"
-  },
-  "m3": {
-    "message": "MENSAGEM 3: Pergunta sobre abordagem e especialização. [perguntar qual é a abordagem e cursos]",
-    "next": "dado_abordagem"
-  },
-  "dado_abordagem": {
-    "message": "Dado: Abordagem e cursos. [aguardar resposta do profissional com detalhes]",
-    "next": "m4"
-  },
-  "m4": {
-    "message": "MENSAGEM 4: Disponibilidade e ferramenta de vídeo. [perguntar dias, horários e ferramenta]",
-    "next": "dado_horarios"
-  },
-  "dado_horarios": {
-    "message": "Dado: Dias e horários. [coletar disponibilidade]",
-    "next": "m5"
-  },
-  "m5": {
-    "message": "MENSAGEM 5: Validação de segurança. [pedir confirmação de segurança e dados adicionais]",
-    "next": "dado_crp"
-  },
-  "dado_crp": {
-    "message": "Dado: Número do CRP. [solicitar o CRP do profissional]",
-    "next": "m6"
-  },
-  "m6": {
-    "message": "MENSAGEM 6: Envio de links e materiais de apoio. [informar materiais entregues]",
-    "next": "grupo_whats"
-  },
-  "grupo_whats": {
-    "message": "Enviar CRP no Grupo de WhatsApp? [aguardar aprovação]",
-    "yes": "m7",
-    "no": "approval_pending"
-  },
-  "approval_pending": {
-    "message": "Aguardar aprovação. [outras instruções caso não seja aprovado ainda]",
-    "end": true
-  },
-  "m7": {
-    "message": "MENSAGEM 7: Aprovação e escolha do plano. [escolha entre Premium, Platinum ou Superior]",
-    "next": "dado_plano"
-  },
-  "dado_plano": {
-    "message": "Dado: Escolha de plano. [coletar escolha de plano]",
-    "next": "m8"
-  },
-  "m8": {
-    "message": "MENSAGEM 8: Forma de pagamento. [informar opções Pix ou crédito]",
-    "next": "dado_comprovante"
-  },
-  "dado_comprovante": {
-    "message": "Dado: Envio do comprovante. [pedir o comprovante de pagamento]",
-    "next": "m9"
-  },
-  "m9": {
-    "message": "MENSAGEM 9: Boas-vindas e criação de perfil. [dar boas-vindas e orientar perfil]",
-    "next": "dado_email"
-  },
-  "dado_email": {
-    "message": "Dado: E-mail do profissional. [solicitar e-mail para cadastro]",
-    "next": "m10"
-  },
-  "m10": {
-    "message": "MENSAGEM 10: Instruções finais e suporte. [fornecer instruções finais]",
-    "end": true
-  },
-  "reengajamento": {
-    "message": "MENSAGEM REENGAJAMENTO: Ainda deseja atender? [perguntar se quer retomar o fluxo]",
-    "yes": "start",
-    "no": "end_reengajamento"
-  },
-  "end_reengajamento": {
-    "message": "Fluxo de reengajamento encerrado. [mensagem final de não retomada]",
-    "end": true
+  "nodes": {
+    "start": {
+      "message": "MENSAGEM 1: Apresentação e convite. [preencher texto de abertura aqui]",
+      "yes": "m2",
+      "no": "feedback"
+    },
+    "feedback": {
+      "message": "AGRADECE + feedback. [perguntar por feedback ou motivo do não]",
+      "end": true
+    },
+    "m2": {
+      "message": "MENSAGEM 2: Explicação de valores e regras. [descrever valores e regras aqui]",
+      "yes": "m3",
+      "no": "feedback"
+    },
+    "m3": {
+      "message": "MENSAGEM 3: Pergunta sobre abordagem e especialização. [perguntar qual é a abordagem e cursos]",
+      "next": "dado_abordagem"
+    },
+    "dado_abordagem": {
+      "message": "Dado: Abordagem e cursos. [aguardar resposta do profissional com detalhes]",
+      "next": "m4"
+    },
+    "m4": {
+      "message": "MENSAGEM 4: Disponibilidade e ferramenta de vídeo. [perguntar dias, horários e ferramenta]",
+      "next": "dado_horarios"
+    },
+    "dado_horarios": {
+      "message": "Dado: Dias e horários. [coletar disponibilidade]",
+      "next": "m5"
+    },
+    "m5": {
+      "message": "MENSAGEM 5: Validação de segurança. [pedir confirmação de segurança e dados adicionais]",
+      "next": "dado_crp"
+    },
+    "dado_crp": {
+      "message": "Dado: Número do CRP. [solicitar o CRP do profissional]",
+      "next": "m6"
+    },
+    "m6": {
+      "message": "MENSAGEM 6: Envio de links e materiais de apoio. [informar materiais entregues]",
+      "next": "grupo_whats"
+    },
+    "grupo_whats": {
+      "message": "Enviar CRP no Grupo de WhatsApp? [aguardar aprovação]",
+      "yes": "m7",
+      "no": "approval_pending"
+    },
+    "approval_pending": {
+      "message": "Aguardar aprovação. [outras instruções caso não seja aprovado ainda]",
+      "end": true
+    },
+    "m7": {
+      "message": "MENSAGEM 7: Aprovação e escolha do plano. [escolha entre Premium, Platinum ou Superior]",
+      "next": "dado_plano"
+    },
+    "dado_plano": {
+      "message": "Dado: Escolha de plano. [coletar escolha de plano]",
+      "next": "m8"
+    },
+    "m8": {
+      "message": "MENSAGEM 8: Forma de pagamento. [informar opções Pix ou crédito]",
+      "next": "dado_comprovante"
+    },
+    "dado_comprovante": {
+      "message": "Dado: Envio do comprovante. [pedir o comprovante de pagamento]",
+      "next": "m9"
+    },
+    "m9": {
+      "message": "MENSAGEM 9: Boas-vindas e criação de perfil. [dar boas-vindas e orientar perfil]",
+      "next": "dado_email"
+    },
+    "dado_email": {
+      "message": "Dado: E-mail do profissional. [solicitar e-mail para cadastro]",
+      "next": "m10"
+    },
+    "m10": {
+      "message": "MENSAGEM 10: Instruções finais e suporte. [fornecer instruções finais]",
+      "end": true
+    },
+    "reengajamento": {
+      "message": "MENSAGEM REENGAJAMENTO: Ainda deseja atender? [perguntar se quer retomar o fluxo]",
+      "yes": "start",
+      "no": "end_reengajamento"
+    },
+    "end_reengajamento": {
+      "message": "Fluxo de reengajamento encerrado. [mensagem final de não retomada]",
+      "end": true
+    }
   }
 }
