@@ -129,13 +129,18 @@ class AgentWorker:
             await self.redis.delete(f"flow_state:{chat_id}")
             return node["message"]
 
-        # It's a question node
-        if content in ["sim", "yes", "s", "y"]:
-            next_state = node.get("yes")
-        elif content in ["não", "no", "n"]:
-            next_state = node.get("no")
+        if node.get("yes") or node.get("no"):
+            if content in ["sim", "yes", "s", "y"]:
+                next_state = node.get("yes")
+            elif content in ["não", "no", "n"]:
+                next_state = node.get("no")
+            else:
+                return "Por favor, responda com 'sim' ou 'não' (ou 's'/'n', 'y'/'n')."
+        elif node.get("next"):
+            next_state = node.get("next")
         else:
-            return "Por favor, responda com 'sim' ou 'não' (ou 's'/'n', 'y'/'n')."
+            logger.error(f"Flow node {current_state} has no transition.")
+            return "Erro no fluxo."
 
         logger.debug(f"Next state: {next_state}")
         if next_state:
