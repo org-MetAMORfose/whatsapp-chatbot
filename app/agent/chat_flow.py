@@ -3,22 +3,44 @@ import logging
 from pathlib import Path
 from typing import Any
 
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 logger = logging.getLogger(__name__)
 DEFAULT_FLOW_PATH = Path(__file__).with_name("flow.json")
 
 
+def _normalize_text(value: str) -> str:
+    return value.strip().lower()
+
+
+class Transition(BaseModel):
+    target: str
+    conditions: list[str] = Field(default_factory=list)
+
+    def matches(self, content: str) -> bool:
+        if not self.conditions:
+            return True
+
+        normalized_content = _normalize_text(content)
+        normalized_conditions = {_normalize_text(condition) for condition in self.conditions}
+        return normalized_content in normalized_conditions
+
+
 class Node(BaseModel):
     id: str
+    description: str | None = None
     message: str
-    yes: str | None = None
-    no: str | None = None
-    next: str | None = None
     end: bool = False
+    transitions: list[Transition] = Field(default_factory=list)
 
     def get(self, key: str, default: Any = None) -> Any:
         return getattr(self, key, default)
+
+    def next_transition(self, content: str) -> Transition | None:
+        for transition in self.transitions:
+            if transition.matches(content):
+                return transition
+        return None
 
 
 class ChatFlow(BaseModel):
@@ -72,3 +94,14 @@ class ChatFlow(BaseModel):
 
     def keys(self) -> list[str]:
         return list(self.nodes.keys())
+
+    def resolve_next_node(self, node_id: str, content: str) -> Node | None:
+        node = self.get(node_id)
+        if node is None:
+            return None
+
+        transition = node.next_transition(content)
+        if transition is None:
+            return None
+
+        return self.get(transition.target)

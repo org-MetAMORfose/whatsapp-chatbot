@@ -1,90 +1,248 @@
 {
   "nodes": {
     "start": {
+      "description": "Apresentação inicial e convite.",
       "message": "MENSAGEM 1: Apresentação e convite. [preencher texto de abertura aqui]",
-      "yes": "m2",
-      "no": "feedback"
+      "transitions": [
+        {
+          "target": "m2",
+          "conditions": [
+            "sim",
+            "yes",
+            "s",
+            "y"
+          ]
+        },
+        {
+          "target": "feedback",
+          "conditions": [
+            "não",
+            "nao",
+            "no",
+            "n"
+          ]
+        }
+      ]
     },
     "feedback": {
+      "description": "Encerramento com agradecimento e feedback.",
       "message": "AGRADECE + feedback. [perguntar por feedback ou motivo do não]",
       "end": true
     },
     "m2": {
+      "description": "Explicação de valores e regras.",
       "message": "MENSAGEM 2: Explicação de valores e regras. [descrever valores e regras aqui]",
-      "yes": "m3",
-      "no": "feedback"
+      "transitions": [
+        {
+          "target": "m3",
+          "conditions": [
+            "sim",
+            "yes",
+            "s",
+            "y"
+          ]
+        },
+        {
+          "target": "feedback",
+          "conditions": [
+            "não",
+            "nao",
+            "no",
+            "n"
+          ]
+        }
+      ]
     },
     "m3": {
+      "description": "Pergunta sobre abordagem e especialização.",
       "message": "MENSAGEM 3: Pergunta sobre abordagem e especialização. [perguntar qual é a abordagem e cursos]",
-      "next": "dado_abordagem"
+      "transitions": [
+        {
+          "target": "dado_abordagem",
+          "conditions": []
+        }
+      ]
     },
     "dado_abordagem": {
+      "description": "Coleta de abordagem e cursos.",
       "message": "Dado: Abordagem e cursos. [aguardar resposta do profissional com detalhes]",
-      "next": "m4"
+      "transitions": [
+        {
+          "target": "m4",
+          "conditions": []
+        }
+      ]
     },
     "m4": {
+      "description": "Disponibilidade e ferramenta de vídeo.",
       "message": "MENSAGEM 4: Disponibilidade e ferramenta de vídeo. [perguntar dias, horários e ferramenta]",
-      "next": "dado_horarios"
+      "transitions": [
+        {
+          "target": "dado_horarios",
+          "conditions": []
+        }
+      ]
     },
     "dado_horarios": {
+      "description": "Coleta de dias e horários.",
       "message": "Dado: Dias e horários. [coletar disponibilidade]",
-      "next": "m5"
+      "transitions": [
+        {
+          "target": "m5",
+          "conditions": []
+        }
+      ]
     },
     "m5": {
+      "description": "Validação de segurança.",
       "message": "MENSAGEM 5: Validação de segurança. [pedir confirmação de segurança e dados adicionais]",
-      "next": "dado_crp"
+      "transitions": [
+        {
+          "target": "dado_crp",
+          "conditions": []
+        }
+      ]
     },
     "dado_crp": {
+      "description": "Coleta do número do CRP.",
       "message": "Dado: Número do CRP. [solicitar o CRP do profissional]",
-      "next": "m6"
+      "transitions": [
+        {
+          "target": "m6",
+          "conditions": []
+        }
+      ]
     },
     "m6": {
+      "description": "Envio de links e materiais de apoio.",
       "message": "MENSAGEM 6: Envio de links e materiais de apoio. [informar materiais entregues]",
-      "next": "grupo_whats"
+      "transitions": [
+        {
+          "target": "grupo_whats",
+          "conditions": []
+        }
+      ]
     },
     "grupo_whats": {
+      "description": "Confirmação para enviar CRP no grupo de WhatsApp.",
       "message": "Enviar CRP no Grupo de WhatsApp? [aguardar aprovação]",
-      "yes": "m7",
-      "no": "approval_pending"
+      "transitions": [
+        {
+          "target": "m7",
+          "conditions": [
+            "sim",
+            "yes",
+            "s",
+            "y"
+          ]
+        },
+        {
+          "target": "approval_pending",
+          "conditions": [
+            "não",
+            "nao",
+            "no",
+            "n"
+          ]
+        }
+      ]
     },
     "approval_pending": {
+      "description": "Aguardar aprovação.",
       "message": "Aguardar aprovação. [outras instruções caso não seja aprovado ainda]",
       "end": true
     },
     "m7": {
+      "description": "Aprovação e escolha do plano.",
       "message": "MENSAGEM 7: Aprovação e escolha do plano. [escolha entre Premium, Platinum ou Superior]",
-      "next": "dado_plano"
+      "transitions": [
+        {
+          "target": "dado_plano",
+          "conditions": []
+        }
+      ]
     },
     "dado_plano": {
+      "description": "Coleta de escolha de plano.",
       "message": "Dado: Escolha de plano. [coletar escolha de plano]",
-      "next": "m8"
+      "transitions": [
+        {
+          "target": "m8",
+          "conditions": []
+        }
+      ]
     },
     "m8": {
+      "description": "Forma de pagamento.",
       "message": "MENSAGEM 8: Forma de pagamento. [informar opções Pix ou crédito]",
-      "next": "dado_comprovante"
+      "transitions": [
+        {
+          "target": "dado_comprovante",
+          "conditions": []
+        }
+      ]
     },
     "dado_comprovante": {
+      "description": "Coleta de comprovante de pagamento.",
       "message": "Dado: Envio do comprovante. [pedir o comprovante de pagamento]",
-      "next": "m9"
+      "transitions": [
+        {
+          "target": "m9",
+          "conditions": []
+        }
+      ]
     },
     "m9": {
+      "description": "Boas-vindas e criação de perfil.",
       "message": "MENSAGEM 9: Boas-vindas e criação de perfil. [dar boas-vindas e orientar perfil]",
-      "next": "dado_email"
+      "transitions": [
+        {
+          "target": "dado_email",
+          "conditions": []
+        }
+      ]
     },
     "dado_email": {
+      "description": "Coleta de e-mail do profissional.",
       "message": "Dado: E-mail do profissional. [solicitar e-mail para cadastro]",
-      "next": "m10"
+      "transitions": [
+        {
+          "target": "m10",
+          "conditions": []
+        }
+      ]
     },
     "m10": {
+      "description": "Instruções finais e suporte.",
       "message": "MENSAGEM 10: Instruções finais e suporte. [fornecer instruções finais]",
       "end": true
     },
     "reengajamento": {
+      "description": "Retomada do fluxo de reengajamento.",
       "message": "MENSAGEM REENGAJAMENTO: Ainda deseja atender? [perguntar se quer retomar o fluxo]",
-      "yes": "start",
-      "no": "end_reengajamento"
+      "transitions": [
+        {
+          "target": "start",
+          "conditions": [
+            "sim",
+            "yes",
+            "s",
+            "y"
+          ]
+        },
+        {
+          "target": "end_reengajamento",
+          "conditions": [
+            "não",
+            "nao",
+            "no",
+            "n"
+          ]
+        }
+      ]
     },
     "end_reengajamento": {
+      "description": "Encerramento do reengajamento.",
       "message": "Fluxo de reengajamento encerrado. [mensagem final de não retomada]",
       "end": true
     }

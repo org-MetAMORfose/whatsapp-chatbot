@@ -39,7 +39,7 @@ class AgentWorker:
 
         Args:
             timeout_seconds: How long to wait for a message before checking again.
-                           Defaults to 30 seconds.
+            Defaults to 30 seconds.
         """
         self._task = asyncio.create_task(self._run())
         logger.info("Agent worker started, waiting for messages...")
@@ -95,7 +95,11 @@ class AgentWorker:
         Args:
             message: The QueuedMessage to process
         """
-        content = message.content.strip().lower() if message.content else ""
+        if not message.content:
+            logger.warning(f"Received message with no content: {message}")
+            return "Mensagem vazia recebida."
+
+        content = message.content.strip().lower()
         chat_id = message.chat_id
         logger.debug("Processing message content: {content} for chat {chat_id}")
 
@@ -105,7 +109,6 @@ class AgentWorker:
         logger.debug("Available flow states: {list(self.flow.keys())}")
 
         if current_state is None:
-            # Start the flow
             current_state = "start"
             logger.debug("Starting flow with state: {current_state}")
             node = self.flow.get(current_state)
@@ -127,31 +130,22 @@ class AgentWorker:
             await self.redis.delete(f"flow_state:{chat_id}")
             return str(node.message)
 
-        if node.get("yes") or node.get("no"):
-            if content in ["sim", "yes", "s", "y"]:
-                next_state = node.get("yes")
-            elif content in ["não", "no", "n"]:
-                next_state = node.get("no")
-            else:
-                return "Por favor, responda com 'sim' ou 'não' (ou 's'/'n', 'y'/'n')."
-        elif node.get("next"):
-            next_state = node.get("next")
-        else:
+        transition = node.next_transition(content)
+        if transition is None:
             logger.error(f"Flow node {current_state} has no transition.")
             return "Erro no fluxo."
 
-        logger.debug("Next state: {next_state}")
-        if next_state:
-            next_node = self.flow.get(next_state)
+        if transition.target:
+            next_node = self.flow.get(transition.target)
             logger.debug("Next node: {next_node}")
             if next_node:
                 if next_node.get("end"):
                     await self.redis.delete(f"flow_state:{chat_id}")
                 else:
-                    await self.redis.set(f"flow_state:{chat_id}", next_state)
+                    await self.redis.set(f"flow_state:{chat_id}", transition.target)
                 return str(next_node.message)
             else:
-                logger.error(f"No node found for next_state: {next_state}")
+                logger.error(f"No node found for next_state: {transition.target}")
                 return "Erro no próximo passo."
         else:
             return "Fim do fluxo."
