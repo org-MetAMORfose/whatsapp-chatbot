@@ -27,6 +27,8 @@ services:
       interval: 10s
       timeout: 5s
       retries: 5
+    networks:
+      - chatbot_net
 
   chatbot:
     build: .
@@ -38,7 +40,13 @@ services:
         condition: service_healthy
     ports:
       - "8000:8000"
+    networks:
+      - chatbot_net
 
 volumes:
   redis_data:
+
+networks:
+  chatbot_net:
+    driver: bridge
 
