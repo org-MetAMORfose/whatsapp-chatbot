@@ -49,18 +49,23 @@ async def _async_main(app_context: AppContext) -> None:
         outbound=outbound_queue,
     )
 
-    telegram_runner = TelegramRunner(
-        ctx=app_context,
-        outbound_queue=outbound_queue,
-        message_receiver=message_receiver_service,
-        token=config.TELEGRAM_BOT_TOKEN,
-    )
+    telegram_runner: TelegramRunner | None = None
+    whatsapp_runner: WhatsAppRunner | None = None
 
-    whatsapp_runner = WhatsAppRunner(
-        ctx=app_context,
-        outbound_queue=outbound_queue,
-        message_handler=message_receiver_service,
-    )
+    if config.USE_TELEGRAM:
+        telegram_runner = TelegramRunner(
+            ctx=app_context,
+            outbound_queue=outbound_queue,
+            message_receiver=message_receiver_service,
+            token=config.TELEGRAM_BOT_TOKEN,
+        )
+
+    if config.USE_WHATSAPP:
+        whatsapp_runner = WhatsAppRunner(
+            ctx=app_context,
+            outbound_queue=outbound_queue,
+            message_handler=message_receiver_service,
+        )
 
     loop = asyncio.get_running_loop()
     loop.add_signal_handler(signal.SIGINT, app_context.request_shutdown)
@@ -68,18 +73,18 @@ async def _async_main(app_context: AppContext) -> None:
 
     await agent_worker.start()
 
-    if config.USE_TELEGRAM:
+    if telegram_runner is not None:
         await telegram_runner.start()
 
-    if config.USE_WHATSAPP:
+    if whatsapp_runner is not None:
         await whatsapp_runner.start()
 
     await app_context.wait_for_shutdown()
 
-    if config.USE_TELEGRAM:
+    if telegram_runner is not None:
         await telegram_runner.stop()
 
-    if config.USE_WHATSAPP:
+    if whatsapp_runner is not None:
         await whatsapp_runner.stop()
 
     await agent_worker.stop()
