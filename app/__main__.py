@@ -47,6 +47,7 @@ async def _async_main(app_context: AppContext) -> None:
         ctx=app_context,
         inbound=inbound_queue,
         outbound=outbound_queue,
+        redis=redis_client,
     )
 
     telegram_runner: TelegramRunner | None = None
