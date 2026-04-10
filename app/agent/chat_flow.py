@@ -3,10 +3,11 @@ import logging
 from pathlib import Path
 from typing import Any
 
+import toml
 from pydantic import BaseModel, Field
 
 logger = logging.getLogger(__name__)
-DEFAULT_FLOW_PATH = Path(__file__).with_name("flow.json")
+DEFAULT_FLOW_PATH = Path(__file__).with_name("flow.toml")
 
 
 def _normalize_text(value: str) -> str:
@@ -53,12 +54,18 @@ class ChatFlow(BaseModel):
         return cls.from_data(data)
 
     @classmethod
+    def from_toml(cls, payload: str) -> "ChatFlow":
+        """Build a ChatFlow from a TOML payload string."""
+        data = toml.loads(payload)
+        return cls.from_data(data)
+
+    @classmethod
     def from_file(cls, path: Path | str = DEFAULT_FLOW_PATH) -> "ChatFlow":
-        """Load a ChatFlow from a JSON file."""
+        """Load a ChatFlow from a TOML file."""
         flow_path = Path(path)
 
         with flow_path.open("r", encoding="utf-8") as flow_file:
-            data = json.load(flow_file)
+            data = toml.load(flow_file)
 
         return cls.from_data(data)
 

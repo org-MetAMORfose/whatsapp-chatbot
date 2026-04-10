@@ -1,0 +1,183 @@
+[nodes.start]
+description = "Apresentação inicial e convite."
+message = """Boa tarde, tudo bem? Você atende pacientes online? Somos a Rede MetAMORfose, uma plataforma de telemedicina que conecta profissionais de saúde a pacientes de forma exclusiva e segura. Temos vagas abertas para cadastro profissional (plano pago, modelo Doctoralia), com envio de conexões com pacientes por e-mail. Você tem interesse em saber mais? Nosso site é orgmetamorfose.com.br
+
+Segue algumas notícias sobre nossa Rede:
+No UOL Brasil Agora Online: https://brasilagoraonline.com.br/noticias/2026/01/rede-metamorfose-consolida-modelo-de-telemedicina-apos-investimento-da-usp/
+Na R7 Business Feed: https://businessfeed.com.br/consultas-online-rede-metamorfose-cresce-e-fortalece-modelo-de-telemedicina/"""
+
+[[nodes.start.transitions]]
+target = "m2"
+conditions = ["sim", "yes", "s", "y"]
+
+[[nodes.start.transitions]]
+target = "feedback"
+conditions = ["não", "nao", "no", "n"]
+
+
+[nodes.feedback]
+description = "Encerramento com agradecimento e feedback."
+message = "Agradeço pelo retorno! Tem feedback?"
+end = true
+
+
+[nodes.m2]
+description = "Explicação de valores e regras."
+message = """Você define o valor da sua consulta, e o paciente paga diretamente a você.
+Você receberá o WhatsApp do paciente por e-mail e terá total liberdade para combinar agendamento, forma de pagamento e duração das consultas.
+
+Planos disponíveis:
+
+Premium (R$190/mês): Perfil + conexão com 4 pacientes
+Platinum (R$570/mês): Perfil + conexão com 12 pacientes
+Superior (R$1190/mês): Perfil + conexão com 20 pacientes
+
+Nossa parceria tem como objetivo divulgar seu perfil profissional por meio de marketing especializado (Facebook, Instagram e Google Ads) e conectar você a pacientes que estão buscando atendimento.
+
+Nós cuidamos da divulgação e das conexões, mas não interferimos nos agendamentos nem na quantidade de sessões fechadas.
+
+Garantia:
+Repondo pacientes que não respondem em até 15 dias, respeitando o número de conexões do seu plano.
+Para isso, é necessário enviar prints recentes, completos e sem edição.
+Pacientes que responderam e estão em negociação não são elegíveis para reposição.
+
+Nosso objetivo é garantir retorno para você e que todos os pacientes sejam atendidos.
+
+Com base nessas informações, você gostaria de participar do nosso processo seletivo?"""
+
+[[nodes.m2.transitions]]
+target = "m3"
+conditions = ["sim", "yes", "s", "y"]
+
+[[nodes.m2.transitions]]
+target = "feedback"
+conditions = ["não", "nao", "no", "n"]
+
+
+[nodes.m3]
+description = "Pergunta sobre abordagem e especialização."
+message = "Qual é a sua abordagem teórica principal? Você possui especializações ou cursos complementares?"
+input = "..."
+
+[[nodes.m3.transitions]]
+target = "m4"
+conditions = []
+
+
+[nodes.m4]
+description = "Disponibilidade e ferramenta de vídeo."
+message = "Em quais dias e horários costuma ter disponibilidade para atendimentos? Utiliza Google Meets, Zoom ou video chamada do Whatsapp para atendimentos online?"
+buttons = ["Google Meets", "Zoom", "Whatsapp"]
+input = "..."
+
+[[nodes.m4.transitions]]
+target = "m5"
+conditions = []
+
+
+[nodes.m5]
+description = "Validação de segurança."
+message = "Obrigada pelas informações! Para mantermos a segurança e qualidade da Rede, precisamos validar seu registro profissional. Você possui CRP ativo? Pode me informar o número, por favor?"
+input = "..."
+
+[[nodes.m5.transitions]]
+target = "m6"
+conditions = []
+
+
+[nodes.m6]
+description = "Envio de links e materiais de apoio."
+message = """Enquanto a nossa equipe verifica seu Registro no Conselho, conheça mais sobre a MetAMORfose:  
+
+Site oficial: orgmetamorfose.com.br
+Depoimentos: orgmetamorfose.com.br/depoimentos
+Instagram: instagram.com/org.metamorfose
+Inovação - Fomos investidos pela Agência USP de Inovação em 2023, em nome da fundadora Luiza Fogaça: https://auspin.usp.br/editalbolsa2023/
+No UOL Brasil Agora Online: https://brasilagoraonline.com.br/noticias/2026/01/rede-metamorfose-consolida-modelo-de-telemedicina-apos-investimento-da-usp/
+Na R7 Business Feed: https://businessfeed.com.br/consultas-online-rede-metamorfose-cresce-e-fortalece-modelo-de-telemedicina/
+Termos e Contrato: orgmetamorfose.com.br/termos"""
+action = "Submitir CRP para validação e envio de materiais de apoio."
+
+[[nodes.m6.transitions]]
+target = "m7"
+conditions = []
+
+
+[nodes.m7]
+description = "Aprovação e escolha do plano."
+image = "..." # Imagem com a comparação dos planos e benefícios, para facilitar a escolha do profissional.
+message = """Obrigada por aguardar! Seu perfil foi aprovado pela equipe para integrar a Rede MetAMORfose. Para preencher uma das vagas disponíveis e começar a receber conexões com pacientes, o próximo passo é escolher o plano de parceria.
+
+- Premium - R$190/mês: Perfil + 4 conexões com pacientes
+- Platinum - R$570/mês: Perfil + 12 conexões
+- Superior - R$1.190/mês: Perfil + 20 conexões
+
+Qual plano você gostaria de selecionar?"""
+
+[[nodes.m7.transitions]]
+target = "m8"
+conditions = []
+
+
+
+[nodes.m8]
+description = "Forma de pagamento."
+message = """Certo. Como você prefere? Via pix ou crédito? Via pix está em nome de Luiza Fogaça, a gestora da plataforma. A chave pix: contato@orgmetamorfose.com 
+
+Se preferir por crédito no site, a assinatura é faturada mensalmente no mesmo dia - mas você pode cancelar a qualquer momento se quiser - o link é https://orgmetamorfose.com.br/assinatura
+
+Como o pagamento via Pix é feito fora do site, o sistema não consegue atualizar o selo de "ativo" automaticamente na tela do perfil. Mas, em nosso sistema interno, o perfil é confirmado e você aparece normalmente para os pacientes.
+
+A única diferença prática é:
+* No Cartão: A renovação é automática.
+* No Pix: É necessário fazer o pagamento manualmente todo mês para renovar. Independentemente disso, seu acesso e o recebimento de novos pacientes estão totalmente garantidos.
+
+Você pode me enviar o comprovante por favor?"""
+input = "..."
+action = "Enviar comprovante de pagamento para validação e ativação do perfil."
+
+[[nodes.m8.transitions]]
+target = "m9"
+conditions = []
+
+
+[nodes.m9]
+description = "Boas-vindas e criação de perfil."
+message = """Boas vindas ao nosso time da Rede MetAMORfose 🙏🏻
+
+O próximo passo é criar seu perfil profissional em: https://www.orgmetamorfose.com.br/account/my-account
+
+Finalizado o perfil, após 7 dias, as conexões com pacientes serão enviadas para seu e-mail pelo endereço: no-reply@orgmetamorfosepro.com
+
+Quando você finalizar seu perfil, pode me enviar o seu e-mail? Iremos mandar as conexões com pacientes por ele"""
+input = "..." # Recebe email do profissional para envio de conexões com pacientes.
+
+[[nodes.m9.transitions]]
+target = "m10"
+conditions = []
+
+
+[nodes.m10]
+description = "Instruções finais e suporte."
+message = """Certo. Nós promovemos seu perfil e realizamos as conexões com pacientes, mas não interferimos nos agendamentos ou quantidade de sessões fechadas. Eu fico responsável apenas pela gestão e seleção de profissionais 😊 Para dúvidas ou suporte técnico, pedimos que utilize nosso canal oficial: 
+👉 orgmetamorfose.com.br/suporte"""
+end = true
+
+
+[nodes.reengajamento]
+description = "Retomada do fluxo de reengajamento."
+message = "MENSAGEM REENGAJAMENTO: Ainda deseja atender? [perguntar se quer retomar o fluxo]"
+
+[[nodes.reengajamento.transitions]]
+target = "start"
+conditions = ["sim", "yes", "s", "y"]
+
+[[nodes.reengajamento.transitions]]
+target = "end_reengajamento"
+conditions = ["não", "nao", "no", "n"]
+
+
+[nodes.end_reengajamento]
+description = "Encerramento do reengajamento."
+message = "Fluxo de reengajamento encerrado. [mensagem final de não retomada]"
+end = true
