@@ -11,7 +11,7 @@ class TelegramRunner:
         ctx: AppContext,
         outbound_queue: MessageQueue,
         message_receiver: MessageReceiverService,
-        token: str,
+        token: str | None = None,
     ) -> None:
         self.telegram_adapter = TelegramAdapter(ctx=ctx, token=token)
         self.message_receiver = message_receiver
