@@ -2,7 +2,7 @@ import logging
 
 from app.domain.message import Message
 from app.message_queue import MessageQueue
-from app.repository.redis_repository import ChatRepository
+from app.repository.chat_repository import ChatRepository
 
 logger = logging.getLogger(__name__)
 

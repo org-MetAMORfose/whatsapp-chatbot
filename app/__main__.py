@@ -9,7 +9,7 @@ import app.config.settings as config
 from app.agent.agent import AgentWorker
 from app.context import AppContext
 from app.message_queue import MessageQueue
-from app.repository.redis_repository import ChatRepository
+from app.repository.chat_repository import ChatRepository
 from app.runners.telegram_runner import TelegramRunner
 from app.runners.whatsapp_runner import WhatsAppRunner
 from app.services.receiver_service import MessageReceiverService

@@ -6,7 +6,7 @@ import pytest
 from app.domain.channels import Channel
 from app.domain.message import Message
 from app.message_queue.message_queue import MessageQueue
-from app.repository.redis_repository import ChatRepository
+from app.repository.chat_repository import ChatRepository
 from app.services.receiver_service import MessageReceiverService
 
 
