@@ -2,7 +2,6 @@
 
 import json
 import logging
-from dataclasses import asdict
 from typing import cast
 
 import redis.asyncio as redis
@@ -65,7 +64,7 @@ class ChatRepository:
 
     async def save_chat_context(self, thread_id: str, context: ChatContext) -> None:
         """Serialize and persist chat context in Redis for the given thread."""
-        context_json = json.dumps(asdict(context), ensure_ascii=False)
+        context_json = context.model_dump_json()
 
         try:
             await self.redis_client.set(self._state_key(thread_id), context_json)

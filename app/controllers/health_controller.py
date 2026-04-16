@@ -2,9 +2,13 @@ from __future__ import annotations
 
 from fastapi import APIRouter
 
-router = APIRouter()
 
+class HealthController:
+    def __init__(self) -> None:
+        self.router = APIRouter()
+        self._register_routes()
 
-@router.get("/health")
-async def health() -> dict[str, str]:
-    return {"status": "ok"}
+    def _register_routes(self) -> None:
+        @self.router.get("/health")
+        async def health() -> dict[str, str]:
+            return {"status": "ok"}
