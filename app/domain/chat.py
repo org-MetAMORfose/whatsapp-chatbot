@@ -1,11 +1,10 @@
-from dataclasses import dataclass, field
+from pydantic import BaseModel, Field
 
 
-@dataclass
-class ChatContext:
+class ChatContext(BaseModel):
     """Represents persisted conversation state for a chat thread."""
 
     user_id: str
     chat_id: str
     state: str = "START"
-    history: list[dict[str, str]] = field(default_factory=list)
+    history: list[dict[str, str]] = Field(default_factory=list)
