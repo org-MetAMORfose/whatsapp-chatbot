@@ -4,7 +4,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 
 from app.controllers.whatsapp_controller import WhatsAppController
-from app.domain.channels import Channel
+from app.domain.enum.channels import Channel
 from app.domain.message import Message
 
 

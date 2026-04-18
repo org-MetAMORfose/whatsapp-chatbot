@@ -3,7 +3,7 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
-from app.domain.channels import Channel
+from app.domain.enum.channels import Channel
 from app.domain.message import Message
 from app.message_queue.message_queue import MessageQueue
 from app.repository.redis_repository import ChatRepository

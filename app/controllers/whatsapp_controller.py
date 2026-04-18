@@ -6,7 +6,7 @@ from typing import Any
 from fastapi import APIRouter, HTTPException, Query, Request
 
 import app.config.settings as config
-from app.domain.channels import Channel
+from app.domain.enum.channels import Channel
 from app.domain.message import Message
 from app.services.receiver_service import MessageReceiverService
 

@@ -4,7 +4,7 @@ from datetime import datetime
 
 from pydantic import BaseModel
 
-from app.domain.channels import Channel
+from app.domain.enum.channels import Channel
 
 
 class Message(BaseModel):

@@ -5,7 +5,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 
 from app.channel_adapters.telegram import TelegramAdapter
-from app.domain.channels import Channel
+from app.domain.enum.channels import Channel
 
 
 @pytest.mark.asyncio

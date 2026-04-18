@@ -2,7 +2,7 @@ import asyncio
 import logging
 
 from app.context import AppContext
-from app.domain.channels import Channel
+from app.domain.enum.channels import Channel
 from app.domain.message import Message
 from app.interfaces.bot_adapter import BotAdapter
 from app.message_queue.message_queue import MessageQueue

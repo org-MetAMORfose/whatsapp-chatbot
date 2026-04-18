@@ -3,9 +3,10 @@ import logging
 import signal
 import sys
 
-from redis.asyncio import Redis, RedisError
+from redis.asyncio import RedisError
 
 import app.config.settings as config
+import app.config.infra as infra
 from app.agent.agent import AgentWorker
 from app.context import AppContext
 from app.message_queue import MessageQueue
@@ -18,14 +19,7 @@ logger = logging.getLogger(__name__)
 
 
 async def _async_main(app_context: AppContext) -> None:
-    redis_client = Redis(
-        host=config.REDIS_HOST,
-        port=config.REDIS_PORT,
-        db=config.REDIS_DB,
-        username=config.REDIS_USERNAME,
-        password=config.REDIS_PASSWORD,
-        decode_responses=True,
-    )
+    redis_client = infra.create_redis()
 
     try:
         await redis_client.ping()
@@ -33,6 +27,17 @@ async def _async_main(app_context: AppContext) -> None:
         logger.fatal("Failed to connect to Redis: %s", e)
         sys.exit(1)
 
+    db_engine = infra.create_db_engine()
+
+    try:
+        with db_engine.connect() as conn:
+            pass
+    except Exception as e:
+        logger.fatal("Failed to connect to DB: %s", e)
+        sys.exit(1)
+
+    session_factory = infra.create_session_factory(db_engine)
+    
     inbound_queue = MessageQueue(redis_client, queue_name="inbound")
     outbound_queue = MessageQueue(redis_client, queue_name="outbound")
 
