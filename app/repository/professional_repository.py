@@ -10,6 +10,9 @@ from sqlalchemy.orm import Session, joinedload
 from app.domain.db.patient_model import PatientModel
 from app.domain.db.professional_model import ProfessionalModel
 from app.domain.db.professional_patient_model import ProfessionalPatientModel
+from app.domain.db.professional_status_history_model import (
+    ProfessionalStatusHistoryModel,
+)
 from app.domain.enum.professional_status import ProfessionalStatus
 
 
@@ -28,13 +31,29 @@ class ProfessionalRepository:
 
     def get_by_id(self, professional_id: int) -> ProfessionalModel | None:
         with self._session_factory() as session:
-            stmt = select(ProfessionalModel).where(ProfessionalModel.id == professional_id)
-            return session.scalar(stmt)
+            stmt = (
+                select(ProfessionalModel)
+                .options(
+                    joinedload(ProfessionalModel.person),
+                    joinedload(ProfessionalModel.current_status),
+                    joinedload(ProfessionalModel.status_history),
+                )
+                .where(ProfessionalModel.id == professional_id)
+            )
+            return session.execute(stmt).unique().scalar_one_or_none()
 
     def get_by_person_id(self, person_id: int) -> ProfessionalModel | None:
         with self._session_factory() as session:
-            stmt = select(ProfessionalModel).where(ProfessionalModel.person_id == person_id)
-            return session.scalar(stmt)
+            stmt = (
+                select(ProfessionalModel)
+                .options(
+                    joinedload(ProfessionalModel.person),
+                    joinedload(ProfessionalModel.current_status),
+                    joinedload(ProfessionalModel.status_history),
+                )
+                .where(ProfessionalModel.person_id == person_id)
+            )
+            return session.execute(stmt).unique().scalar_one_or_none()
 
     def update(self, professional: ProfessionalModel) -> ProfessionalModel:
         with self._session_factory() as session:
@@ -50,18 +69,12 @@ class ProfessionalRepository:
                 .options(
                     joinedload(ProfessionalModel.patients).joinedload(PatientModel.person),
                     joinedload(ProfessionalModel.person),
+                    joinedload(ProfessionalModel.current_status),
+                    joinedload(ProfessionalModel.status_history),
                 )
                 .where(ProfessionalModel.id == professional_id)
             )
             return session.execute(stmt).unique().scalar_one_or_none()
-
-    def count_patients(self, professional_id: int) -> int:
-        with self._session_factory() as session:
-            stmt = select(func.count(ProfessionalPatientModel.id)).where(
-                ProfessionalPatientModel.professional_id == professional_id
-            )
-            count = session.scalar(stmt)
-            return int(count or 0)
 
     def get_patients(self, professional_id: int) -> list[PatientModel]:
         with self._session_factory() as session:
@@ -74,6 +87,41 @@ class ProfessionalRepository:
             if professional is None:
                 return []
             return list(professional.patients)
+        
+    def update_status(
+        self,
+        professional_id: int,
+        new_status: ProfessionalStatus,
+        created_at: datetime | None = None,
+    ) -> ProfessionalModel | None:
+        with self._session_factory() as session:
+            professional = session.get(ProfessionalModel, professional_id)
+            if professional is None:
+                return None
+
+            status_history = ProfessionalStatusHistoryModel(
+                professional_id=professional.id,
+                professional_status=new_status,
+                created_at=created_at or datetime.utcnow(),
+            )
+
+            session.add(status_history)
+            session.flush()
+
+            professional.status_id = status_history.id
+
+            session.commit()
+
+            stmt = (
+                select(ProfessionalModel)
+                .options(
+                    joinedload(ProfessionalModel.person),
+                    joinedload(ProfessionalModel.current_status),
+                    joinedload(ProfessionalModel.status_history),
+                )
+                .where(ProfessionalModel.id == professional_id)
+            )
+            return session.execute(stmt).unique().scalar_one()
 
     def get_active_professionals_with_less_than_n_patients(
         self,
@@ -83,17 +131,29 @@ class ProfessionalRepository:
         now = datetime.utcnow()
 
         with self._session_factory() as session:
-            professionals = session.scalars(
-                select(ProfessionalModel).where(
-                    ProfessionalModel.status == ProfessionalStatus.ACTIVE,
-                    ProfessionalModel.activated_at.is_not(None),
+            stmt = (
+                select(ProfessionalModel)
+                .join(
+                    ProfessionalStatusHistoryModel,
+                    ProfessionalModel.status_id == ProfessionalStatusHistoryModel.id,
                 )
-            ).all()
+                .options(
+                    joinedload(ProfessionalModel.person),
+                    joinedload(ProfessionalModel.current_status),
+                )
+                .where(
+                    ProfessionalStatusHistoryModel.professional_status == ProfessionalStatus.ACTIVE,
+                )
+            )
+
+            professionals = session.scalars(stmt).all()
+            if not professionals:
+                return []
 
             result: list[ProfessionalModel] = []
 
             for professional in professionals:
-                activated_at = professional.activated_at
+                activated_at = professional.current_status.created_at
                 if activated_at is None:
                     continue
 
@@ -104,18 +164,17 @@ class ProfessionalRepository:
                 window_start = activated_at + timedelta(days=current_window_index * 30)
                 window_end = window_start + timedelta(days=30)
 
-                stmt = select(func.count(ProfessionalPatientModel.id)).where(
+                patient_count_stmt = select(func.count(ProfessionalPatientModel.id)).where(
                     ProfessionalPatientModel.professional_id == professional.id,
                     ProfessionalPatientModel.created_at >= window_start,
                     ProfessionalPatientModel.created_at < window_end,
                 )
-                count = session.scalar(stmt)
+                count = session.scalar(patient_count_stmt)
 
                 if int(count or 0) < n:
                     result.append(professional)
 
             return result
-
 
     def get_average_patients_per_professional_30_days(
         self,
@@ -126,13 +185,22 @@ class ProfessionalRepository:
         now = datetime.utcnow()
 
         with self._session_factory() as session:
-            professionals = session.scalars(
-                select(ProfessionalModel).where(
-                    ProfessionalModel.status == ProfessionalStatus.ACTIVE,
-                    ProfessionalModel.activated_at.is_not(None),
+            stmt = (
+                select(ProfessionalModel)
+                .join(
+                    ProfessionalStatusHistoryModel,
+                    ProfessionalModel.status_id == ProfessionalStatusHistoryModel.id,
                 )
-            ).all()
+                .options(
+                    joinedload(ProfessionalModel.person),
+                    joinedload(ProfessionalModel.current_status),
+                )
+                .where(
+                    ProfessionalStatusHistoryModel.professional_status == ProfessionalStatus.ACTIVE,
+                )
+            )
 
+            professionals = session.scalars(stmt).all()
             if not professionals:
                 return []
 
@@ -142,7 +210,7 @@ class ProfessionalRepository:
 
             total_windows_by_professional: dict[int, int] = {}
             for professional in professionals:
-                activated_at = professional.activated_at
+                activated_at = professional.current_status.created_at
                 if activated_at is None:
                     continue
 
@@ -151,6 +219,9 @@ class ProfessionalRepository:
                     1,
                     (elapsed.days // 30) + 1,
                 )
+
+            if not total_windows_by_professional:
+                return []
 
             links = session.scalars(
                 select(ProfessionalPatientModel).where(
@@ -167,7 +238,7 @@ class ProfessionalRepository:
                 if linked_professional is None:
                     continue
 
-                activated_at = linked_professional.activated_at
+                activated_at = linked_professional.current_status.created_at
                 if activated_at is None:
                     continue
 
@@ -177,16 +248,20 @@ class ProfessionalRepository:
                 elapsed_days = (link.created_at - activated_at).days
                 window_index = elapsed_days // 30
 
-                if window_index < total_windows_by_professional[linked_professional.id]:
-                    counts_by_professional_and_window[linked_professional.id][window_index] += 1
+                total_windows = total_windows_by_professional.get(link.professional_id)
+                if total_windows is None:
+                    continue
+
+                if window_index < total_windows:
+                    counts_by_professional_and_window[link.professional_id][window_index] += 1
 
             result: list[tuple[ProfessionalModel, float]] = []
 
             for professional in professionals:
-                if professional.id not in total_windows_by_professional:
+                total_windows = total_windows_by_professional.get(professional.id)
+                if total_windows is None:
                     continue
 
-                total_windows = total_windows_by_professional[professional.id]
                 window_counts = counts_by_professional_and_window[professional.id]
                 total_patients = sum(window_counts.values())
                 average = total_patients / total_windows

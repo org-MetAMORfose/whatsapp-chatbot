@@ -3,16 +3,18 @@ from __future__ import annotations
 from datetime import datetime
 from typing import TYPE_CHECKING
 
-from sqlalchemy import DateTime, Enum, ForeignKey, Integer, String, Text, UniqueConstraint
+from sqlalchemy import DateTime, ForeignKey, Integer, String, Text, UniqueConstraint
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.domain.db.base import Base
-from app.domain.enum.professional_status import ProfessionalStatus
 
 if TYPE_CHECKING:
     from app.domain.db.patient_model import PatientModel
     from app.domain.db.person_model import PersonModel
     from app.domain.db.professional_patient_model import ProfessionalPatientModel
+    from app.domain.db.professional_status_history_model import (
+        ProfessionalStatusHistoryModel,
+    )
 
 
 class ProfessionalModel(Base):
@@ -40,19 +42,28 @@ class ProfessionalModel(Base):
     background: Mapped[str | None] = mapped_column(Text, nullable=True)
     video_platform: Mapped[str | None] = mapped_column(String, nullable=True)
     email: Mapped[str | None] = mapped_column(String, nullable=True)
-    status: Mapped[ProfessionalStatus] = mapped_column(
-        Enum(ProfessionalStatus),
+    status_id: Mapped[int] = mapped_column(
+        ForeignKey("professional_status_history.id", ondelete="RESTRICT"),
+        unique=True,
         nullable=False,
-        default=ProfessionalStatus.REGISTER_PENDING,
     )
-    approved_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
-    rejected_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
-    activated_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, nullable=False)
 
     person: Mapped["PersonModel"] = relationship(
         "PersonModel",
         back_populates="professional",
+    )
+
+    current_status: Mapped["ProfessionalStatusHistoryModel"] = relationship(
+        "ProfessionalStatusHistoryModel",
+        foreign_keys=[status_id],
+    )
+
+    status_history: Mapped[list["ProfessionalStatusHistoryModel"]] = relationship(
+        "ProfessionalStatusHistoryModel",
+        back_populates="professional",
+        foreign_keys="ProfessionalStatusHistoryModel.professional_id",
+        cascade="all, delete-orphan",
     )
 
     professional_patients: Mapped[list["ProfessionalPatientModel"]] = relationship(

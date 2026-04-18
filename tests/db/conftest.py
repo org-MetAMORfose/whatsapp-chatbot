@@ -15,6 +15,9 @@ from app.domain.db.patient_model import PatientModel
 from app.domain.db.person_model import PersonModel
 from app.domain.db.professional_model import ProfessionalModel
 from app.domain.db.professional_patient_model import ProfessionalPatientModel
+from app.domain.db.professional_status_history_model import (
+    ProfessionalStatusHistoryModel,
+)
 from app.domain.enum.channels import Channel
 from app.domain.enum.professional_status import ProfessionalStatus
 
@@ -29,9 +32,11 @@ def engine(tmp_path) -> Iterator[Engine]:
     Base.metadata.drop_all(engine)
     engine.dispose()
 
+
 @pytest.fixture
 def session_factory(engine: Engine) -> sessionmaker[Session]:
     return create_session_factory(engine)
+
 
 @pytest.fixture
 def make_person(
@@ -64,6 +69,30 @@ def make_person(
 
 
 @pytest.fixture
+def make_professional_status_history(
+    session_factory: sessionmaker[Session],
+) -> Callable[..., ProfessionalStatusHistoryModel]:
+    def _make_professional_status_history(
+        *,
+        professional_id: int,
+        professional_status: ProfessionalStatus = ProfessionalStatus.REGISTER_PENDING,
+        created_at: datetime | None = None,
+    ) -> ProfessionalStatusHistoryModel:
+        status_history = ProfessionalStatusHistoryModel(
+            professional_id=professional_id,
+            professional_status=professional_status,
+            created_at=created_at or datetime.utcnow(),
+        )
+        with session_factory() as session:
+            session.add(status_history)
+            session.commit()
+            session.refresh(status_history)
+            return status_history
+
+    return _make_professional_status_history
+
+
+@pytest.fixture
 def make_professional(
     session_factory: sessionmaker[Session],
     make_person: Callable[..., PersonModel],
@@ -79,31 +108,41 @@ def make_professional(
         video_platform: str | None = None,
         email: str | None = None,
         status: ProfessionalStatus = ProfessionalStatus.REGISTER_PENDING,
-        approved_at: datetime | None = None,
-        rejected_at: datetime | None = None,
-        activated_at: datetime | None = None,
+        status_created_at: datetime | None = None,
         created_at: datetime | None = None,
     ) -> ProfessionalModel:
         if person is None:
             person = make_person()
 
-        professional = ProfessionalModel(
-            person_id=person.id,
-            area=area,
-            professional_register=professional_register,
-            register_type=register_type,
-            approach=approach,
-            background=background,
-            video_platform=video_platform,
-            email=email,
-            status=status,
-            approved_at=approved_at,
-            rejected_at=rejected_at,
-            activated_at=activated_at,
-            created_at=created_at or datetime.utcnow(),
-        )
         with session_factory() as session:
+            status_history = ProfessionalStatusHistoryModel(
+                professional_id=0,
+                professional_status=status,
+                created_at=status_created_at or datetime.utcnow(),
+            )
+
+            professional = ProfessionalModel(
+                person_id=person.id,
+                area=area,
+                professional_register=professional_register,
+                register_type=register_type,
+                approach=approach,
+                background=background,
+                video_platform=video_platform,
+                email=email,
+                status_id=0,
+                created_at=created_at or datetime.utcnow(),
+            )
+
             session.add(professional)
+            session.flush()
+
+            status_history.professional_id = professional.id
+            session.add(status_history)
+            session.flush()
+
+            professional.status_id = status_history.id
+
             session.commit()
             session.refresh(professional)
             return professional
