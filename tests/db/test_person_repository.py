@@ -3,10 +3,19 @@ from __future__ import annotations
 from collections.abc import Callable
 from datetime import datetime, timedelta
 
+import pytest
+from sqlalchemy.orm import Session, sessionmaker
+
 from app.domain.db.message_history_model import MessageHistoryModel
 from app.domain.db.person_model import PersonModel
 from app.repository.person_repository import PersonRepository
 
+
+@pytest.fixture
+def person_repository(
+    session_factory: sessionmaker[Session],
+) -> PersonRepository:
+    return PersonRepository(session_factory)
 
 def test_create(
     person_repository: PersonRepository,

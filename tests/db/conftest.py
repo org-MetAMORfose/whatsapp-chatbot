@@ -17,7 +17,6 @@ from app.domain.db.professional_model import ProfessionalModel
 from app.domain.db.professional_patient_model import ProfessionalPatientModel
 from app.domain.enum.channels import Channel
 from app.domain.enum.professional_status import ProfessionalStatus
-from app.repository.person_repository import PersonRepository
 
 
 @pytest.fixture
@@ -30,18 +29,9 @@ def engine(tmp_path) -> Iterator[Engine]:
     Base.metadata.drop_all(engine)
     engine.dispose()
 
-
 @pytest.fixture
 def session_factory(engine: Engine) -> sessionmaker[Session]:
     return create_session_factory(engine)
-
-
-@pytest.fixture
-def person_repository(
-    session_factory: sessionmaker[Session],
-) -> PersonRepository:
-    return PersonRepository(session_factory)
-
 
 @pytest.fixture
 def make_person(
