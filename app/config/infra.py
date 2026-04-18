@@ -5,6 +5,8 @@ from sqlalchemy import create_engine
 from sqlalchemy.engine import make_url
 from sqlalchemy.orm import sessionmaker
 import app.config.settings as config
+from typing import Callable
+from sqlalchemy.orm import Session
 
 logger = logging.getLogger(__name__)
 
@@ -30,7 +32,7 @@ def create_db_engine():
     return db
 
 
-def create_session_factory(engine):
+def create_session_factory(engine) -> Callable[[], Session]:
     session_factory = sessionmaker(
         bind=engine,
         expire_on_commit=False,
