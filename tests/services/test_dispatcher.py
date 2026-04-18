@@ -113,8 +113,9 @@ async def test_start_creates_and_stores_task(
 ) -> None:
     mock_task = MagicMock()
 
-    with patch("app.services.dispatcher_service.asyncio.create_task",
-                return_value=mock_task) as mock_create_task:
+    with patch(
+        "app.services.dispatcher_service.asyncio.create_task", return_value=mock_task
+    ) as mock_create_task:
         await dispatcher.start()
 
     mock_create_task.assert_called_once()

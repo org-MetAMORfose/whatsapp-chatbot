@@ -1,12 +1,18 @@
 from __future__ import annotations
 
 from datetime import datetime
+from typing import TYPE_CHECKING
 
 from sqlalchemy import DateTime, Enum, ForeignKey, Integer, String, Text, UniqueConstraint
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.domain.db.base import Base
 from app.domain.enum.professional_status import ProfessionalStatus
+
+if TYPE_CHECKING:
+    from app.domain.db.patient_model import PatientModel
+    from app.domain.db.person_model import PersonModel
+    from app.domain.db.professional_patient_model import ProfessionalPatientModel
 
 
 class ProfessionalModel(Base):

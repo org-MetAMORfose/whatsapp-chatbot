@@ -27,9 +27,7 @@ class TelegramRunner:
 
     async def start(self) -> None:
         await self.dispatcher.start()
-        await self.telegram_adapter.start_listener(
-            callback=self.message_receiver.handle
-        )
+        await self.telegram_adapter.start_listener(callback=self.message_receiver.handle)
 
     async def stop(self) -> None:
         await self.telegram_adapter.stop_listener()

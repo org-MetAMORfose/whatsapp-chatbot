@@ -1,6 +1,7 @@
 """Person repository implementation."""
 
 from collections.abc import Callable
+
 from sqlalchemy import select
 from sqlalchemy.orm import Session, joinedload, selectinload
 
@@ -51,11 +52,7 @@ class PersonRepository:
 
     def exists_by_phone_number(self, phone_number: str) -> bool:
         """Check whether a person exists for the given phone number."""
-        stmt = (
-            select(PersonModel.id)
-            .where(PersonModel.phone_number == phone_number)
-            .limit(1)
-        )
+        stmt = select(PersonModel.id).where(PersonModel.phone_number == phone_number).limit(1)
 
         with self._session_factory() as session:
             return session.scalar(stmt) is not None

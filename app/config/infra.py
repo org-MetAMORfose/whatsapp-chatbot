@@ -1,16 +1,18 @@
+from __future__ import annotations
+
 import logging
 
 from redis.asyncio import Redis
 from sqlalchemy import create_engine
-from sqlalchemy.engine import make_url
-from sqlalchemy.orm import sessionmaker
+from sqlalchemy.engine import Engine, make_url
+from sqlalchemy.orm import Session, sessionmaker
+
 import app.config.settings as config
-from typing import Callable
-from sqlalchemy.orm import Session
 
 logger = logging.getLogger(__name__)
 
-def create_redis() -> Redis:
+
+def create_redis() -> Redis[str]:
     redis = Redis(
         host=config.REDIS_HOST,
         port=config.REDIS_PORT,
@@ -19,11 +21,17 @@ def create_redis() -> Redis:
         password=config.REDIS_PASSWORD,
         decode_responses=True,
     )
-    logger.info("Created Redis client with host=%s, port=%d, db=%d", config.REDIS_HOST, config.REDIS_PORT, config.REDIS_DB)
+    logger.info(
+        "Created Redis client with host=%s, port=%d, db=%d",
+        config.REDIS_HOST,
+        config.REDIS_PORT,
+        config.REDIS_DB,
+    )
 
     return redis
 
-def create_db_engine():
+
+def create_db_engine() -> Engine:
     db = create_engine(config.DATABASE_URL)
 
     safe_url = make_url(config.DATABASE_URL).render_as_string(hide_password=True)
@@ -32,7 +40,7 @@ def create_db_engine():
     return db
 
 
-def create_session_factory(engine) -> Callable[[], Session]:
+def create_session_factory(engine: Engine) -> sessionmaker[Session]:
     session_factory = sessionmaker(
         bind=engine,
         expire_on_commit=False,

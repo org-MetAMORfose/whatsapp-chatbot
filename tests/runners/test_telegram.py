@@ -37,9 +37,7 @@ async def test_start_calls_dispatcher_and_listener(
     await runner.start()
 
     mock_dispatcher.start.assert_awaited_once()
-    mock_adapter.start_listener.assert_awaited_once_with(
-        callback=message_receiver.handle
-    )
+    mock_adapter.start_listener.assert_awaited_once_with(callback=message_receiver.handle)
 
 
 @pytest.mark.asyncio

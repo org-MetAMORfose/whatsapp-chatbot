@@ -46,7 +46,7 @@ class WhatsAppRunner:
 
         uvicorn_config = uvicorn.Config(
             self.app,
-            host="0.0.0.0", # noqa: S104
+            host="0.0.0.0",  # noqa: S104
             log_level=config.LOG_LEVEL.lower(),
         )
         self.server = uvicorn.Server(uvicorn_config)

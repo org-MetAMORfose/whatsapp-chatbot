@@ -1,7 +1,7 @@
 from __future__ import annotations
 
-from collections.abc import Callable
 from collections import defaultdict
+from collections.abc import Callable
 from datetime import datetime, timedelta
 
 from sqlalchemy import func, select
@@ -93,13 +93,15 @@ class ProfessionalRepository:
             result: list[ProfessionalModel] = []
 
             for professional in professionals:
-                assert professional.activated_at is not None
+                activated_at = professional.activated_at
+                if activated_at is None:
+                    continue
 
-                elapsed = now - professional.activated_at
+                elapsed = now - activated_at
                 completed_days = elapsed.days
                 current_window_index = completed_days // 30
 
-                window_start = professional.activated_at + timedelta(days=current_window_index * 30)
+                window_start = activated_at + timedelta(days=current_window_index * 30)
                 window_end = window_start + timedelta(days=30)
 
                 stmt = select(func.count(ProfessionalPatientModel.id)).where(
@@ -114,10 +116,13 @@ class ProfessionalRepository:
 
             return result
 
+
     def get_average_patients_per_professional_30_days(
         self,
     ) -> list[tuple[ProfessionalModel, float]]:
-        """Return each active professional with the average number of new patients per 30-day window since activation."""
+        """Return each active professional with the average number of
+        new patients per 30-day window since activation.
+        """
         now = datetime.utcnow()
 
         with self._session_factory() as session:
@@ -131,13 +136,21 @@ class ProfessionalRepository:
             if not professionals:
                 return []
 
-            professional_map = {professional.id: professional for professional in professionals}
+            professional_map = {
+                professional.id: professional for professional in professionals
+            }
 
             total_windows_by_professional: dict[int, int] = {}
             for professional in professionals:
-                assert professional.activated_at is not None
-                elapsed = now - professional.activated_at
-                total_windows_by_professional[professional.id] = max(1, (elapsed.days // 30) + 1)
+                activated_at = professional.activated_at
+                if activated_at is None:
+                    continue
+
+                elapsed = now - activated_at
+                total_windows_by_professional[professional.id] = max(
+                    1,
+                    (elapsed.days // 30) + 1,
+                )
 
             links = session.scalars(
                 select(ProfessionalPatientModel).where(
@@ -150,22 +163,29 @@ class ProfessionalRepository:
             )
 
             for link in links:
-                professional = professional_map.get(link.professional_id)
-                if professional is None or professional.activated_at is None:
+                linked_professional = professional_map.get(link.professional_id)
+                if linked_professional is None:
                     continue
 
-                if link.created_at < professional.activated_at:
+                activated_at = linked_professional.activated_at
+                if activated_at is None:
                     continue
 
-                elapsed_days = (link.created_at - professional.activated_at).days
+                if link.created_at < activated_at:
+                    continue
+
+                elapsed_days = (link.created_at - activated_at).days
                 window_index = elapsed_days // 30
 
-                if window_index < total_windows_by_professional[professional.id]:
-                    counts_by_professional_and_window[professional.id][window_index] += 1
+                if window_index < total_windows_by_professional[linked_professional.id]:
+                    counts_by_professional_and_window[linked_professional.id][window_index] += 1
 
             result: list[tuple[ProfessionalModel, float]] = []
 
             for professional in professionals:
+                if professional.id not in total_windows_by_professional:
+                    continue
+
                 total_windows = total_windows_by_professional[professional.id]
                 window_counts = counts_by_professional_and_window[professional.id]
                 total_patients = sum(window_counts.values())

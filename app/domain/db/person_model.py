@@ -1,10 +1,18 @@
 """Person ORM model."""
 
 from datetime import datetime
-from sqlalchemy import String, Integer, ForeignKey, Enum, DateTime
+from typing import TYPE_CHECKING
+
+from sqlalchemy import DateTime, Enum, Integer, String
 from sqlalchemy.orm import Mapped, mapped_column, relationship
-from app.domain.enum.channels import Channel
+
 from app.domain.db.base import Base
+from app.domain.enum.channels import Channel
+
+if TYPE_CHECKING:
+    from app.domain.db.message_history_model import MessageHistoryModel
+    from app.domain.db.patient_model import PatientModel
+    from app.domain.db.professional_model import ProfessionalModel
 
 
 class PersonModel(Base):

@@ -11,9 +11,7 @@ def __get_env_variable(name: str, default: str | None = None) -> str:
     """Helper to retrieve environment variables with optional default."""
     value = os.getenv(name, default)
     if value is None:
-        raise ValueError(
-            f"Environment variable '{name}' is not set and no default provided."
-        )
+        raise ValueError(f"Environment variable '{name}' is not set and no default provided.")
     return value
 
 

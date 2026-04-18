@@ -1,9 +1,15 @@
 """MessageHistory ORM model."""
 
 from datetime import datetime
-from sqlalchemy import Integer, ForeignKey, String, Boolean, DateTime, Text
+from typing import TYPE_CHECKING
+
+from sqlalchemy import Boolean, DateTime, ForeignKey, Integer, String, Text
 from sqlalchemy.orm import Mapped, mapped_column, relationship
+
 from app.domain.db.base import Base
+
+if TYPE_CHECKING:
+    from app.domain.db.person_model import PersonModel
 
 
 class MessageHistoryModel(Base):
@@ -19,6 +25,4 @@ class MessageHistoryModel(Base):
     document_url: Mapped[str | None] = mapped_column(String, nullable=True)
     is_from_user: Mapped[bool] = mapped_column(Boolean, nullable=False)
 
-    person: Mapped["PersonModel"] = relationship(
-        "PersonModel", back_populates="messages"
-    )
+    person: Mapped["PersonModel"] = relationship("PersonModel", back_populates="messages")

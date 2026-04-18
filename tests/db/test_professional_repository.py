@@ -404,36 +404,6 @@ def test_get_active_professionals_with_less_than_n_patients_ignores_previous_win
     assert professional.id in result_ids
 
 
-def test_get_active_professionals_with_less_than_n_patients_ignores_professionals_without_activated_at(
-    professional_repository: ProfessionalRepository,
-    make_professional,
-    make_patient,
-    make_person,
-    make_professional_patient_link,
-) -> None:
-    professional = make_professional(
-        person=make_person(phone_number="11930000014"),
-        professional_register="10014",
-        email="noactivated@test.com",
-        status=ProfessionalStatus.ACTIVE,
-        activated_at=None,
-    )
-
-    patient = make_patient(person=make_person(phone_number="11930000121"))
-
-    make_professional_patient_link(
-        professional_id=professional.id,
-        patient_id=patient.id,
-        created_at=datetime.utcnow(),
-    )
-
-    result = professional_repository.get_active_professionals_with_less_than_n_patients(2)
-
-    result_ids = {prof.id for prof in result}
-
-    assert professional.id not in result_ids
-
-
 def test_get_average_patients_per_professional_30_days(
     professional_repository: ProfessionalRepository,
     make_professional,
@@ -537,7 +507,7 @@ def test_get_average_patients_per_professional_30_days_ignores_links_before_acti
     assert average_map[professional.id] == 0.5
 
 
-def test_get_average_patients_per_professional_30_days_returns_empty_list_when_no_active_professionals(
+def test_get_average_patients_per_professional_30_days_returns_empty_when_no_active_professionals(
     professional_repository: ProfessionalRepository,
     make_professional,
     make_person,

@@ -3,10 +3,8 @@ from __future__ import annotations
 from collections.abc import Callable
 from datetime import datetime, timedelta
 
-from sqlalchemy.orm import sessionmaker, Session
-
-from app.domain.db.person_model import PersonModel
 from app.domain.db.message_history_model import MessageHistoryModel
+from app.domain.db.person_model import PersonModel
 from app.repository.person_repository import PersonRepository
 
 
@@ -159,6 +157,7 @@ def test_get_full_profile(
     assert found.patient is not None
     assert len(found.messages) == 1
     assert found.messages[0].content == "hello"
+
 
 def test_get_messages_by_person_id(
     person_repository: PersonRepository,

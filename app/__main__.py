@@ -5,8 +5,8 @@ import sys
 
 from redis.asyncio import RedisError
 
-import app.config.settings as config
 import app.config.infra as infra
+import app.config.settings as config
 from app.agent.agent import AgentWorker
 from app.context import AppContext
 from app.message_queue import MessageQueue
@@ -30,14 +30,14 @@ async def _async_main(app_context: AppContext) -> None:
     db_engine = infra.create_db_engine()
 
     try:
-        with db_engine.connect() as conn:
+        with db_engine.connect():
             pass
     except Exception as e:
         logger.fatal("Failed to connect to DB: %s", e)
         sys.exit(1)
 
     session_factory = infra.create_session_factory(db_engine)
-    
+
     inbound_queue = MessageQueue(redis_client, queue_name="inbound")
     outbound_queue = MessageQueue(redis_client, queue_name="outbound")
 
