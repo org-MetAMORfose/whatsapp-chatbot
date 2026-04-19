@@ -1,6 +1,7 @@
 from app.channel_adapters.telegram import TelegramAdapter
 from app.context import AppContext
 from app.message_queue.message_queue import MessageQueue
+from app.repository.person_repository import PersonRepository
 from app.services.dispatcher_service import MessageDispatcherService
 from app.services.receiver_service import MessageReceiverService
 
@@ -11,6 +12,7 @@ class TelegramRunner:
         ctx: AppContext,
         outbound_queue: MessageQueue,
         message_receiver: MessageReceiverService,
+        person_repository: PersonRepository,
         token: str | None = None,
     ) -> None:
         self.telegram_adapter = TelegramAdapter(ctx=ctx, token=token)
@@ -18,6 +20,7 @@ class TelegramRunner:
         self.dispatcher = MessageDispatcherService(
             ctx=ctx,
             outbound_queue=outbound_queue,
+            person_repository=person_repository,
         )
 
         self.dispatcher.register_adapter(

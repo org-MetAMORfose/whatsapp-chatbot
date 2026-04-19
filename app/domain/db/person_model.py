@@ -3,7 +3,7 @@
 from datetime import datetime
 from typing import TYPE_CHECKING
 
-from sqlalchemy import DateTime, Enum, Integer, String
+from sqlalchemy import DateTime, Enum, Integer, String, UniqueConstraint
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.domain.db.base import Base
@@ -20,11 +20,15 @@ class PersonModel(Base):
 
     __tablename__ = "person"
 
+    __table_args__ = (
+        UniqueConstraint("phone_number", "channel", name="uq_person_phone_channel"),
+    )
+
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
-    phone_number: Mapped[str] = mapped_column(String, unique=True, nullable=False)
+    phone_number: Mapped[str] = mapped_column(String, nullable=False)
+    channel: Mapped[Channel | None] = mapped_column(Enum(Channel), nullable=True)
     name: Mapped[str | None] = mapped_column(String, nullable=True)
     cpf: Mapped[str | None] = mapped_column(String, unique=True, nullable=True)
-    channel: Mapped[Channel | None] = mapped_column(Enum(Channel), nullable=True)
     chat_state: Mapped[str] = mapped_column(String, nullable=False, default="START")
     created_at: Mapped[datetime] = mapped_column(DateTime, nullable=False)
 

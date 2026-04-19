@@ -9,6 +9,7 @@ from app.context import AppContext
 from app.controllers.health_controller import HealthController
 from app.controllers.whatsapp_controller import WhatsAppController
 from app.message_queue.message_queue import MessageQueue
+from app.repository.person_repository import PersonRepository
 from app.services.dispatcher_service import MessageDispatcherService
 from app.services.receiver_service import MessageReceiverService
 
@@ -19,6 +20,7 @@ class WhatsAppRunner:
         ctx: AppContext,
         outbound_queue: MessageQueue,
         message_handler: MessageReceiverService,
+        person_repository: PersonRepository,
     ) -> None:
         self.message_handler = message_handler
         self.whatsapp_adapter = WhatsAppAdapter()
@@ -26,6 +28,7 @@ class WhatsAppRunner:
         self.dispatcher = MessageDispatcherService(
             ctx=ctx,
             outbound_queue=outbound_queue,
+            person_repository=person_repository,
         )
         self.dispatcher.register_adapter(
             self.whatsapp_adapter.channel,

@@ -8,6 +8,7 @@ from sqlalchemy.orm import Session, sessionmaker
 
 from app.domain.db.message_history_model import MessageHistoryModel
 from app.domain.db.person_model import PersonModel
+from app.domain.enum.channels import Channel
 from app.repository.person_repository import PersonRepository
 
 
@@ -51,9 +52,9 @@ def test_get_by_phone_number(
     person_repository: PersonRepository,
     make_person: Callable[..., PersonModel],
 ) -> None:
-    person = make_person(phone_number="33333333333")
+    person = make_person(phone_number="33333333333", channel=Channel.WHATSAPP)
 
-    found = person_repository.get_by_phone_number("33333333333")
+    found = person_repository.get_by_phone_number_and_channel("33333333333", Channel.WHATSAPP)
 
     assert found is not None
     assert found.id == person.id
@@ -91,9 +92,9 @@ def test_exists_by_phone_number_returns_true(
     person_repository: PersonRepository,
     make_person: Callable[..., PersonModel],
 ) -> None:
-    make_person(phone_number="66666666666")
+    make_person(phone_number="66666666666", channel=Channel.WHATSAPP)
 
-    exists = person_repository.exists_by_phone_number("66666666666")
+    exists = person_repository.exists_by_phone_number_and_channel("66666666666", Channel.WHATSAPP)
 
     assert exists is True
 
@@ -101,7 +102,7 @@ def test_exists_by_phone_number_returns_true(
 def test_exists_by_phone_number_returns_false(
     person_repository: PersonRepository,
 ) -> None:
-    exists = person_repository.exists_by_phone_number("00000000000")
+    exists = person_repository.exists_by_phone_number_and_channel("00000000000", Channel.WHATSAPP)
 
     assert exists is False
 

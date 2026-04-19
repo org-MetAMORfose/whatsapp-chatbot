@@ -5,6 +5,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 
 from app.context import AppContext
+from app.domain.db.message_history_model import MessageHistoryModel
 from app.domain.enum.channels import Channel
 from app.domain.message import Message
 from app.interfaces.bot_adapter import BotAdapter
@@ -24,13 +25,23 @@ def mock_outbound_queue() -> MagicMock:
 
 
 @pytest.fixture
+def person_repository() -> MagicMock:
+    repository = MagicMock()
+    repository.get_or_create_person.return_value = MagicMock(id=1)
+    repository.create_message.return_value = MagicMock(spec=MessageHistoryModel)
+    return repository
+
+
+@pytest.fixture
 def dispatcher(
     mock_context: MagicMock,
     mock_outbound_queue: MagicMock,
+    person_repository: MagicMock,
 ) -> MessageDispatcherService:
     return MessageDispatcherService(
         ctx=mock_context,
         outbound_queue=mock_outbound_queue,
+        person_repository=person_repository,
     )
 
 
@@ -63,6 +74,7 @@ def make_message(channel: Channel, chat_id: str, user_id: str, content: str) -> 
 async def test_dispatch_sends_message_to_registered_channel_adapter(
     dispatcher: MessageDispatcherService,
     telegram_adapter: MagicMock,
+    person_repository: MagicMock,
 ) -> None:
     dispatcher.register_adapter(Channel.TELEGRAM, telegram_adapter)
 
@@ -76,6 +88,19 @@ async def test_dispatch_sends_message_to_registered_channel_adapter(
     await dispatcher.dispatch(message)
 
     telegram_adapter.send_message.assert_awaited_once_with(message)
+    person_repository.get_or_create_person.assert_called_once_with(
+        phone_number="user_1",
+        channel=Channel.TELEGRAM,
+    )
+    person_repository.create_message.assert_called_once()
+
+    created_message = person_repository.create_message.call_args.args[0]
+    assert created_message.person_id == 1
+    assert created_message.content == "Hello"
+    assert created_message.image_url is None
+    assert created_message.document_url is None
+    assert created_message.is_from_user is False
+    assert created_message.created_at == message.created_at
 
 
 @pytest.mark.asyncio
@@ -83,6 +108,7 @@ async def test_dispatch_uses_correct_adapter_when_two_channels_are_registered(
     dispatcher: MessageDispatcherService,
     telegram_adapter: MagicMock,
     whatsapp_adapter: MagicMock,
+    person_repository: MagicMock,
 ) -> None:
     dispatcher.register_adapter(Channel.TELEGRAM, telegram_adapter)
     dispatcher.register_adapter(Channel.WHATSAPP, whatsapp_adapter)
@@ -106,6 +132,27 @@ async def test_dispatch_uses_correct_adapter_when_two_channels_are_registered(
     telegram_adapter.send_message.assert_awaited_once_with(telegram_message)
     whatsapp_adapter.send_message.assert_awaited_once_with(whatsapp_message)
 
+    assert person_repository.get_or_create_person.call_count == 2
+    assert person_repository.create_message.call_count == 2
+
+
+@pytest.mark.asyncio
+async def test_dispatch_does_nothing_when_channel_has_no_registered_adapter(
+    dispatcher: MessageDispatcherService,
+    person_repository: MagicMock,
+) -> None:
+    message = make_message(
+        channel=Channel.TELEGRAM,
+        chat_id="123",
+        user_id="user_1",
+        content="Hello",
+    )
+
+    await dispatcher.dispatch(message)
+
+    person_repository.get_or_create_person.assert_not_called()
+    person_repository.create_message.assert_not_called()
+
 
 @pytest.mark.asyncio
 async def test_start_creates_and_stores_task(
@@ -114,7 +161,8 @@ async def test_start_creates_and_stores_task(
     mock_task = MagicMock()
 
     with patch(
-        "app.services.dispatcher_service.asyncio.create_task", return_value=mock_task
+        "app.services.dispatcher_service.asyncio.create_task",
+        return_value=mock_task,
     ) as mock_create_task:
         await dispatcher.start()
 

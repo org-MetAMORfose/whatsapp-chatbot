@@ -1,12 +1,14 @@
 """Person repository implementation."""
 
 from collections.abc import Callable
+from datetime import datetime
 
 from sqlalchemy import select
 from sqlalchemy.orm import Session, joinedload, selectinload
 
 from app.domain.db.message_history_model import MessageHistoryModel
 from app.domain.db.person_model import PersonModel
+from app.domain.enum.channels import Channel
 
 
 class PersonRepository:
@@ -28,12 +30,47 @@ class PersonRepository:
         with self._session_factory() as session:
             return session.get(PersonModel, person_id)
 
-    def get_by_phone_number(self, phone_number: str) -> PersonModel | None:
-        """Return a person by phone number."""
-        stmt = select(PersonModel).where(PersonModel.phone_number == phone_number)
+    def get_by_phone_number_and_channel(
+        self,
+        phone_number: str,
+        channel: Channel,
+    ) -> PersonModel | None:
+        """Return a person by phone number and channel."""
+        stmt = select(PersonModel).where(
+            PersonModel.phone_number == phone_number,
+            PersonModel.channel == channel,
+        )
 
         with self._session_factory() as session:
             return session.scalar(stmt)
+
+    def get_or_create_person(
+        self,
+        phone_number: str,
+        channel: Channel,
+        name: str | None = None,
+    ) -> PersonModel:
+        """Return an existing person or create a new one using phone number and channel."""
+        with self._session_factory() as session:
+            stmt = select(PersonModel).where(
+                PersonModel.phone_number == phone_number,
+                PersonModel.channel == channel,
+            )
+            person = session.scalar(stmt)
+
+            if person is not None:
+                return person
+
+            person = PersonModel(
+                phone_number=phone_number,
+                name=name,
+                channel=channel,
+                created_at=datetime.utcnow(),
+            )
+            session.add(person)
+            session.flush()
+            session.commit()
+            return person
 
     def get_by_cpf(self, cpf: str) -> PersonModel | None:
         """Return a person by CPF."""
@@ -50,9 +87,20 @@ class PersonRepository:
             session.commit()
             return merged_person
 
-    def exists_by_phone_number(self, phone_number: str) -> bool:
-        """Check whether a person exists for the given phone number."""
-        stmt = select(PersonModel.id).where(PersonModel.phone_number == phone_number).limit(1)
+    def exists_by_phone_number_and_channel(
+        self,
+        phone_number: str,
+        channel: Channel,
+    ) -> bool:
+        """Check whether a person exists for the given phone number and channel."""
+        stmt = (
+            select(PersonModel.id)
+            .where(
+                PersonModel.phone_number == phone_number,
+                PersonModel.channel == channel,
+            )
+            .limit(1)
+        )
 
         with self._session_factory() as session:
             return session.scalar(stmt) is not None

@@ -21,6 +21,7 @@ async def test_handle_appends_message_to_history_and_publishes_to_queue() -> Non
     service = MessageReceiverService(
         chat_repository=chat_repository,
         inbound_queue=inbound_queue,
+        person_repository=MagicMock(),  # You can mock this as needed for more complex tests
     )
 
     message = Message(
