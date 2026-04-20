@@ -11,9 +11,7 @@ def __get_env_variable(name: str, default: str | None = None) -> str:
     """Helper to retrieve environment variables with optional default."""
     value = os.getenv(name, default)
     if value is None:
-        raise ValueError(
-            f"Environment variable '{name}' is not set and no default provided."
-        )
+        raise ValueError(f"Environment variable '{name}' is not set and no default provided.")
     return value
 
 
@@ -39,5 +37,7 @@ WHATSAPP_VERIFY_TOKEN = __get_env_variable("WHATSAPP_VERIFY_TOKEN", "")
 WHATSAPP_ACCESS_TOKEN = __get_env_variable("WHATSAPP_ACCESS_TOKEN", "")
 WHATSAPP_PHONE_NUMBER_ID = __get_env_variable("WHATSAPP_PHONE_NUMBER_ID", "")
 
-USE_TELEGRAM = __get_bool_env_variable("USE_TELEGRAM", "1")
+USE_TELEGRAM = __get_bool_env_variable("USE_TELEGRAM", "0")
 USE_WHATSAPP = __get_bool_env_variable("USE_WHATSAPP", "0")
+
+DATABASE_URL = __get_env_variable("DATABASE_URL", "sqlite:///app.db")

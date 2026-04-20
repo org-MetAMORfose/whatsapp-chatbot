@@ -6,7 +6,7 @@ from telegram.ext import Application, ContextTypes, MessageHandler, filters
 
 import app.config.settings as config
 from app.context import AppContext
-from app.domain.channels import Channel
+from app.domain.enum.channels import Channel
 from app.domain.message import Message
 from app.interfaces.bot_adapter import BotAdapter
 
@@ -30,12 +30,8 @@ class TelegramAdapter(BotAdapter):
 
     def __callback_wrapper(
         self, callback: MessageCallback
-    ) -> Callable[
-        [telegram.Update, ContextTypes.DEFAULT_TYPE], Coroutine[Any, Any, None]
-    ]:
-        async def f(
-            update: telegram.Update, context: ContextTypes.DEFAULT_TYPE
-        ) -> None:
+    ) -> Callable[[telegram.Update, ContextTypes.DEFAULT_TYPE], Coroutine[Any, Any, None]]:
+        async def f(update: telegram.Update, context: ContextTypes.DEFAULT_TYPE) -> None:
             if not update.effective_chat:
                 logger.warning("Update received without effective_chat")
                 return
@@ -45,9 +41,7 @@ class TelegramAdapter(BotAdapter):
                 return
 
             chat_id = str(update.effective_chat.id)
-            user_id = (
-                str(update.effective_user.id) if update.effective_user else "ANONYMOUS"
-            )
+            user_id = str(update.effective_user.id) if update.effective_user else "ANONYMOUS"
             content = update.message.text
             message_id = update.message.message_id
             created_at = update.message.date
@@ -68,9 +62,7 @@ class TelegramAdapter(BotAdapter):
     async def start_listener(self, callback: MessageCallback) -> None:
         self.app = Application.builder().bot(self.bot).build()
 
-        handler = MessageHandler(
-            filters.TEXT & ~filters.COMMAND, self.__callback_wrapper(callback)
-        )
+        handler = MessageHandler(filters.TEXT & ~filters.COMMAND, self.__callback_wrapper(callback))
 
         self.app.add_handler(handler)
         await self.app.initialize()

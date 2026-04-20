@@ -1,11 +1,14 @@
 import asyncio
 import logging
+from datetime import datetime
 
 from app.context import AppContext
-from app.domain.channels import Channel
+from app.domain.db.message_history_model import MessageHistoryModel
+from app.domain.enum.channels import Channel
 from app.domain.message import Message
 from app.interfaces.bot_adapter import BotAdapter
 from app.message_queue.message_queue import MessageQueue
+from app.repository.person_repository import PersonRepository
 
 logger = logging.getLogger(__name__)
 
@@ -17,9 +20,11 @@ class MessageDispatcherService:
         self,
         ctx: AppContext,
         outbound_queue: MessageQueue,
+        person_repository: PersonRepository,
     ) -> None:
         self.ctx = ctx
         self.outbound_queue = outbound_queue
+        self.person_repository = person_repository
         self.channels: dict[Channel, BotAdapter] = {}
         self._task: asyncio.Task[None] | None = None
 
@@ -35,6 +40,22 @@ class MessageDispatcherService:
             return
 
         await adapter.send_message(message)
+
+        person = self.person_repository.get_or_create_person(
+            phone_number=message.user_id,
+            channel=message.channel,
+        )
+
+        history_message = MessageHistoryModel(
+            person_id=person.id,
+            created_at=message.created_at or datetime.utcnow(),
+            content=message.content,
+            image_url=message.image,
+            document_url=message.document,
+            is_from_user=False,
+        )
+
+        self.person_repository.create_message(history_message)
 
     async def start(self) -> None:
         self._task = asyncio.create_task(self._run())

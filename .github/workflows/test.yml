@@ -10,7 +10,7 @@ on:
 
 jobs:
   test:
-    name: "Build, Lint and Test"
+    name: Build, Lint and Test
     runs-on: ubuntu-latest
 
     steps:
@@ -32,4 +32,99 @@ jobs:
         run: uv run mypy .
 
       - name: Run tests
-        run: uv run pytest 
+        run: uv run pytest
+
+  smoke:
+    name: Container smoke test
+    runs-on: ubuntu-latest
+    needs: test
+    timeout-minutes: 15
+
+    env:
+      LANGSMITH_API_KEY: ${{ secrets.LANGSMITH_API_KEY }}
+      LANGSMITH_ENDPOINT: ${{ secrets.LANGSMITH_ENDPOINT }}
+      LANGSMITH_PROJECT: ${{ secrets.LANGSMITH_PROJECT }}
+      LANGSMITH_TRACING: ${{ secrets.LANGSMITH_TRACING }}
+      
+      LOG_LEVEL: ${{ secrets.LOG_LEVEL }}
+
+      OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+      REDIS_PASSWORD: ${{ secrets.REDIS_PASSWORD }}
+      REDIS_USERNAME: ${{ secrets.REDIS_USERNAME }}
+
+      TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+      USE_TELEGRAM: ${{ secrets.USE_TELEGRAM }}
+      USE_WHATSAPP: ${{ secrets.USE_WHATSAPP }}
+
+      WHATSAPP_ACCESS_TOKEN: ${{ secrets.WHATSAPP_ACCESS_TOKEN }}
+      WHATSAPP_PHONE_NUMBER_ID: ${{ secrets.WHATSAPP_PHONE_NUMBER_ID }}
+      WHATSAPP_VERIFY_TOKEN: ${{ secrets.WHATSAPP_VERIFY_TOKEN }}
+
+      POSTGRES_USER: ${{ secrets.POSTGRES_USER }}
+      POSTGRES_PASSWORD: ${{ secrets.POSTGRES_PASSWORD }}
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Create .env
+        run: |
+          cat > .env << EOF
+          LANGSMITH_API_KEY=$LANGSMITH_API_KEY
+          LANGSMITH_ENDPOINT=$LANGSMITH_ENDPOINT
+          LANGSMITH_PROJECT=$LANGSMITH_PROJECT
+          LANGSMITH_TRACING=$LANGSMITH_TRACING
+
+          LOG_LEVEL=$LOG_LEVEL
+
+          OPENAI_API_KEY=$OPENAI_API_KEY
+
+          REDIS_DB=0
+          REDIS_HOST=redis
+          REDIS_PASSWORD=$REDIS_PASSWORD
+          REDIS_PORT=6379
+          REDIS_USERNAME=$REDIS_USERNAME
+
+          POSTGRES_USER=$POSTGRES_USER
+          POSTGRES_PASSWORD=$POSTGRES_PASSWORD
+          DATABASE_URL=postgresql+psycopg://$POSTGRES_USER:$POSTGRES_PASSWORD@postgres:5432/chatbot
+
+          TELEGRAM_BOT_TOKEN=$TELEGRAM_BOT_TOKEN
+          USE_TELEGRAM=$USE_TELEGRAM
+
+          USE_WHATSAPP=$USE_WHATSAPP
+          WHATSAPP_ACCESS_TOKEN=$WHATSAPP_ACCESS_TOKEN
+          WHATSAPP_PHONE_NUMBER_ID=$WHATSAPP_PHONE_NUMBER_ID
+          WHATSAPP_VERIFY_TOKEN=$WHATSAPP_VERIFY_TOKEN
+          EOF
+          sed -i 's/^[[:space:]]*//' .env
+
+      - name: Start stack
+        run: docker compose up -d --build
+
+      - name: Wait for health endpoint
+        run: |
+          for i in $(seq 1 30); do
+            if curl -fsS http://localhost:8000/health; then
+              exit 0
+            fi
+            sleep 2
+          done
+
+          echo "Healthcheck failed"
+          docker compose ps
+          docker compose logs
+          exit 1
+
+      - name: Verify response body
+        run: |
+          response=$(curl -fsS http://localhost:8000/health)
+          echo "$response"
+          echo "$response" | grep '"status":"ok"\|"status": "ok"'
+
+      - name: Logs on failure
+        if: failure()
+        run: docker compose logs
+
+      - name: Shutdown
+        if: always()
+        run: docker compose down -v
