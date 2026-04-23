@@ -65,6 +65,7 @@ class PersonRepository:
                 phone_number=phone_number,
                 name=name,
                 channel=channel,
+                chat_state="START",
                 created_at=datetime.utcnow(),
             )
             session.add(person)
