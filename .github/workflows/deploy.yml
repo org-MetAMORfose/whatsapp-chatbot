@@ -1,4 +1,5 @@
 name: CD 
+
 on:
   workflow_run:
     workflows: ["CI"]     
@@ -67,7 +68,6 @@ jobs:
           LANGSMITH_TRACING: ${{ secrets.LANGSMITH_TRACING }}
           LOG_LEVEL: ${{ secrets.LOG_LEVEL }}
           OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
-          REDIS_HOST: ${{ secrets.REDIS_HOST }}
           REDIS_PASSWORD: ${{ secrets.REDIS_PASSWORD }}
           REDIS_USERNAME: ${{ secrets.REDIS_USERNAME }}
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
@@ -78,12 +78,17 @@ jobs:
           WHATSAPP_VERIFY_TOKEN: ${{ secrets.WHATSAPP_VERIFY_TOKEN }}
           POSTGRES_USER: ${{ secrets.POSTGRES_USER }}
           POSTGRES_PASSWORD: ${{ secrets.POSTGRES_PASSWORD }}
+
         with:
           host: ${{ secrets.EC2_HOST }}
           username: ${{ secrets.EC2_USER }}
           key: ${{ secrets.EC2_SSH_KEY }}
-          envs: EC2_APP_PATH,LANGSMITH_API_KEY,LANGSMITH_ENDPOINT,LANGSMITH_PROJECT,LANGSMITH_TRACING,LOG_LEVEL,OPENAI_API_KEY,REDIS_PASSWORD,REDIS_USERNAME,TELEGRAM_BOT_TOKEN,USE_TELEGRAM,USE_WHATSAPP,WHATSAPP_ACCESS_TOKEN,WHATSAPP_PHONE_NUMBER_ID,WHATSAPP_VERIFY_TOKEN
+
+          envs: EC2_APP_PATH,LANGSMITH_API_KEY,LANGSMITH_ENDPOINT,LANGSMITH_PROJECT,LANGSMITH_TRACING,LOG_LEVEL,OPENAI_API_KEY,REDIS_PASSWORD,REDIS_USERNAME,TELEGRAM_BOT_TOKEN,USE_TELEGRAM,USE_WHATSAPP,WHATSAPP_ACCESS_TOKEN,WHATSAPP_PHONE_NUMBER_ID,WHATSAPP_VERIFY_TOKEN,POSTGRES_USER,POSTGRES_PASSWORD
+
           script: |
+            set -e
+
             cd "$EC2_APP_PATH"
 
             cat > .env << EOF
@@ -115,10 +120,9 @@ jobs:
             WHATSAPP_PHONE_NUMBER_ID=$WHATSAPP_PHONE_NUMBER_ID
             WHATSAPP_VERIFY_TOKEN=$WHATSAPP_VERIFY_TOKEN
             EOF
+
             sed -i 's/^[[:space:]]*//' .env
 
-            # Se o container da API estiver rodando, apenas subsititui ela.
-            # Caso não, subsititui tudo:
             if docker compose ps --services --filter status=running | grep -q "^chatbot$"; then
               echo "Stack already running, rebuilding chatbot service only"
               docker compose up -d --build chatbot
