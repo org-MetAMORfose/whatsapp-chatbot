@@ -79,14 +79,14 @@ class ProfessionalRepository:
     def get_patients(self, professional_id: int) -> list[PatientModel]:
         with self._session_factory() as session:
             stmt = (
-                select(ProfessionalModel)
-                .options(joinedload(ProfessionalModel.patients))
-                .where(ProfessionalModel.id == professional_id)
+                select(PatientModel)
+                .join(ProfessionalPatientModel)
+                .where(
+                    ProfessionalPatientModel.professional_id == professional_id,
+                    ProfessionalPatientModel.deleted.is_(False),
+                )
             )
-            professional = session.execute(stmt).unique().scalar_one_or_none()
-            if professional is None:
-                return []
-            return list(professional.patients)
+            return list(session.scalars(stmt).all())
         
     def update_status(
         self,
@@ -168,6 +168,7 @@ class ProfessionalRepository:
                     ProfessionalPatientModel.professional_id == professional.id,
                     ProfessionalPatientModel.created_at >= window_start,
                     ProfessionalPatientModel.created_at < window_end,
+                    ProfessionalPatientModel.deleted.is_(False),
                 )
                 count = session.scalar(patient_count_stmt)
 
@@ -225,7 +226,8 @@ class ProfessionalRepository:
 
             links = session.scalars(
                 select(ProfessionalPatientModel).where(
-                    ProfessionalPatientModel.professional_id.in_(professional_map.keys())
+                    ProfessionalPatientModel.professional_id.in_(professional_map.keys()),
+                    ProfessionalPatientModel.deleted.is_(False),  
                 )
             ).all()
 
