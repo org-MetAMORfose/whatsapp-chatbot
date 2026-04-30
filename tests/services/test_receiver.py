@@ -3,7 +3,7 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
-from app.domain.channels import Channel
+from app.domain.enum.channels import Channel
 from app.domain.message import Message
 from app.message_queue.message_queue import MessageQueue
 from app.repository.redis_repository import ChatRepository
@@ -21,6 +21,7 @@ async def test_handle_appends_message_to_history_and_publishes_to_queue() -> Non
     service = MessageReceiverService(
         chat_repository=chat_repository,
         inbound_queue=inbound_queue,
+        person_repository=MagicMock(),  # You can mock this as needed for more complex tests
     )
 
     message = Message(

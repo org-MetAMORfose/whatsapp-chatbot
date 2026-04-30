@@ -32,14 +32,13 @@ async def test_start_calls_dispatcher_and_listener(
         outbound_queue=outbound_queue,
         message_receiver=message_receiver,
         token=token,
+        person_repository=MagicMock(),
     )
 
     await runner.start()
 
     mock_dispatcher.start.assert_awaited_once()
-    mock_adapter.start_listener.assert_awaited_once_with(
-        callback=message_receiver.handle
-    )
+    mock_adapter.start_listener.assert_awaited_once_with(callback=message_receiver.handle)
 
 
 @pytest.mark.asyncio
@@ -68,6 +67,7 @@ async def test_stop_calls_listener_and_dispatcher_stop(
         outbound_queue=outbound_queue,
         message_receiver=message_receiver,
         token=token,
+        person_repository=MagicMock(),
     )
 
     await runner.stop()
