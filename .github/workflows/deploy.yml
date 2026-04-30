@@ -1,4 +1,5 @@
 name: CD
+
 on:
   workflow_run:
     workflows: ["CI"]
@@ -35,6 +36,7 @@ jobs:
               rm -f /tmp/ssh_key
               exit 0
             fi
+
             echo "Attempt $i failed, retrying in 5s..."
             sleep 5
           done
@@ -43,7 +45,6 @@ jobs:
           echo "SSH connection failed after 30 attempts"
           exit 1
 
-      # 3. SCP dos arquivos para a pasta no servidor
       - name: Remove .git before copy
         run: rm -rf .git
 
@@ -60,8 +61,12 @@ jobs:
 
       - name: Write .env and deploy
         uses: appleboy/ssh-action@v1.0.3
+
         env:
           LIGHTSAIL_APP_PATH: ${{ secrets.LIGHTSAIL_APP_PATH }}
+
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+
           LANGSMITH_API_KEY: ${{ secrets.LANGSMITH_API_KEY }}
           LANGSMITH_ENDPOINT: ${{ secrets.LANGSMITH_ENDPOINT }}
           LANGSMITH_PROJECT: ${{ secrets.LANGSMITH_PROJECT }}
@@ -88,7 +93,8 @@ jobs:
           host: ${{ secrets.LIGHTSAIL_HOST }}
           username: ${{ secrets.LIGHTSAIL_USER }}
           key: ${{ secrets.LIGHTSAIL_SSH_KEY }}
-          envs: LIGHTSAIL_APP_PATH,LANGSMITH_API_KEY,LANGSMITH_ENDPOINT,LANGSMITH_PROJECT,LANGSMITH_TRACING,LOG_LEVEL,OPENAI_API_KEY,REDIS_PASSWORD,REDIS_USERNAME,POSTGRES_USER,POSTGRES_PASSWORD,TELEGRAM_BOT_TOKEN,USE_TELEGRAM,USE_WHATSAPP,WHATSAPP_ACCESS_TOKEN,WHATSAPP_PHONE_NUMBER_ID,WHATSAPP_VERIFY_TOKEN
+
+          envs: LIGHTSAIL_APP_PATH,DATABASE_URL,LANGSMITH_API_KEY,LANGSMITH_ENDPOINT,LANGSMITH_PROJECT,LANGSMITH_TRACING,LOG_LEVEL,OPENAI_API_KEY,REDIS_PASSWORD,REDIS_USERNAME,POSTGRES_USER,POSTGRES_PASSWORD,TELEGRAM_BOT_TOKEN,USE_TELEGRAM,USE_WHATSAPP,WHATSAPP_ACCESS_TOKEN,WHATSAPP_PHONE_NUMBER_ID,WHATSAPP_VERIFY_TOKEN
 
           script: |
             set -e
@@ -96,24 +102,36 @@ jobs:
             cd "$LIGHTSAIL_APP_PATH"
 
             cat > .env << EOF
+            DATABASE_URL=$DATABASE_URL
+
             LANGSMITH_API_KEY=$LANGSMITH_API_KEY
             LANGSMITH_ENDPOINT=$LANGSMITH_ENDPOINT
             LANGSMITH_PROJECT=$LANGSMITH_PROJECT
             LANGSMITH_TRACING=$LANGSMITH_TRACING
+
             LOG_LEVEL=$LOG_LEVEL
             OPENAI_API_KEY=$OPENAI_API_KEY
+
             REDIS_DB=0
             REDIS_HOST=redis
             REDIS_PASSWORD=$REDIS_PASSWORD
             REDIS_PORT=6379
             REDIS_USERNAME=$REDIS_USERNAME
+
+            POSTGRES_USER=$POSTGRES_USER
+            POSTGRES_PASSWORD=$POSTGRES_PASSWORD
+            POSTGRES_DB=chatbot
+
             TELEGRAM_BOT_TOKEN=$TELEGRAM_BOT_TOKEN
+
             USE_TELEGRAM=$USE_TELEGRAM
             USE_WHATSAPP=$USE_WHATSAPP
+
             WHATSAPP_ACCESS_TOKEN=$WHATSAPP_ACCESS_TOKEN
             WHATSAPP_PHONE_NUMBER_ID=$WHATSAPP_PHONE_NUMBER_ID
             WHATSAPP_VERIFY_TOKEN=$WHATSAPP_VERIFY_TOKEN
             EOF
+
             sed -i 's/^[[:space:]]*//' .env
 
             if docker compose ps --services --filter status=running | grep -q "^chatbot$"; then
