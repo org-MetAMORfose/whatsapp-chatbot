@@ -4,7 +4,11 @@ from datetime import datetime
 
 from pydantic import BaseModel
 
+<<<<<<< HEAD
 from app.domain.professional_status import ProfessionalStatus
+=======
+from app.domain.enum.professional_status import ProfessionalStatus
+>>>>>>> 75e177151cc5142c5190729f2a72631679fed99b
 
 
 class Professional(BaseModel):

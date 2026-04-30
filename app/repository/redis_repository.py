@@ -25,9 +25,7 @@ class ChatRepository:
         """Build the Redis key used to store the state for a thread."""
         return f"chat_state:{thread_id}"
 
-    async def get_chat_context(
-        self, thread_id: str, user_id: str | None = None
-    ) -> ChatContext:
+    async def get_chat_context(self, thread_id: str, user_id: str | None = None) -> ChatContext:
         """Retrieve chat state or return an empty default state."""
         result = await self.redis_client.get(self._state_key(thread_id))
         state_json = cast(str | None, result)
@@ -44,9 +42,7 @@ class ChatRepository:
                 state_dict["user_id"] = user_id or thread_id
             return ChatContext(**state_dict)
         except json.JSONDecodeError:
-            logger.error(
-                "Failed to decode state for thread_id %s: %s", thread_id, state_json
-            )
+            logger.error("Failed to decode state for thread_id %s: %s", thread_id, state_json)
             return ChatContext(
                 user_id=user_id or thread_id,
                 chat_id=thread_id,
@@ -73,9 +69,7 @@ class ChatRepository:
             logger.exception("Failed to save state for thread_id %s", thread_id)
             raise
 
-    async def append_message_to_history(
-        self, thread_id: str, message: Message
-    ) -> ChatContext:
+    async def append_message_to_history(self, thread_id: str, message: Message) -> ChatContext:
         """Persist a new message into the conversation history for a thread."""
         context = await self.get_chat_context(thread_id, user_id=message.user_id)
         context.history.append(

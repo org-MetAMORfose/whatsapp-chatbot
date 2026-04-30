@@ -1,3 +1,5 @@
+version: "3.9"
+
 services:
   redis:
     image: redis:7-alpine
@@ -15,7 +17,7 @@ services:
         "--appendonly",
         "yes",
         "--requirepass",
-        "${REDIS_PASSWORD:?REDIS_PASSWORD is required}",
+        "${REDIS_PASSWORD:?REDIS_PASSWORD is required}"
       ]
     healthcheck:
       test:
@@ -24,8 +26,29 @@ services:
           "redis-cli",
           "-a",
           "${REDIS_PASSWORD:?REDIS_PASSWORD is required}",
-          "ping",
+          "ping"
         ]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - chatbot_net
+
+  postgres:
+    image: postgres:16-alpine
+    container_name: chatbot-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: chatbot
+      POSTGRES_USER: ${POSTGRES_USER:?POSTGRES_USER is required}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required}
+    ports:
+      - "5433:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./scripts/schema.sql:/docker-entrypoint-initdb.d/schema.sql
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U chatbot -d chatbot"]
       interval: 10s
       timeout: 5s
       retries: 5
@@ -40,6 +63,8 @@ services:
     depends_on:
       redis:
         condition: service_healthy
+      postgres:
+        condition: service_healthy
     ports:
       - "8000:8000"
     networks:
@@ -47,8 +72,8 @@ services:
 
 volumes:
   redis_data:
+  postgres_data:
 
 networks:
   chatbot_net:
     driver: bridge
-

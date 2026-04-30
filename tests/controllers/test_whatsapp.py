@@ -4,7 +4,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 
 from app.controllers.whatsapp_controller import WhatsAppController
-from app.domain.channels import Channel
+from app.domain.enum.channels import Channel
 from app.domain.message import Message
 
 
@@ -60,9 +60,7 @@ def test_parse_message_text_returns_expected_message() -> None:
         "from": "5511999999999",
         "timestamp": "1710000000",
         "type": "text",
-        "text": {
-            "body": "oi tudo bem?"
-        },
+        "text": {"body": "oi tudo bem?"},
     }
 
     parsed = controller._parse_message(raw_message)

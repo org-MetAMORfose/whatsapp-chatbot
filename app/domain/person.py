@@ -4,7 +4,11 @@ from datetime import datetime
 
 from pydantic import BaseModel
 
+<<<<<<< HEAD
 from app.domain.channels import Channel
+=======
+from app.domain.enum.channels import Channel
+>>>>>>> 75e177151cc5142c5190729f2a72631679fed99b
 
 
 class Person(BaseModel):
