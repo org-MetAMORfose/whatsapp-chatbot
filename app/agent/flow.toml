@@ -1,3 +1,99 @@
+# =========================
+# VISÃO GERAL DO FLUXO
+# =========================
+# Este arquivo define uma máquina de estados para o processo de captação,
+# seleção e ativação de profissionais na plataforma.
+#
+# Existem DOIS conceitos importantes:
+#
+# 1) chat_state (estado da conversa)
+#    - Representado pelos nós: start, m2, m3, ..., m10
+#    - Controla em que ponto do diálogo o usuário está
+#
+# 2) professional_status (estado de negócio - fora do fluxo)
+#    - register_pending
+#    - under_review
+#    - approved
+#    - payment_pending
+#    - active
+#    - rejected
+#
+# O TOML controla apenas o fluxo da conversa (chat_state).
+# O status do profissional deve ser atualizado na lógica da aplicação.
+#
+#
+# =========================
+# GRAFO DE ESTADOS (ARESTAS)
+# =========================
+#
+# start -> m2
+# start -> feedback
+#
+# feedback -> END
+#
+# m2 -> m3
+# m2 -> feedback
+#
+# m3 -> m4
+# m4 -> m5
+# m5 -> m6
+# m6 -> m7
+# m7 -> m8
+# m8 -> m9
+# m9 -> m10
+#
+# m10 -> END
+#
+# reengajamento -> start
+# reengajamento -> end_reengajamento
+#
+# end_reengajamento -> END
+#
+#
+# =========================
+# RELAÇÃO COM PROCESSO DE NEGÓCIO
+# =========================
+#
+# m2:
+#   - Explicação de valores e regras.
+#
+# m3/m4/m5:
+#   - Coleta de dados do profissional
+#   - professional_status = register_pending
+#
+# m6:
+#   - Envio para validação
+#   - professional_status = under_review
+#
+# m7:
+#   - Profissional aprovado
+#   - professional_status = approved
+#
+# m8:
+#   - Aguardando pagamento
+#   - professional_status = payment_pending
+#
+# m9/m10:
+#   - Profissional ativo
+#   - professional_status = active
+#
+#
+# =========================
+# OBSERVAÇÕES IMPORTANTES
+# =========================
+#
+# - Nem toda transição depende de input do usuário:
+#   Ex: m6 -> m7 depende de aprovação interna (não do chat)
+#
+# - Estados são sequenciais, mas podem ser retomados via reengajamento
+#
+# - O fluxo é linear com bifurcações apenas no início e reengajamento
+#
+# - Este arquivo descreve apenas o fluxo. Regras de negócio ficam no código.
+#
+# =========================
+
+
 [nodes.start]
 description = "Apresentação inicial e convite."
 message = """Boa tarde, tudo bem? Você atende pacientes online? Somos a Rede MetAMORfose, uma plataforma de telemedicina que conecta profissionais de saúde a pacientes de forma exclusiva e segura. Temos vagas abertas para cadastro profissional (plano pago, modelo Doctoralia), com envio de conexões com pacientes por e-mail. Você tem interesse em saber mais? Nosso site é orgmetamorfose.com.br
@@ -23,6 +119,7 @@ end = true
 
 [nodes.m2]
 description = "Explicação de valores e regras."
+actions = ["redis_create_professional_stage"]
 message = """Você define o valor da sua consulta, e o paciente paga diretamente a você.
 Você receberá o WhatsApp do paciente por e-mail e terá total liberdade para combinar agendamento, forma de pagamento e duração das consultas.
 
@@ -56,6 +153,7 @@ conditions = ["não", "nao", "no", "n"]
 
 [nodes.m3]
 description = "Pergunta sobre abordagem e especialização."
+actions = ["redis_update_professional_qualification"]
 message = "Qual é a sua abordagem teórica principal? Você possui especializações ou cursos complementares?"
 input = "..."
 
@@ -66,7 +164,8 @@ conditions = []
 
 [nodes.m4]
 description = "Disponibilidade e ferramenta de vídeo."
-message = "Em quais dias e horários costuma ter disponibilidade para atendimentos? Utiliza Google Meets, Zoom ou video chamada do Whatsapp para atendimentos online?"
+actions = ["redis_update_professional_video_tool"]
+message = "Utiliza Google Meets, Zoom ou video chamada do Whatsapp para atendimentos online?"
 buttons = ["Google Meets", "Zoom", "Whatsapp"]
 input = "..."
 
@@ -77,6 +176,7 @@ conditions = []
 
 [nodes.m5]
 description = "Validação de segurança."
+actions = ["redis_update_professional_council_registration"]
 message = "Obrigada pelas informações! Para mantermos a segurança e qualidade da Rede, precisamos validar seu registro profissional. Você possui CRP ativo? Pode me informar o número, por favor?"
 input = "..."
 

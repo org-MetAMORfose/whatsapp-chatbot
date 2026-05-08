@@ -6,20 +6,16 @@ import pytest
 from app.domain.enum.channels import Channel
 from app.domain.message import Message
 from app.message_queue.message_queue import MessageQueue
-from app.repository.redis_repository import ChatRepository
 from app.services.receiver_service import MessageReceiverService
 
 
 @pytest.mark.asyncio
 async def test_handle_appends_message_to_history_and_publishes_to_queue() -> None:
-    chat_repository = MagicMock(spec=ChatRepository)
-    chat_repository.append_message_to_history = AsyncMock()
 
     inbound_queue = MagicMock(spec=MessageQueue)
     inbound_queue.publish = AsyncMock()
 
     service = MessageReceiverService(
-        chat_repository=chat_repository,
         inbound_queue=inbound_queue,
         person_repository=MagicMock(),  # You can mock this as needed for more complex tests
     )
@@ -35,5 +31,4 @@ async def test_handle_appends_message_to_history_and_publishes_to_queue() -> Non
 
     await service.handle(message)
 
-    chat_repository.append_message_to_history.assert_awaited_once_with("123", message)
-    inbound_queue.publish.assert_awaited_once_with("123", message)
+    inbound_queue.publish.assert_awaited_once_with(message)
