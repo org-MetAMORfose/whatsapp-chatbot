@@ -136,7 +136,8 @@ class AgentWorker:
                                                        channel=message.channel)
             return str(node.message)
 
-        await self.action_executor.run(node.actions, message)
+        func_output = await self.action_executor.run(node, message)
+        logger.info(f"Action executor output: {node.actions} returned {func_output}")
         transition = node.next_transition(content)
         if transition is None:
             logger.error(f"Flow node {current_state} has no transition.")
@@ -151,7 +152,8 @@ class AgentWorker:
                                                                channel=message.channel)
                 else:
                     await self.chat_repository.update_context(message, state=transition.target)
-                return str(next_node.message)
+                logger.info(func_output + str(next_node.message))
+                return func_output + str(next_node.message)
             else:
                 logger.error(f"No node found for next_state: {transition.target}")
                 return "Erro no próximo passo."

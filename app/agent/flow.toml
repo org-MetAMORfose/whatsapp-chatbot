@@ -176,7 +176,7 @@ conditions = []
 
 [nodes.m5]
 description = "Validação de segurança."
-actions = ["redis_update_professional_council_registration"]
+actions = ["redis_update_professional_council_registration", "redis_get_professional_stage_context"]
 message = "Obrigada pelas informações! Para mantermos a segurança e qualidade da Rede, precisamos validar seu registro profissional. Você possui CRP ativo? Pode me informar o número, por favor?"
 input = "..."
 
@@ -199,7 +199,7 @@ Termos e Contrato: orgmetamorfose.com.br/termos"""
 action = "Submitir CRP para validação e envio de materiais de apoio."
 
 [[nodes.m6.transitions]]
-target = "m7"
+target = "start"
 conditions = []
 
 
