@@ -17,7 +17,7 @@ class MessageQueue:
     def _pending_key(self) -> str:
         return f"message_queue:{self.queue_name}:pending"
 
-    async def publish(self, thread_id: str, message: Message) -> None:
+    async def publish(self, message: Message) -> None:
         """Create and enqueue a message to be processed by AgentWorkers."""
         json_str = message.model_dump_json()
         await self.redis_client.lpush(self._pending_key(), json_str)

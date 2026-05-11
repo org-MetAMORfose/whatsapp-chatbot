@@ -32,6 +32,7 @@ class Node(BaseModel):
     description: str | None = None
     message: str
     end: bool = False
+    actions: list[str] = Field(default_factory=list)
     transitions: list[Transition] = Field(default_factory=list)
 
     def get(self, key: str, default: Any = None) -> Any:

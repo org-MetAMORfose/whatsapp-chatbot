@@ -11,6 +11,8 @@ from app.agent.agent import AgentWorker
 from app.context import AppContext
 from app.message_queue import MessageQueue
 from app.repository.person_repository import PersonRepository
+from app.repository.professional_repository import ProfessionalRepository
+from app.repository.professional_stage_repository import ProfessionalStageRepository
 from app.repository.redis_repository import ChatRepository
 from app.runners.telegram_runner import TelegramRunner
 from app.runners.whatsapp_runner import WhatsAppRunner
@@ -40,16 +42,16 @@ async def _async_main(app_context: AppContext) -> None:
     session_factory = infra.create_session_factory(db_engine)
 
     # pacient_repository = PatientRepository(session_factory)
-    # professional_repository = ProfessionalRepository(session_factory)
+    professional_repository = ProfessionalRepository(session_factory)
     person_repository = PersonRepository(session_factory)
 
     inbound_queue = MessageQueue(redis_client, queue_name="inbound")
     outbound_queue = MessageQueue(redis_client, queue_name="outbound")
 
     chat_repo = ChatRepository(redis_client)
+    professional_stage_repository = ProfessionalStageRepository(redis_client)
 
     message_receiver_service = MessageReceiverService(
-        chat_repository=chat_repo,
         inbound_queue=inbound_queue,
         person_repository=person_repository,
     )
@@ -58,7 +60,9 @@ async def _async_main(app_context: AppContext) -> None:
         ctx=app_context,
         inbound=inbound_queue,
         outbound=outbound_queue,
-        redis=redis_client,
+        chat_repository=chat_repo,
+        professional_stage_repository=professional_stage_repository,
+        professional_repository=professional_repository,
     )
 
     telegram_runner: TelegramRunner | None = None

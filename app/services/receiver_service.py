@@ -5,7 +5,6 @@ from app.domain.db.message_history_model import MessageHistoryModel
 from app.domain.message import Message
 from app.message_queue import MessageQueue
 from app.repository.person_repository import PersonRepository
-from app.repository.redis_repository import ChatRepository
 
 logger = logging.getLogger(__name__)
 
@@ -13,13 +12,11 @@ logger = logging.getLogger(__name__)
 class MessageReceiverService:
     def __init__(
         self,
-        chat_repository: ChatRepository,
         inbound_queue: MessageQueue,
         person_repository: PersonRepository,
     ) -> None:
-        self.chat_repository = chat_repository
         self.inbound_queue = inbound_queue
-        self.person_repository = person_repository
+        self.person_repository=person_repository
 
     async def handle(self, message: Message) -> None:
         logger.info("Received message: %s", message)
@@ -28,10 +25,7 @@ class MessageReceiverService:
             logger.warning("Received message without chat_id: %s", message)
             return
 
-        thread_id = str(message.chat_id)
-
-        await self.chat_repository.append_message_to_history(thread_id, message)
-        await self.inbound_queue.publish(thread_id, message)
+        await self.inbound_queue.publish(message)
 
         person = self.person_repository.get_or_create_person(
             phone_number=message.user_id,
