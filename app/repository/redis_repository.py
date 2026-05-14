@@ -5,78 +5,145 @@ import logging
 from typing import cast
 
 import redis.asyncio as redis
+from pydantic import ValidationError
 
 from app.domain.chat import ChatContext
+from app.domain.enum.channels import Channel
 from app.domain.message import Message
 
 logger = logging.getLogger(__name__)
 
 
 class ChatRepository:
-    """Encapsulates Redis operations for loading and saving chat state."""
+    """Encapsulates Redis operations for loading and saving chat context."""
 
     redis_client: redis.Redis  # type: ignore[type-arg]
+    context_ttl_seconds: int
 
-    def __init__(self, redis_client: redis.Redis):  # type: ignore[type-arg]
-        """Create a chat repository with an initialized Redis client."""
+    def __init__(
+        self,
+        redis_client: redis.Redis,  # type: ignore[type-arg]
+        context_ttl_seconds: int = 60 * 60,
+    ):
         self.redis_client = redis_client
+        self.context_ttl_seconds = context_ttl_seconds
 
-    def _state_key(self, thread_id: str) -> str:
-        """Build the Redis key used to store the state for a thread."""
-        return f"chat_state:{thread_id}"
+    def _context_key(self, user_id: str, channel: Channel) -> str:
+        return f"chat_context:{channel.value}:{user_id}"
 
-    async def get_chat_context(self, thread_id: str, user_id: str | None = None) -> ChatContext:
-        """Retrieve chat state or return an empty default state."""
-        result = await self.redis_client.get(self._state_key(thread_id))
-        state_json = cast(str | None, result)
+    async def create_context(
+        self,
+        user_id: str,
+        channel: Channel,
+        state: str,
+    ) -> ChatContext:
+        """Create and persist a new chat context."""
+        context = ChatContext(
+            user_id=user_id,
+            channel=channel,
+            state=state,
+        )
 
-        if not state_json:
-            return ChatContext(
-                user_id=user_id or thread_id,
-                chat_id=thread_id,
-            )
+        await self.save_context(context)
+        return context
 
-        try:
-            state_dict = json.loads(state_json)
-            if "user_id" not in state_dict:
-                state_dict["user_id"] = user_id or thread_id
-            return ChatContext(**state_dict)
-        except json.JSONDecodeError:
-            logger.error("Failed to decode state for thread_id %s: %s", thread_id, state_json)
-            return ChatContext(
-                user_id=user_id or thread_id,
-                chat_id=thread_id,
-            )
-        except TypeError:
-            logger.error(
-                "State payload has unexpected shape for thread_id %s: %s",
-                thread_id,
-                state_json,
-            )
-            return ChatContext(
-                user_id=user_id or thread_id,
-                chat_id=thread_id,
-            )
+    async def get_context(
+        self,
+        user_id: str,
+        channel: Channel,
+    ) -> ChatContext | None:
+        """Retrieve a persisted chat context."""
+        result = await self.redis_client.get(self._context_key(user_id, channel))
+        context_json = cast(str | bytes | None, result)
 
-    async def save_chat_context(self, thread_id: str, context: ChatContext) -> None:
-        """Serialize and persist chat context in Redis for the given thread."""
-        context_json = context.model_dump_json()
+        if not context_json:
+            return None
 
         try:
-            await self.redis_client.set(self._state_key(thread_id), context_json)
-            logger.info("Saved chat context for thread_id %s", thread_id)
+            return ChatContext.model_validate_json(context_json)
+        except (json.JSONDecodeError, ValidationError, TypeError):
+            logger.exception(
+                "Failed to decode chat context for user_id %s and channel %s",
+                user_id,
+                channel,
+            )
+            return None
+
+    async def save_context(self, context: ChatContext) -> None:
+        """Persist chat context with expiration."""
+        try:
+            await self.redis_client.set(
+                self._context_key(context.user_id, context.channel),
+                context.model_dump_json(),
+                ex=self.context_ttl_seconds,
+            )
+            logger.info(
+                "Saved chat context for user_id %s and channel %s",
+                context.user_id,
+                context.channel,
+            )
         except redis.RedisError:
-            logger.exception("Failed to save state for thread_id %s", thread_id)
+            logger.exception(
+                "Failed to save chat context for user_id %s and channel %s",
+                context.user_id,
+                context.channel,
+            )
             raise
 
-    async def append_message_to_history(self, thread_id: str, message: Message) -> ChatContext:
-        """Persist a new message into the conversation history for a thread."""
-        context = await self.get_chat_context(thread_id, user_id=message.user_id)
+    async def update_context(
+        self,
+        message: Message,
+        state: str,
+    ) -> ChatContext:
+        """
+        Update current state and append the received message to history.
+
+        If context does not exist, creates a new one.
+        """
+        context = await self.get_context(
+            user_id=message.user_id,
+            channel=message.channel,
+        )
+
+        if context is None:
+            context = ChatContext(
+                user_id=message.user_id,
+                channel=message.channel,
+                state=state,
+            )
+        else:
+            context.state = state
+
         context.history.append(
             {
-                "origin": message.channel,
+                "origin": message.channel.value,
                 "content": message.content or "",
             }
         )
-        await self.save_chat_context(thread_id, context)
+
+        await self.save_context(context)
         return context
+    
+    async def delete_context(
+        self,
+        user_id: str,
+        channel: Channel,
+    ) -> bool:
+        """
+        Delete chat context from Redis.
+
+        Returns True if a key was deleted, False otherwise.
+        """
+        key = self._context_key(user_id, channel)
+
+        try:
+            result = await self.redis_client.delete(key)
+            # Redis retorna número de chaves removidas (0 ou 1 aqui)
+            return result == 1
+        except redis.RedisError:
+            logger.exception(
+                "Failed to delete chat context for user_id %s and channel %s",
+                user_id,
+                channel,
+            )
+            raise

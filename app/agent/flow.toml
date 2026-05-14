@@ -1,3 +1,4 @@
+
 [nodes.start]
 description = "Apresentação inicial e convite."
 message = """Boa tarde, tudo bem? Você atende pacientes online? Somos a Rede MetAMORfose, uma plataforma de telemedicina que conecta profissionais de saúde a pacientes de forma exclusiva e segura. Temos vagas abertas para cadastro profissional (plano pago, modelo Doctoralia), com envio de conexões com pacientes por e-mail. Você tem interesse em saber mais? Nosso site é orgmetamorfose.com.br
@@ -23,6 +24,7 @@ end = true
 
 [nodes.m2]
 description = "Explicação de valores e regras."
+actions = ["redis_create_professional_stage"]
 message = """Você define o valor da sua consulta, e o paciente paga diretamente a você.
 Você receberá o WhatsApp do paciente por e-mail e terá total liberdade para combinar agendamento, forma de pagamento e duração das consultas.
 
@@ -56,6 +58,7 @@ conditions = ["não", "nao", "no", "n"]
 
 [nodes.m3]
 description = "Pergunta sobre abordagem e especialização."
+actions = ["redis_update_professional_qualification"]
 message = "Qual é a sua abordagem teórica principal? Você possui especializações ou cursos complementares?"
 input = "..."
 
@@ -66,7 +69,8 @@ conditions = []
 
 [nodes.m4]
 description = "Disponibilidade e ferramenta de vídeo."
-message = "Em quais dias e horários costuma ter disponibilidade para atendimentos? Utiliza Google Meets, Zoom ou video chamada do Whatsapp para atendimentos online?"
+actions = ["redis_update_professional_video_tool"]
+message = "Utiliza Google Meets, Zoom ou video chamada do Whatsapp para atendimentos online?"
 buttons = ["Google Meets", "Zoom", "Whatsapp"]
 input = "..."
 
@@ -77,6 +81,7 @@ conditions = []
 
 [nodes.m5]
 description = "Validação de segurança."
+actions = ["redis_update_professional_council_registration", "redis_get_professional_stage_context"]
 message = "Obrigada pelas informações! Para mantermos a segurança e qualidade da Rede, precisamos validar seu registro profissional. Você possui CRP ativo? Pode me informar o número, por favor?"
 input = "..."
 
@@ -99,7 +104,7 @@ Termos e Contrato: orgmetamorfose.com.br/termos"""
 action = "Submitir CRP para validação e envio de materiais de apoio."
 
 [[nodes.m6.transitions]]
-target = "m7"
+target = "start"
 conditions = []
 
 
