@@ -7,6 +7,7 @@ from app.runners.whatsapp_runner import WhatsAppRunner
 
 
 @pytest.mark.asyncio
+@patch("app.runners.whatsapp_runner.SendMessageController")
 @patch("app.runners.whatsapp_runner.asyncio.create_task")
 @patch("app.runners.whatsapp_runner.uvicorn.Server")
 @patch("app.runners.whatsapp_runner.uvicorn.Config")
@@ -22,6 +23,7 @@ async def test_start_calls_dispatcher_and_creates_server_task(
     mock_uvicorn_config_cls: MagicMock,
     mock_uvicorn_server_cls: MagicMock,
     mock_create_task: MagicMock,
+    mock_send_controller_cls: MagicMock,
 ) -> None:
     ctx = MagicMock()
     outbound_queue = MagicMock()
@@ -71,6 +73,7 @@ async def test_start_calls_dispatcher_and_creates_server_task(
 
 
 @pytest.mark.asyncio
+@patch("app.runners.whatsapp_runner.SendMessageController")
 @patch("app.runners.whatsapp_runner.FastAPI")
 @patch("app.runners.whatsapp_runner.WhatsAppController")
 @patch("app.runners.whatsapp_runner.MessageDispatcherService")
@@ -80,6 +83,7 @@ async def test_stop_sets_server_exit_awaits_task_and_stops_dispatcher(
     mock_dispatcher_cls: MagicMock,
     mock_controller_cls: MagicMock,
     mock_fastapi_cls: MagicMock,
+    mock_send_controller_cls: MagicMock,
 ) -> None:
     ctx = MagicMock()
     outbound_queue = MagicMock()

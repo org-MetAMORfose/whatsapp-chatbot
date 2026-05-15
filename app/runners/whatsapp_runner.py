@@ -7,6 +7,7 @@ import app.config.settings as config
 from app.channel_adapters.whatsapp import WhatsAppAdapter
 from app.context import AppContext
 from app.controllers.health_controller import HealthController
+from app.controllers.send_message_controller import SendMessageController
 from app.controllers.whatsapp_controller import WhatsAppController
 from app.message_queue.message_queue import MessageQueue
 from app.repository.person_repository import PersonRepository
@@ -41,8 +42,10 @@ class WhatsAppRunner:
 
         controller = WhatsAppController(message_handler=message_handler)
         health_controller = HealthController()
+        send_message_controller = SendMessageController(dispatcher=self.dispatcher)
         self.app.include_router(controller.router)
         self.app.include_router(health_controller.router)
+        self.app.include_router(send_message_controller.router)
 
     async def start(self) -> None:
         await self.dispatcher.start()
