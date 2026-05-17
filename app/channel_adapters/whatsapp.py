@@ -5,13 +5,52 @@ import httpx
 import app.config.settings as config
 from app.context import AppContext
 from app.domain.enum.channels import Channel
-from app.domain.message import Message
+from app.domain.message import Message, MessageButton
 from app.interfaces.bot_adapter import BotAdapter
 
 logger = logging.getLogger(__name__)
 
 
+def _text_message(to: str, content: str) -> dict:
+    payload = {
+        "messaging_product": "whatsapp",
+        "to": to,
+        "type": "text",
+        "text": {
+            "body": content,
+        },
+    }
+
+    return payload
+
+
+def _button_message(to: str, content: str, buttons: list[MessageButton]) -> dict:
+    payload = {
+        "messaging_product": "whatsapp",
+        "to": to,
+        "type": "interactive",
+        "interactive": {
+            "type": "button",
+            "body": {
+                "text": content
+            },
+            "action": {
+                "buttons": [{
+                    "type": "reply",
+                    "reply": {
+                        "id": button["id"],
+                        "title": button["title"]
+                    }
+                } for button in buttons]
+            }
+        }
+    }
+
+    return payload
+
+
 class WhatsAppAdapter(BotAdapter):
+    version: str = "v25.0"
     channel: Channel = Channel.WHATSAPP
 
     def __init__(
@@ -23,7 +62,7 @@ class WhatsAppAdapter(BotAdapter):
         self.ctx = ctx
         self.access_token = access_token or config.WHATSAPP_ACCESS_TOKEN
         self.phone_number_id = phone_number_id or config.WHATSAPP_PHONE_NUMBER_ID
-        self.base_url = f"https://graph.facebook.com/v23.0/{self.phone_number_id}"
+        self.base_url = f"https://graph.facebook.com/{self.version}/{self.phone_number_id}"
 
     async def send_message(self, message: Message) -> None:
         if not message.chat_id:
@@ -41,14 +80,7 @@ class WhatsAppAdapter(BotAdapter):
             "Content-Type": "application/json",
         }
 
-        payload = {
-            "messaging_product": "whatsapp",
-            "to": message.chat_id,
-            "type": "text",
-            "text": {
-                "body": message.content,
-            },
-        }
+        payload = self._parse_message(message)
 
         try:
             async with httpx.AsyncClient(timeout=30.0) as client:
@@ -65,5 +97,12 @@ class WhatsAppAdapter(BotAdapter):
             )
             raise
         except Exception as e:
-            logger.error("Error sending WhatsApp message: %s", e, exc_info=True)
+            logger.error("Error sending WhatsApp message: %s",
+                         e, exc_info=True)
             raise
+
+    def _parse_message(self, msg: Message) -> dict:
+        if msg.buttons and len(msg.buttons) > 0:
+            return _button_message(msg.chat_id, msg.content, msg.buttons)
+
+        return _text_message(msg.chat_id, msg.content)

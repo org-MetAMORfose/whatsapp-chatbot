@@ -1,10 +1,16 @@
 """Defines the Message class representing a message in the chat."""
 
 from datetime import datetime
+from typing import TypedDict
 
 from pydantic import BaseModel
 
 from app.domain.enum.channels import Channel
+
+
+class MessageButton(TypedDict):
+    id: str
+    title: str
 
 
 class Message(BaseModel):
@@ -19,3 +25,4 @@ class Message(BaseModel):
 
     image: str | None = None
     document: str | None = None
+    buttons: list[MessageButton] | None = None
