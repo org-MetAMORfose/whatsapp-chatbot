@@ -67,7 +67,7 @@ class AgentWorker:
                     channel=message.channel,
                     chat_id=message.chat_id,
                     content=response_content,
-                    user_id="AGENT",
+                    user_id=message.user_id,
                     created_at=None,
                     message_id=0,
                 )
