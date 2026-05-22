@@ -6,7 +6,7 @@ services:
     container_name: chatbot-redis
     restart: unless-stopped
     ports:
-      - "6379:6379"
+      - "${REDIS_PORT}:6379"
     environment:
       REDIS_PASSWORD: ${REDIS_PASSWORD:?REDIS_PASSWORD is required}
     volumes:
@@ -65,6 +65,8 @@ services:
         condition: service_healthy
       postgres:
         condition: service_healthy
+    environment:
+      REDIS_PORT: 6379
     ports:
       - "8000:8000"
     networks:
