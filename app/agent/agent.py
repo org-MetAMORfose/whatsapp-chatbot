@@ -119,12 +119,12 @@ class AgentWorker:
         context = await self.chat_repository.get_context(user_id=message.user_id,
                                                           channel=message.channel)
         current_state = context.state if context else None
-        logger.debug("Current state from Redis: {current_state}")
-        logger.debug("Available flow states: {list(self.flow.keys())}")
+        logger.debug(f"Current state from Redis: {current_state}")
+        logger.debug(f"Available flow states: {list(self.flow.keys())}")
 
         if current_state is None:
             current_state = "start"
-            logger.debug("Starting flow with state: {current_state}")
+            logger.debug(f"Starting flow with state: {current_state}")
             node = self.flow.get(current_state)
             if node and not node.get("end"):
                 await self.chat_repository.create_context(
