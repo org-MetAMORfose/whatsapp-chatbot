@@ -13,6 +13,7 @@ from app.message_queue.message_queue import MessageQueue
 from app.repository.person_repository import PersonRepository
 from app.services.dispatcher_service import MessageDispatcherService
 from app.services.receiver_service import MessageReceiverService
+from app.services.s3_media_service import S3MediaService
 
 
 class WhatsAppRunner:
@@ -40,7 +41,15 @@ class WhatsAppRunner:
         self.server: uvicorn.Server | None = None
         self.server_task: asyncio.Task[None] | None = None
 
-        controller = WhatsAppController(message_handler=message_handler)
+        s3_service = S3MediaService(
+            whatsapp_token=config.WHATSAPP_ACCESS_TOKEN,
+            bucket=config.S3_BUCKET_NAME,
+            region=config.AWS_REGION,
+            aws_access_key_id=config.AWS_ACCESS_KEY_ID,
+            aws_secret_access_key=config.AWS_SECRET_ACCESS_KEY,
+        ) if config.S3_BUCKET_NAME else None
+
+        controller = WhatsAppController(message_handler=message_handler, s3_service=s3_service)
         health_controller = HealthController()
         send_message_controller = SendMessageController(dispatcher=self.dispatcher)
         self.app.include_router(controller.router)
