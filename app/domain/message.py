@@ -9,6 +9,8 @@ from app.domain.enum.channels import Channel
 
 
 class MessageButton(TypedDict):
+    """Represents a button in a message."""
+
     id: str
     title: str
 
@@ -22,6 +24,7 @@ class Message(BaseModel):
     user_id: str
     chat_id: str
     content: str | None
+    pressed: int | None = None
 
     image: str | None = None
     document: str | None = None

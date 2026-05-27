@@ -47,7 +47,7 @@ class WhatsAppController:
     async def receive_webhook(self, request: Request) -> dict[str, str]:
         data = await request.json()
 
-        logger.debug("Received WhatsApp webhook payload", data)
+        logger.debug("Received WhatsApp webhook payload: %s", data)
 
         messages = self._extract_messages(data)
 

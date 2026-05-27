@@ -10,7 +10,11 @@ class MessageQueue:
 
     redis_client: Redis  # type: ignore[type-arg]
 
-    def __init__(self, redis_client: Redis, queue_name: str = "agent-workers") -> None:  # type: ignore[type-arg]
+    def __init__(
+            self,
+            redis_client: Redis,  # type: ignore[type-arg]
+            queue_name: str = "agent-workers",
+    ) -> None:
         self.redis_client = redis_client
         self.queue_name = queue_name
 
