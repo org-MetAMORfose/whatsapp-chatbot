@@ -2,6 +2,7 @@ import asyncio
 import logging
 import unicodedata
 from dataclasses import dataclass
+from uuid import uuid4
 
 from app.agent.action_executor import ActionExecutor
 from app.agent.chat_flow import ChatFlow, Node
@@ -82,8 +83,8 @@ class AgentWorker:
 
                 buttons = None
                 if response.buttons:
-                    buttons = [MessageButton({"id": str(idx), "title": btn})
-                               for idx, btn in enumerate(response.buttons)]
+                    buttons = [MessageButton({"id": str(uuid4()), "title": btn})
+                               for btn in response.buttons]
 
                 response_message = Message(
                     channel=message.channel,

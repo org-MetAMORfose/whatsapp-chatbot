@@ -26,6 +26,7 @@ end = true
 [nodes.m2]
 description = "Explicação de valores e regras."
 actions = ["redis_create_professional_stage"]
+buttons = ["Sim", "Não"]
 message = """Você define o valor da sua consulta, e o paciente paga diretamente a você.
 Você receberá o WhatsApp do paciente por e-mail e terá total liberdade para combinar agendamento, forma de pagamento e duração das consultas.
 
