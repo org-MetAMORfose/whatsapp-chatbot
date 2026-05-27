@@ -64,7 +64,9 @@ class AgentWorker:
                 response_content = await self._process_message(message)
 
                 if response_content is None:
-                    logger.info(f"Message {message.message_id} produced no response, skipping outbound publish")
+                    logger.info(
+                        f"Message {message.message_id} produced no response, "
+                        f"skipping outbound publish")
                     continue
 
                 response = Message(
@@ -111,7 +113,7 @@ class AgentWorker:
             return "Mensagem vazia recebida."
 
         content = message.content.strip().lower()
-        logger.debug("Processing message content: {content} for chat {chat_id}")
+        logger.debug(f"Processing message content: {content} for chat {message.chat_id}")
 
         # Use a different key for flow state to avoid conflicts with chat context
         context = await self.chat_repository.get_context(user_id=message.user_id,
