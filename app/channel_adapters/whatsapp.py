@@ -30,10 +30,6 @@ class WhatsAppAdapter(BotAdapter):
             logger.warning("Cannot send WhatsApp message without chat_id")
             return
 
-        if not message.content:
-            logger.warning("Cannot send WhatsApp message without content")
-            return
-
         url = f"{self.base_url}/messages"
 
         headers = {
@@ -41,14 +37,34 @@ class WhatsAppAdapter(BotAdapter):
             "Content-Type": "application/json",
         }
 
-        payload = {
-            "messaging_product": "whatsapp",
-            "to": message.chat_id,
-            "type": "text",
-            "text": {
-                "body": message.content,
-            },
-        }
+        if message.image:
+            payload = {
+                "messaging_product": "whatsapp",
+                "to": message.chat_id,
+                "type": "image",
+                "image": {"link": message.image, "caption": message.content or ""},
+            }
+        elif message.document:
+            payload = {
+                "messaging_product": "whatsapp",
+                "to": message.chat_id,
+                "type": "document",
+                "document": {
+                    "link": message.document,
+                    "filename": "document",
+                    "caption": message.content or "",
+                },
+            }
+        elif message.content:
+            payload = {
+                "messaging_product": "whatsapp",
+                "to": message.chat_id,
+                "type": "text",
+                "text": {"body": message.content},
+            }
+        else:
+            logger.warning("Cannot send WhatsApp message without content, image, or document")
+            return
 
         try:
             async with httpx.AsyncClient(timeout=30.0) as client:
