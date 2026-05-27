@@ -63,6 +63,10 @@ class AgentWorker:
                 # Process the message here
                 response_content = await self._process_message(message)
 
+                if response_content is None:
+                    logger.info(f"Message {message.message_id} produced no response, skipping outbound publish")
+                    continue
+
                 response = Message(
                     channel=message.channel,
                     chat_id=message.chat_id,
@@ -92,13 +96,17 @@ class AgentWorker:
                 pass
             logger.info("Agent worker stopped gracefully.")
 
-    async def _process_message(self, message: Message) -> str:
+    async def _process_message(self, message: Message) -> str | None:
         """Process a message from the queue.
 
         Args:
             message: The QueuedMessage to process
         """
         if not message.content:
+            if message.image or message.document:
+                media_type = "imagem" if message.image else "documento"
+                logger.info(f"Received {media_type} message without text from {message.user_id}")
+                return None
             logger.warning(f"Received message with no content: {message}")
             return "Mensagem vazia recebida."
 
