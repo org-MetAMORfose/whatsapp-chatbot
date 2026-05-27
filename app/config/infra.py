@@ -34,7 +34,8 @@ def create_redis() -> Redis[str]:
 def create_db_engine() -> Engine:
     db = create_engine(config.DATABASE_URL)
 
-    safe_url = make_url(config.DATABASE_URL).render_as_string(hide_password=True)
+    safe_url = make_url(config.DATABASE_URL).render_as_string(
+        hide_password=True)
     logger.info("Created database engine with URL=%s", safe_url)
 
     return db

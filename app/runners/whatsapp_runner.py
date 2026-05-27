@@ -42,7 +42,8 @@ class WhatsAppRunner:
 
         controller = WhatsAppController(message_handler=message_handler)
         health_controller = HealthController()
-        send_message_controller = SendMessageController(dispatcher=self.dispatcher)
+        send_message_controller = SendMessageController(
+            dispatcher=self.dispatcher)
         self.app.include_router(controller.router)
         self.app.include_router(health_controller.router)
         self.app.include_router(send_message_controller.router)
@@ -52,6 +53,7 @@ class WhatsAppRunner:
 
         uvicorn_config = uvicorn.Config(
             self.app,
+            port=config.WHATSAPP_WEBHOOK_PORT,
             host="0.0.0.0",  # noqa: S104
             log_level=config.LOG_LEVEL.lower(),
         )

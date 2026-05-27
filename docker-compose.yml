@@ -17,7 +17,7 @@ services:
         "--appendonly",
         "yes",
         "--requirepass",
-        "${REDIS_PASSWORD:?REDIS_PASSWORD is required}"
+        "${REDIS_PASSWORD:?REDIS_PASSWORD is required}",
       ]
     healthcheck:
       test:
@@ -26,7 +26,7 @@ services:
           "redis-cli",
           "-a",
           "${REDIS_PASSWORD:?REDIS_PASSWORD is required}",
-          "ping"
+          "ping",
         ]
       interval: 10s
       timeout: 5s
@@ -59,14 +59,12 @@ services:
     build: .
     container_name: whatsapp-chatbot
     restart: unless-stopped
-    env_file: .env
+    env_file: .env.docker
     depends_on:
       redis:
         condition: service_healthy
       postgres:
         condition: service_healthy
-    environment:
-      REDIS_PORT: 6379
     ports:
       - "8000:8000"
     networks:
