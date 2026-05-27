@@ -9,13 +9,19 @@ import app.config.settings as config
 from app.domain.enum.channels import Channel
 from app.domain.message import Message
 from app.services.receiver_service import MessageReceiverService
+from app.services.s3_media_service import S3MediaService
 
 logger = logging.getLogger(__name__)
 
 
 class WhatsAppController:
-    def __init__(self, message_handler: MessageReceiverService) -> None:
+    def __init__(
+        self,
+        message_handler: MessageReceiverService,
+        s3_service: S3MediaService | None = None,
+    ) -> None:
         self.message_handler = message_handler
+        self.s3_service = s3_service
         self.router = APIRouter()
 
         self.router.add_api_route(
@@ -50,9 +56,29 @@ class WhatsAppController:
         messages = self._extract_messages(data)
 
         for message in messages:
+            message = await self._resolve_media(message)
             await self.message_handler.handle(message)
 
         return {"status": "ok"}
+
+    async def _resolve_media(self, message: Message) -> Message:
+        if self.s3_service is None:
+            return message
+
+        updates: dict[str, str] = {}
+        try:
+            if message.image is not None:
+                updates["image"] = await self.s3_service.upload_from_whatsapp(
+                    message.image, "image"
+                )
+            if message.document is not None:
+                updates["document"] = await self.s3_service.upload_from_whatsapp(
+                    message.document, "document"
+                )
+        except Exception:
+            logger.exception("Failed to upload media to S3 for message %s", message.message_id)
+
+        return message.model_copy(update=updates) if updates else message
 
     def _extract_messages(self, data: dict[str, Any]) -> list[Message]:
         extracted_messages: list[Message] = []
