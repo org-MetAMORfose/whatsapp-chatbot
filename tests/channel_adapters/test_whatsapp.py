@@ -45,7 +45,8 @@ async def test_send_message_sends_correct_request(
     # Executa
     await adapter.send_message(message)
 
-    expected_url = "https://graph.facebook.com/v23.0/123456/messages"
+    version = adapter.version
+    expected_url = f"https://graph.facebook.com/{version}/123456/messages"
 
     expected_headers = {
         "Authorization": "Bearer fake-token",

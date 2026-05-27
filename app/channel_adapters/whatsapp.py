@@ -1,4 +1,5 @@
 import logging
+from typing import Any
 
 import httpx
 
@@ -11,7 +12,7 @@ from app.interfaces.bot_adapter import BotAdapter
 logger = logging.getLogger(__name__)
 
 
-def _text_message(to: str, content: str) -> dict:
+def _text_message(to: str, content: str) -> dict[str, Any]:
     payload = {
         "messaging_product": "whatsapp",
         "to": to,
@@ -24,7 +25,7 @@ def _text_message(to: str, content: str) -> dict:
     return payload
 
 
-def _button_message(to: str, content: str, buttons: list[MessageButton]) -> dict:
+def _button_message(to: str, content: str, buttons: list[MessageButton]) -> dict[str, Any]:
     payload = {
         "messaging_product": "whatsapp",
         "to": to,
@@ -101,8 +102,8 @@ class WhatsAppAdapter(BotAdapter):
                          e, exc_info=True)
             raise
 
-    def _parse_message(self, msg: Message) -> dict:
+    def _parse_message(self, msg: Message) -> dict[str, Any]:
         if msg.buttons and len(msg.buttons) > 0:
-            return _button_message(msg.chat_id, msg.content, msg.buttons)
+            return _button_message(msg.chat_id, msg.content or "", msg.buttons)
 
-        return _text_message(msg.chat_id, msg.content)
+        return _text_message(msg.chat_id, msg.content or "")
