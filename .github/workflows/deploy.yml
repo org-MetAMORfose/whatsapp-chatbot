@@ -62,6 +62,8 @@ jobs:
         uses: appleboy/ssh-action@v1.0.3
 
         env:
+          S3_BUCKET_NAME: ${{ secrets.S3_BUCKET_NAME }}
+
           LIGHTSAIL_APP_PATH: ${{ secrets.LIGHTSAIL_APP_PATH }}
 
           DATABASE_URL: ${{ secrets.DATABASE_URL }}
@@ -101,6 +103,8 @@ jobs:
             cd "$LIGHTSAIL_APP_PATH"
 
             cat > .env << EOF
+            S3_BUCKET_NAME=$S3_BUCKET_NAME
+
             DATABASE_URL=$DATABASE_URL
 
             LANGSMITH_API_KEY=$LANGSMITH_API_KEY
