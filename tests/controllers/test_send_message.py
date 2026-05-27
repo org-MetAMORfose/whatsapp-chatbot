@@ -60,19 +60,18 @@ def test_send_message_endpoint_returns_200_when_only_phone_number_is_provided() 
     assert response.json() == {"status": "ok"}
 
 
-def test_send_message_endpoint_returns_422_when_content_is_missing() -> None:
+def test_send_message_endpoint_returns_422_when_phone_number_is_missing() -> None:
     mock_dispatcher = MagicMock()
-    # Define o método dispatch como assíncrono
-    mock_dispatcher.dispatch = AsyncMock() 
 
     app = FastAPI()
     controller = SendMessageController(dispatcher=mock_dispatcher)
     app.include_router(controller.router)
 
     client = TestClient(app)
-    response = client.post("/send", json={"phone_number": "5511999999999"})
+    response = client.post("/send", json={"content": "Hello"})
 
     assert response.status_code == 422
+
 
 def test_generate_message_id_returns_unique_ints() -> None:
     controller = SendMessageController(dispatcher=MagicMock())
