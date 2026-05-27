@@ -45,8 +45,9 @@ def test_send_message_endpoint_returns_200_on_valid_body() -> None:
     assert response.json() == {"status": "ok"}
 
 
-def test_send_message_endpoint_returns_422_when_content_is_missing() -> None:
+def test_send_message_endpoint_returns_200_when_only_phone_number_is_provided() -> None:
     mock_dispatcher = MagicMock()
+    mock_dispatcher.dispatch = AsyncMock()
 
     app = FastAPI()
     controller = SendMessageController(dispatcher=mock_dispatcher)
@@ -54,6 +55,20 @@ def test_send_message_endpoint_returns_422_when_content_is_missing() -> None:
 
     client = TestClient(app)
     response = client.post("/send", json={"phone_number": "5511999999999"})
+
+    assert response.status_code == 200
+    assert response.json() == {"status": "ok"}
+
+
+def test_send_message_endpoint_returns_422_when_phone_number_is_missing() -> None:
+    mock_dispatcher = MagicMock()
+
+    app = FastAPI()
+    controller = SendMessageController(dispatcher=mock_dispatcher)
+    app.include_router(controller.router)
+
+    client = TestClient(app)
+    response = client.post("/send", json={"content": "Hello"})
 
     assert response.status_code == 422
 
