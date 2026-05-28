@@ -38,7 +38,8 @@ class WhatsAppController:
     async def verify_webhook(
         self,
         hub_mode: str | None = Query(default=None, alias="hub.mode"),
-        hub_verify_token: str | None = Query(default=None, alias="hub.verify_token"),
+        hub_verify_token: str | None = Query(
+            default=None, alias="hub.verify_token"),
         hub_challenge: str | None = Query(default=None, alias="hub.challenge"),
     ) -> int:
         if (
@@ -52,6 +53,8 @@ class WhatsAppController:
 
     async def receive_webhook(self, request: Request) -> dict[str, str]:
         data = await request.json()
+
+        logger.debug("Received WhatsApp webhook payload: %s", data)
 
         messages = self._extract_messages(data)
 
@@ -97,7 +100,8 @@ class WhatsAppController:
                             extracted_messages.append(parsed)
 
         except Exception as e:
-            logger.error("Error parsing WhatsApp webhook payload: %s", e, exc_info=True)
+            logger.error(
+                "Error parsing WhatsApp webhook payload: %s", e, exc_info=True)
 
         return extracted_messages
 
@@ -119,6 +123,19 @@ class WhatsAppController:
             if message_type == "text":
                 content = msg.get("text", {}).get("body")
 
+            elif message_type == "button":
+                content = msg.get("button", {}).get("text")
+
+            elif message_type == "interactive":
+                interactive = msg.get("interactive", {})
+                if interactive.get("type") == "button_reply":
+                    content = interactive.get("button_reply", {}).get("title")
+                else:
+                    logger.info(
+                        "Ignoring unsupported WhatsApp interactive type: %s",
+                        interactive.get("type"))
+                    return None
+
             elif message_type == "image":
                 image = msg.get("image", {}).get("id")
 
@@ -126,7 +143,8 @@ class WhatsAppController:
                 document = msg.get("document", {}).get("id")
 
             else:
-                logger.info("Ignoring unsupported WhatsApp message type: %s", message_type)
+                logger.info(
+                    "Ignoring unsupported WhatsApp message type: %s", message_type)
                 return None
 
             created_at = None
@@ -145,7 +163,8 @@ class WhatsAppController:
             )
 
         except Exception as e:
-            logger.error("Error parsing WhatsApp message: %s", e, exc_info=True)
+            logger.error("Error parsing WhatsApp message: %s",
+                         e, exc_info=True)
             return None
 
     def _to_int_message_id(self, raw_message_id: str) -> int:

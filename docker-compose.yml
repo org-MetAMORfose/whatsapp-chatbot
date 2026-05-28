@@ -6,7 +6,7 @@ services:
     container_name: chatbot-redis
     restart: unless-stopped
     ports:
-      - "6379:6379"
+      - "${REDIS_PORT}:6379"
     environment:
       REDIS_PASSWORD: ${REDIS_PASSWORD:?REDIS_PASSWORD is required}
     volumes:
@@ -17,7 +17,7 @@ services:
         "--appendonly",
         "yes",
         "--requirepass",
-        "${REDIS_PASSWORD:?REDIS_PASSWORD is required}"
+        "${REDIS_PASSWORD:?REDIS_PASSWORD is required}",
       ]
     healthcheck:
       test:
@@ -26,7 +26,7 @@ services:
           "redis-cli",
           "-a",
           "${REDIS_PASSWORD:?REDIS_PASSWORD is required}",
-          "ping"
+          "ping",
         ]
       interval: 10s
       timeout: 5s

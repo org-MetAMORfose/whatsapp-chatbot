@@ -75,3 +75,58 @@ def test_parse_message_text_returns_expected_message() -> None:
     assert parsed.created_at == datetime.fromtimestamp(1710000000, tz=UTC)
     assert isinstance(parsed.message_id, int)
     assert parsed.message_id == controller._to_int_message_id("wamid.abc123")
+
+
+def test_parse_message_button_sets_button_text_as_content() -> None:
+    controller = WhatsAppController(message_handler=MagicMock())
+
+    raw_message = {
+        "id": "wamid.button123",
+        "from": "5511999999999",
+        "timestamp": "1710000001",
+        "type": "button",
+        "button": {"payload": "btn_1", "text": "Quero continuar"},
+    }
+
+    parsed = controller._parse_message(raw_message)
+
+    assert parsed is not None
+    assert parsed.channel == Channel.WHATSAPP
+    assert parsed.user_id == "5511999999999"
+    assert parsed.chat_id == "5511999999999"
+    assert parsed.content == "Quero continuar"
+    assert parsed.image is None
+    assert parsed.document is None
+    assert parsed.created_at == datetime.fromtimestamp(1710000001, tz=UTC)
+    assert isinstance(parsed.message_id, int)
+    assert parsed.message_id == controller._to_int_message_id(
+        "wamid.button123")
+
+
+def test_parse_message_interactive_button_reply_sets_title_as_content() -> None:
+    controller = WhatsAppController(message_handler=MagicMock())
+
+    raw_message = {
+        "id": "wamid.interactive123",
+        "from": "5511999999999",
+        "timestamp": "1710000002",
+        "type": "interactive",
+        "interactive": {
+            "type": "button_reply",
+            "button_reply": {"id": "btn_2", "title": "Falar com humano"},
+        },
+    }
+
+    parsed = controller._parse_message(raw_message)
+
+    assert parsed is not None
+    assert parsed.channel == Channel.WHATSAPP
+    assert parsed.user_id == "5511999999999"
+    assert parsed.chat_id == "5511999999999"
+    assert parsed.content == "Falar com humano"
+    assert parsed.image is None
+    assert parsed.document is None
+    assert parsed.created_at == datetime.fromtimestamp(1710000002, tz=UTC)
+    assert isinstance(parsed.message_id, int)
+    assert parsed.message_id == controller._to_int_message_id(
+        "wamid.interactive123")

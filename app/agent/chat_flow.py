@@ -23,7 +23,8 @@ class Transition(BaseModel):
             return True
 
         normalized_content = _normalize_text(content)
-        normalized_conditions = {_normalize_text(condition) for condition in self.conditions}
+        normalized_conditions = {_normalize_text(
+            condition) for condition in self.conditions}
         return normalized_content in normalized_conditions
 
 
@@ -34,6 +35,7 @@ class Node(BaseModel):
     end: bool = False
     actions: list[str] = Field(default_factory=list)
     transitions: list[Transition] = Field(default_factory=list)
+    buttons: list[str] | None = None
 
     def get(self, key: str, default: Any = None) -> Any:
         return getattr(self, key, default)
@@ -74,7 +76,8 @@ class ChatFlow(BaseModel):
     def from_data(cls, data: Any) -> "ChatFlow":
         """Validate and normalize the raw JSON data into a ChatFlow."""
         if not isinstance(data, dict):
-            raise ValueError("Flow JSON must be an object with a 'nodes' property.")
+            raise ValueError(
+                "Flow JSON must be an object with a 'nodes' property.")
 
         nodes_data = data.get("nodes")
         if not isinstance(nodes_data, dict):
@@ -84,13 +87,15 @@ class ChatFlow(BaseModel):
 
         for node_id, node_data in nodes_data.items():
             if not isinstance(node_data, dict):
-                raise ValueError(f"Flow node '{node_id}' must be a JSON object.")
+                raise ValueError(
+                    f"Flow node '{node_id}' must be a JSON object.")
 
             try:
                 nodes[node_id] = Node(id=node_id, **node_data)
             except Exception as err:
                 logger.error(f"Error validating flow node '{node_id}': {err}")
-                raise ValueError(f"Invalid flow node '{node_id}': {err}") from err
+                raise ValueError(
+                    f"Invalid flow node '{node_id}': {err}") from err
 
         if "start" not in nodes:
             raise ValueError("Flow JSON must contain a 'start' node.")

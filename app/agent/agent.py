@@ -1,10 +1,13 @@
 import asyncio
 import logging
+import unicodedata
+from dataclasses import dataclass
+from uuid import uuid4
 
 from app.agent.action_executor import ActionExecutor
-from app.agent.chat_flow import ChatFlow
+from app.agent.chat_flow import ChatFlow, Node
 from app.context import AppContext
-from app.domain.message import Message
+from app.domain.message import Message, MessageButton
 from app.message_queue import MessageQueue
 from app.repository.professional_repository import ProfessionalRepository
 from app.repository.professional_stage_repository import ProfessionalStageRepository
@@ -13,12 +16,27 @@ from app.repository.redis_repository import ChatRepository
 logger = logging.getLogger(__name__)
 
 
+@dataclass
+class Response:
+    """Represents a response from the agent after processing a message."""
+
+    content: str
+    buttons: list[str] | None = None
+
+
 class AgentWorker:
+    """Agent worker that processes messages from a queue using a chat flow.
+
+    Manages message processing, state transitions, and action execution for the chatbot.
+    """
+
     ctx: AppContext
     inbound_queue: MessageQueue
     outbound_queue: MessageQueue
     flow: ChatFlow
     _task: asyncio.Task[None] | None
+    chat_repository: ChatRepository
+    action_executor: ActionExecutor
 
     def __init__(
         self,
@@ -34,7 +52,7 @@ class AgentWorker:
         self.outbound_queue = outbound
         self.flow = ChatFlow.from_file()
         self.chat_repository = chat_repository
-        professional_repository = professional_repository
+        self.professional_repository = professional_repository
         self.action_executor = ActionExecutor(professional_stage_repository)
 
     async def start(
@@ -61,31 +79,32 @@ class AgentWorker:
                     continue
 
                 # Process the message here
-                response_content = await self._process_message(message)
+                response = await self._process_message(message)
 
-                if response_content is None:
-                    logger.info(
-                        f"Message {message.message_id} produced no response, "
-                        f"skipping outbound publish")
-                    continue
+                buttons = None
+                if response.buttons:
+                    buttons = [MessageButton({"id": str(uuid4()), "title": btn})
+                               for btn in response.buttons]
 
-                response = Message(
+                response_message = Message(
                     channel=message.channel,
                     chat_id=message.chat_id,
-                    content=response_content,
+                    content=response.content,
+                    buttons=buttons,
                     user_id=message.user_id,
                     created_at=None,
                     message_id=0,
                 )
 
-                logger.info(f"Message {message.message_id} processed successfully")
+                logger.info(
+                    "Message %s processed successfully", message.message_id)
 
-                await self.outbound_queue.publish(message=response)
+                await self.outbound_queue.publish(message=response_message)
 
             except asyncio.CancelledError:
                 break
             except Exception as e:
-                logger.error(f"Error processing message: {e}", exc_info=True)
+                logger.error("Error processing message: %s", e, exc_info=True)
         logger.info("Agent worker shutting down...")
 
     async def stop(self) -> None:
@@ -98,26 +117,39 @@ class AgentWorker:
                 pass
             logger.info("Agent worker stopped gracefully.")
 
-    async def _process_message(self, message: Message) -> str | None:
+    async def _process_message(self, message: Message) -> Response:
         """Process a message from the queue.
 
         Args:
             message: The QueuedMessage to process
         """
+        if message.image or message.document:
+            media_type = "imagem" if message.image else "documento"
+
+            logger.info(
+                "Received %s message from %s",
+                media_type,
+                message.user_id,
+            )
+            return Response(content=f"Recebi sua {media_type}, obrigado!")
+
         if not message.content:
-            if message.image or message.document:
-                media_type = "imagem" if message.image else "documento"
-                logger.info(f"Received {media_type} message without text from {message.user_id}")
-                return None
-            logger.warning(f"Received message with no content: {message}")
-            return "Mensagem vazia recebida."
+            logger.warning(
+                "Received message with no content: %s",
+                message,
+            )
+            return Response(content="Mensagem vazia recebida.")
 
-        content = message.content.strip().lower()
-        logger.debug(f"Processing message content: {content} for chat {message.chat_id}")
+        content = normalize_text(message.content)
 
+        logger.debug(
+            "Processing message content: %s for chat %s",
+            content,
+            message.chat_id,
+        )
         # Use a different key for flow state to avoid conflicts with chat context
-        context = await self.chat_repository.get_context(user_id=message.user_id,
-                                                          channel=message.channel)
+        context = await self.chat_repository.get_context(
+            user_id=message.user_id, channel=message.channel)
         current_state = context.state if context else None
         logger.debug(f"Current state from Redis: {current_state}")
         logger.debug(f"Available flow states: {list(self.flow.keys())}")
@@ -128,44 +160,77 @@ class AgentWorker:
             node = self.flow.get(current_state)
             if node and not node.get("end"):
                 await self.chat_repository.create_context(
-                     user_id=message.user_id, channel=message.channel, state=current_state)
-                logger.debug("Set redis flow_state to: start")
-                return str(node.message)
+                    user_id=message.user_id, channel=message.channel, state=current_state)
+                logger.debug("Set redis flow_state to: %s", current_state)
+
+                return _response_from_node(node)
             else:
-                return "Erro ao iniciar o fluxo."
+                return Response(content="Erro ao iniciar o fluxo.")
 
         # Continue the flow
         node = self.flow.get(current_state)
-        logger.debug("Node for state {current_state}: {node}")
+        logger.debug("Node for state %s: %s", current_state, node)
         if not node:
-            logger.error(f"No node found for state: {current_state}")
-            return "Erro no fluxo."
+            logger.error("No node found for state: %s", current_state)
+            return Response(content="Erro no fluxo. estado desconhecido.")
 
         if node.get("end"):
             await self.chat_repository.delete_context(user_id=message.user_id,
-                                                       channel=message.channel)
-            return str(node.message)
+                                                      channel=message.channel)
+            return Response(content=str(node.message))
 
         func_output = await self.action_executor.run(node, message)
-        logger.info(f"Action executor output: {node.actions} returned {func_output}")
+        logger.info(
+            "Action executor output: %s returned %s", node.actions, func_output)
         transition = node.next_transition(content)
         if transition is None:
-            logger.error(f"Flow node {current_state} has no transition.")
-            return "Erro no fluxo."
+            logger.error("Flow node %s has no transition.", current_state)
+            return Response(content="Erro no fluxo. devido a transição inválida.")
 
         if transition.target:
             next_node = self.flow.get(transition.target)
-            logger.debug("Next node: {next_node}")
+            logger.debug("Next node: %s", next_node)
             if next_node:
                 if next_node.get("end"):
                     await self.chat_repository.delete_context(user_id=message.user_id,
-                                                               channel=message.channel)
+                                                              channel=message.channel)
                 else:
                     await self.chat_repository.update_context(message, state=transition.target)
-                logger.info(func_output + str(next_node.message))
-                return func_output + str(next_node.message)
+                logger.info("%s%s", func_output, str(next_node.message))
+
+                logger.debug("Next node buttons: %s", next_node.buttons)
+
+                content = f"{func_output}{next_node.message}"
+                response = Response(content=content, buttons=next_node.buttons)
+
+                return response
             else:
-                logger.error(f"No node found for next_state: {transition.target}")
-                return "Erro no próximo passo."
+                logger.error(
+                    "No node found for next_state: %s", transition.target)
+                return Response(content="Erro no próximo passo.")
         else:
-            return "Fim do fluxo."
+            return Response(content="Fim do fluxo.")
+
+
+def remove_accents(input_str: str) -> str:
+    """Remove accents from a string using Unicode normalization.
+
+    Args:
+        input_str: The string to remove accents from.
+
+    Returns:
+        A string with accents removed.
+    """
+    # Normalize to NFD (Decomposition)
+    nfkd_form = unicodedata.normalize("NFKD", input_str)
+    # Filter out characters that are combining marks (Mn category)
+    return "".join([c for c in nfkd_form if not unicodedata.combining(c)])
+
+
+def normalize_text(text: str) -> str:
+    """Normalize text by stripping whitespace, converting to lowercase, and removing accents."""
+    return remove_accents(text.strip().lower())
+
+
+def _response_from_node(node: Node) -> Response:
+    return Response(content=str(node.message), buttons=node.buttons)
