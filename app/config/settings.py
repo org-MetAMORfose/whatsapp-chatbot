@@ -44,3 +44,8 @@ USE_TELEGRAM = __get_bool_env_variable("USE_TELEGRAM", "0")
 USE_WHATSAPP = __get_bool_env_variable("USE_WHATSAPP", "0")
 
 DATABASE_URL = __get_env_variable("DATABASE_URL", "sqlite:///app.db")
+
+AWS_ACCESS_KEY_ID = __get_env_variable("AWS_ACCESS_KEY_ID", "")
+AWS_SECRET_ACCESS_KEY = __get_env_variable("AWS_SECRET_ACCESS_KEY", "")
+AWS_REGION = __get_env_variable("AWS_REGION", "us-east-1")
+S3_BUCKET_NAME = __get_env_variable("S3_BUCKET_NAME", "")

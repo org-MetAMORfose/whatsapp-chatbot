@@ -91,7 +91,7 @@ class AgentWorker:
                     chat_id=message.chat_id,
                     content=response.content,
                     buttons=buttons,
-                    user_id="AGENT",
+                    user_id=message.user_id,
                     created_at=None,
                     message_id=0,
                 )
@@ -123,24 +123,40 @@ class AgentWorker:
         Args:
             message: The QueuedMessage to process
         """
+        if message.image or message.document:
+            media_type = "imagem" if message.image else "documento"
+
+            logger.info(
+                "Received %s message from %s",
+                media_type,
+                message.user_id,
+            )
+            return Response(content=f"Recebi sua {media_type}, obrigado!")
+
         if not message.content:
-            logger.warning("Received message with no content: %s", message)
+            logger.warning(
+                "Received message with no content: %s",
+                message,
+            )
             return Response(content="Mensagem vazia recebida.")
 
         content = normalize_text(message.content)
-        logger.debug(
-            "Processing message content: %s for chat %s", content, message.chat_id)
 
+        logger.debug(
+            "Processing message content: %s for chat %s",
+            content,
+            message.chat_id,
+        )
         # Use a different key for flow state to avoid conflicts with chat context
         context = await self.chat_repository.get_context(
             user_id=message.user_id, channel=message.channel)
         current_state = context.state if context else None
-        logger.debug("Current state from Redis: %s", current_state)
-        logger.debug("Available flow states: %s", list(self.flow.keys()))
+        logger.debug(f"Current state from Redis: {current_state}")
+        logger.debug(f"Available flow states: {list(self.flow.keys())}")
 
         if current_state is None:
             current_state = "start"
-            logger.debug("Starting flow with state: %s", current_state)
+            logger.debug(f"Starting flow with state: {current_state}")
             node = self.flow.get(current_state)
             if node and not node.get("end"):
                 await self.chat_repository.create_context(

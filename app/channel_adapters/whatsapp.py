@@ -25,8 +25,9 @@ def _text_message(to: str, content: str) -> dict[str, Any]:
     return payload
 
 
-def _button_message(to: str, content: str, buttons: list[MessageButton]) -> dict[str, Any]:
-    payload = {
+def _button_message(to: str, content: str, buttons: list[MessageButton],
+                     image_url: str | None = None) -> dict[str, Any]:
+    payload: dict[str, Any] = {
         "messaging_product": "whatsapp",
         "to": to,
         "type": "interactive",
@@ -45,6 +46,40 @@ def _button_message(to: str, content: str, buttons: list[MessageButton]) -> dict
                 } for button in buttons]
             }
         }
+    }
+
+    if image_url:
+        payload["interactive"]["header"] = {
+            "type": "image",
+            "image": {
+                "link": image_url
+            }
+        }
+
+    return payload
+
+
+def _image_message(to: str, image_url: str, caption: str) -> dict[str, Any]:
+    payload = {
+        "messaging_product": "whatsapp",
+        "to": to,
+        "type": "image",
+        "image": {"link": image_url, "caption": caption},
+    }
+
+    return payload
+
+
+def _document_message(to: str, document_url: str, caption: str) -> dict[str, Any]:
+    payload = {
+        "messaging_product": "whatsapp",
+        "to": to,
+        "type": "document",
+        "document": {
+            "link": document_url,
+            "filename": "document",
+            "caption": caption,
+        },
     }
 
     return payload
@@ -68,10 +103,6 @@ class WhatsAppAdapter(BotAdapter):
     async def send_message(self, message: Message) -> None:
         if not message.chat_id:
             logger.warning("Cannot send WhatsApp message without chat_id")
-            return
-
-        if not message.content:
-            logger.warning("Cannot send WhatsApp message without content")
             return
 
         url = f"{self.base_url}/messages"
@@ -104,6 +135,10 @@ class WhatsAppAdapter(BotAdapter):
 
     def _parse_message(self, msg: Message) -> dict[str, Any]:
         if msg.buttons and len(msg.buttons) > 0:
-            return _button_message(msg.chat_id, msg.content or "", msg.buttons)
+            return _button_message(msg.chat_id, msg.content or "", msg.buttons, image_url=msg.image)
+        elif msg.image:
+            return _image_message(msg.chat_id, msg.image, msg.content or "")
+        elif msg.document:
+            return _document_message(msg.chat_id, msg.document, msg.content or "")
 
         return _text_message(msg.chat_id, msg.content or "")

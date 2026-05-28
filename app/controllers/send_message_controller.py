@@ -15,7 +15,9 @@ logger = logging.getLogger(__name__)
 
 class SendMessageRequest(BaseModel):
     phone_number: str
-    content: str
+    content: str | None = None
+    image_url: str | None = None
+    document_url: str | None = None
 
 
 class SendMessageController:
@@ -37,6 +39,8 @@ class SendMessageController:
             user_id=body.phone_number,
             chat_id=body.phone_number,
             content=body.content,
+            image=body.image_url,
+            document=body.document_url,
         )
 
         await self.dispatcher.dispatch(message)
