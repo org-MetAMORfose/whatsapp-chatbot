@@ -128,12 +128,19 @@ class WhatsAppController:
 
             elif message_type == "interactive":
                 interactive = msg.get("interactive", {})
-                if interactive.get("type") == "button_reply":
+                interactive_type = interactive.get("type")
+
+                if interactive_type == "button_reply":
                     content = interactive.get("button_reply", {}).get("title")
+
+                elif interactive_type == "list_reply":
+                    content = interactive.get("list_reply", {}).get("title")
+
                 else:
                     logger.info(
                         "Ignoring unsupported WhatsApp interactive type: %s",
-                        interactive.get("type"))
+                        interactive_type,
+                    )
                     return None
 
             elif message_type == "image":
