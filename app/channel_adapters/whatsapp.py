@@ -59,6 +59,37 @@ def _button_message(to: str, content: str, buttons: list[MessageButton],
     return payload
 
 
+def _list_message(to: str, content: str, buttons: list[MessageButton]) -> dict[str, Any]:
+    rows = [
+        {
+            "id": button["id"],
+            "title": button["title"][:24],
+        }
+        for button in buttons[:10]
+    ]
+
+    return {
+        "messaging_product": "whatsapp",
+        "to": to,
+        "type": "interactive",
+        "interactive": {
+            "type": "list",
+            "body": {
+                "text": content,
+            },
+            "action": {
+                "button": "Ver opções",
+                "sections": [
+                    {
+                        "title": "Opções",
+                        "rows": rows,
+                    }
+                ],
+            },
+        },
+    }
+
+
 def _image_message(to: str, image_url: str, caption: str) -> dict[str, Any]:
     payload = {
         "messaging_product": "whatsapp",
@@ -134,11 +165,25 @@ class WhatsAppAdapter(BotAdapter):
             raise
 
     def _parse_message(self, msg: Message) -> dict[str, Any]:
-        if msg.buttons and len(msg.buttons) > 0:
-            return _button_message(msg.chat_id, msg.content or "", msg.buttons, image_url=msg.image)
-        elif msg.image:
+        if msg.buttons:
+            if len(msg.buttons) <= 3:
+                return _button_message(
+                    msg.chat_id,
+                    msg.content or "",
+                    msg.buttons,
+                    image_url=msg.image,
+                )
+
+            return _list_message(
+                msg.chat_id,
+                msg.content or "",
+                msg.buttons,
+            )
+
+        if msg.image:
             return _image_message(msg.chat_id, msg.image, msg.content or "")
-        elif msg.document:
+
+        if msg.document:
             return _document_message(msg.chat_id, msg.document, msg.content or "")
 
         return _text_message(msg.chat_id, msg.content or "")
