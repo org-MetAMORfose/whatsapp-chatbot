@@ -7,7 +7,7 @@ import toml
 from pydantic import BaseModel, Field
 
 logger = logging.getLogger(__name__)
-DEFAULT_FLOW_PATH = Path(__file__).with_name("flow.toml")
+DEFAULT_FLOW_PATH = Path(__file__).with_name("flows")
 
 
 def _normalize_text(value: str) -> str:
@@ -64,13 +64,37 @@ class ChatFlow(BaseModel):
 
     @classmethod
     def from_file(cls, path: Path | str = DEFAULT_FLOW_PATH) -> "ChatFlow":
-        """Load a ChatFlow from a TOML file."""
+        """Load a ChatFlow from a TOML file or from a directory with TOML files."""
         flow_path = Path(path)
 
-        with flow_path.open("r", encoding="utf-8") as flow_file:
-            data = toml.load(flow_file)
+        if flow_path.is_file():
+            with flow_path.open("r", encoding="utf-8") as flow_file:
+                data = toml.load(flow_file)
 
-        return cls.from_data(data)
+            return cls.from_data(data)
+
+        if flow_path.is_dir():
+            merged_data: dict[str, Any] = {"nodes": {}}
+
+            for toml_file in sorted(flow_path.glob("*.toml")):
+                with toml_file.open("r", encoding="utf-8") as flow_file:
+                    data = toml.load(flow_file)
+
+                nodes_data = data.get("nodes")
+                if not isinstance(nodes_data, dict):
+                    raise ValueError(f"Flow file '{toml_file}' must contain a 'nodes' object.")
+
+                duplicated_nodes = set(merged_data["nodes"]) & set(nodes_data)
+                if duplicated_nodes:
+                    raise ValueError(
+                        f"Duplicated node ids in '{toml_file}': {sorted(duplicated_nodes)}"
+                    )
+
+                merged_data["nodes"].update(nodes_data)
+
+            return cls.from_data(merged_data)
+
+        raise ValueError(f"Flow path does not exist: {flow_path}")
 
     @classmethod
     def from_data(cls, data: Any) -> "ChatFlow":
