@@ -1,0 +1,14 @@
+[meta]
+name = "faq"
+description = "Fluxo de perguntas frequentes."
+
+[nodes.faq_inicio]
+description = "FAQ temporário."
+message = """O FAQ ainda está em construção.
+
+Talvez a gente use IA futuramente, mas isso ainda precisa ser planejado."""
+buttons = ["Voltar ao início"]
+
+[[nodes.faq_inicio.transitions]]
+target = "start"
+conditions = ["voltar ao inicio"]

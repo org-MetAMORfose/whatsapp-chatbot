@@ -1,0 +1,39 @@
+[meta]
+name = "profissional_rede"
+description = "Fluxo para profissionais que já fazem parte da Rede MetAMORfose."
+
+[nodes.profissional_rede_inicio]
+description = "Triagem inicial do profissional já cadastrado."
+message = "Olá! Como podemos ajudar você hoje?"
+buttons = ["Outros assuntos", "Reposição paciente"]
+
+[[nodes.profissional_rede_inicio.transitions]]
+target = "falar_atendente"
+conditions = ["outros assuntos"]
+
+[[nodes.profissional_rede_inicio.transitions]]
+target = "solicitar_reposicao"
+conditions = ["reposicao paciente"]
+
+[nodes.falar_atendente]
+description = "Encaminhamento para atendimento humano."
+message = """Entendido.
+Sua solicitação foi encaminhada para nossa equipe.
+Aguarde que um atendente entrará em contato em breve."""
+end = true
+
+[nodes.solicitar_reposicao]
+description = "Solicitação de comprovantes para reposição."
+message = "Para solicitar uma reposição, envie os comprovantes que demonstrem que o paciente não respondeu dentro do prazo previsto."
+input = "Imagem ou documento"
+
+[[nodes.solicitar_reposicao.transitions]]
+target = "reposicao_recebida"
+conditions = []
+
+[nodes.reposicao_recebida]
+description = "Confirmação de recebimento da solicitação de reposição."
+message = """Obrigado.
+Sua solicitação foi recebida e será analisada pela equipe responsável.
+Retornaremos assim que a análise for concluída."""
+end = true

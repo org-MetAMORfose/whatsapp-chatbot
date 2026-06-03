@@ -1,0 +1,144 @@
+[meta]
+name = "selecao_profissional"
+description = "Fluxo de contratação, coleta de informações e validação de profissionais."
+
+[nodes.lgpd]
+description = "Aviso de privacidade antes da coleta de dados."
+message = """Antes de prosseguirmos, informamos que os dados fornecidos serão utilizados para avaliação do seu cadastro profissional e eventual formalização de parceria com a Rede MetAMORfose.
+
+Ao continuar, você declara estar ciente de nossa Política de Privacidade."""
+buttons = ["Concordo"]
+
+[[nodes.lgpd.transitions]]
+target = "explicacao_rede"
+conditions = ["concordo"]
+
+[nodes.explicacao_rede]
+description = "Explicação breve sobre funcionamento da Rede."
+message = """A Rede MetAMORfose conecta profissionais de saúde a pacientes que buscam atendimento online.
+
+Você define o valor da sua consulta, recebe diretamente do paciente e possui autonomia para definir agenda, duração e forma de pagamento.
+
+Gostaria de continuar?"""
+buttons = ["Prosseguir"]
+
+[[nodes.explicacao_rede.transitions]]
+target = "nome_completo"
+conditions = ["prosseguir"]
+
+[nodes.nome_completo]
+description = "Coleta do nome completo."
+message = "Qual é o seu nome completo?"
+input = "Texto"
+
+[[nodes.nome_completo.transitions]]
+target = "area_atuacao"
+conditions = []
+
+[nodes.area_atuacao]
+description = "Coleta da área principal de atuação."
+message = "Qual é sua principal área de atuação?"
+buttons = [
+  "Nutrição",
+  "Clínico geral",
+  "Psiquiatria",
+  "Psicoterapia",
+  "Psicoterapia TCC",
+  "Psicanálise",
+  "Terapia holística",
+  "Outra"
+]
+input = "Texto, se selecionar Outra."
+
+[[nodes.area_atuacao.transitions]]
+target = "perfil_atendimento"
+conditions = ["nutricao", "clinico geral", "psiquiatria", "psicoterapia", "psicoterapia tcc", "psicanalise", "terapia holistica", "outra"]
+
+[nodes.perfil_atendimento]
+description = "Coleta de recorte de atendimento, identidade, público ou vivência profissional."
+message = """Você atende algum público, recorte ou demanda específica?"""
+buttons = [
+  "LGBTQIAPN+",
+  "Mulheres",
+  "Mulheres negras",
+  "Homens negros",
+  "Outro recorte",
+  "Sem recorte"
+]
+input = "Texto, se selecionar Outro recorte específico."
+
+[[nodes.perfil_atendimento.transitions]]
+target = "qualificacao"
+conditions = ["lgbtqiapn+", "mulheres", "mulheres negras", "homens negros", "outro recorte", "sem recorte"]
+
+[nodes.qualificacao]
+description = "Coleta de abordagem, especializações e currículo."
+message = """Qual é sua abordagem teórica principal? Você possui especializações, pós-graduações ou cursos complementares?
+
+Não necessita do RQE. Aceitamos pós ou especializações, mas é importante enfatizar que, segundo as leis, um médico com apenas o CRM pode atuar em qualquer área, incluindo a psiquiatria, mas sem RQE ele não pode se anunciar como especialista.
+
+Ele atua, de fato, como clínico geral atendendo psiquiatria, não como psiquiatra especialista. Então, na hora de atender nossos pacientes, pedimos essa transparência."""
+input = "Texto. Basicamente o currículo."
+
+[[nodes.qualificacao.transitions]]
+target = "disponibilidade"
+conditions = []
+
+[nodes.disponibilidade]
+description = "Coleta de disponibilidade de agenda."
+message = "Em quais dias e horários costuma atender?"
+input = "Texto"
+
+[[nodes.disponibilidade.transitions]]
+target = "ferramenta_online"
+conditions = []
+
+[nodes.ferramenta_online]
+description = "Coleta da ferramenta usada para atendimento online."
+message = "Qual ferramenta costuma utilizar para os atendimentos online?"
+buttons = ["Google Meet", "Zoom", "WhatsApp", "Outra"]
+input = "Texto, se selecionar Outra."
+
+[[nodes.ferramenta_online.transitions]]
+target = "registro_profissional"
+conditions = ["google meet", "zoom", "whatsapp", "outra"]
+
+[nodes.registro_profissional]
+description = "Solicitação de registro profissional ativo."
+message = "Você possui registro profissional ativo? Envie foto ou comprovante do seu registro."
+input = "Imagem ou documento"
+
+[[nodes.registro_profissional.transitions]]
+target = "materiais_apoio"
+conditions = []
+
+[nodes.materiais_apoio]
+description = "Envio de links institucionais durante análise do registro."
+message = """Enquanto a nossa equipe verifica seu Registro no Conselho, conheça mais sobre a MetAMORfose:
+
+Site oficial: orgmetamorfose.com.br
+Depoimentos: orgmetamorfose.com.br/depoimentos
+Instagram: instagram.com/org.metamorfose
+Inovação - Fomos investidos pela Agência USP de Inovação em 2023, em nome da fundadora Luiza Fogaça: https://auspin.usp.br/editalbolsa2023/
+No UOL Brasil Agora Online: https://brasilagoraonline.com.br/noticias/2026/01/rede-metamorfose-consolida-modelo-de-telemedicina-apos-investimento-da-usp/
+Na R7 Business Feed: https://businessfeed.com.br/consultas-online-rede-metamorfose-cresce-e-fortalece-modelo-de-telemedicina/
+Mais algumas notícias sobre nós:
+https://egobrazil.ig.com.br/rede-metamorfose-revoluciona-a-telemedicina-com-cuidado-humano-e-tecnologia-avancada/
+https://gazetadanoticia.com.br/2026/02/25/como-e-trabalhar-sendo-profissional-de-saude-na-rede-metamorfose/
+https://gazetadasemana.com.br/coluna/14869/como-a-metamorfose-mudou-minha-visao-sobre-telemedicina
+
+Termos e Contrato: orgmetamorfose.com.br/termos"""
+buttons = ["Enviar feedback", "Encerrar"]
+
+[[nodes.materiais_apoio.transitions]]
+target = "feedback_inicio"
+conditions = ["enviar feedback"]
+
+[[nodes.materiais_apoio.transitions]]
+target = "selecao_profissional_end"
+conditions = ["encerrar"]
+
+[nodes.selecao_profissional_end]
+description = "Encerramento do fluxo de seleção profissional."
+message = "Obrigado. Sua solicitação foi recebida e será analisada pela equipe responsável."
+end = true

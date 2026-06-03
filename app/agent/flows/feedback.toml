@@ -1,0 +1,17 @@
+[meta]
+name = "feedback"
+description = "Fluxo de coleta de feedback."
+
+[nodes.feedback_inicio]
+description = "Solicitação de feedback."
+message = "Gostaria de compartilhar algum feedback sobre o atendimento ou sobre a Rede MetAMORfose?"
+input = "Texto"
+
+[[nodes.feedback_inicio.transitions]]
+target = "agradecimento"
+conditions = []
+
+[nodes.agradecimento]
+description = "Agradecimento pelo feedback recebido."
+message = "Obrigado pelo seu feedback! Sua opinião é muito importante para nós."
+end = true
