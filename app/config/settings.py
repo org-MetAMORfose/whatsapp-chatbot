@@ -24,7 +24,9 @@ def __get_bool_env_variable(name: str, default: str = "0") -> bool:
 load_dotenv()
 
 LOG_LEVEL = __get_env_variable("LOG_LEVEL", "INFO")
-setup_logging(level=LOG_LEVEL)
+LOKI_URL = __get_env_variable("LOKI_URL", "http://loki:3100")
+LOKI_ENABLED = __get_bool_env_variable("LOKI_ENABLED", "false")
+setup_logging(level=LOG_LEVEL, loki_url=LOKI_URL, loki_enabled=LOKI_ENABLED)
 
 REDIS_HOST = __get_env_variable("REDIS_HOST", "localhost")
 REDIS_PORT = int(__get_env_variable("REDIS_PORT", "6379"))

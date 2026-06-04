@@ -25,7 +25,7 @@ class TelegramAdapter(BotAdapter):
         self.bot = telegram.Bot(token=self.token)
 
     async def send_message(self, message: Message) -> None:
-        print(f"Sending message to Telegram: {message}")
+        logger.info("Sending message to Telegram: %s", message)
         await self.bot.send_message(chat_id=message.chat_id, text=message.content or "")
 
     def __callback_wrapper(

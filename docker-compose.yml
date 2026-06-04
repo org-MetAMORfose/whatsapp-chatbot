@@ -69,6 +69,7 @@ services:
       - "8000:8000"
     networks:
       - chatbot_net
+      - monitoring_net
 
 volumes:
   redis_data:
@@ -77,3 +78,5 @@ volumes:
 networks:
   chatbot_net:
     driver: bridge
+  monitoring_net:
+    external: true
