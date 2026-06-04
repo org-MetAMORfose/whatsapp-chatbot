@@ -41,7 +41,7 @@ def setup_logging(
     if loki_enabled and loki_url:
         import queue
 
-        import logging_loki  # type: ignore[import-untyped]
+        import logging_loki
 
         loki_handler = logging_loki.LokiQueueHandler(
             queue.Queue(-1),
