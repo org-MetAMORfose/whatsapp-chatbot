@@ -42,7 +42,7 @@ include = ["app"]
 dev = ["pytest", "pytest-asyncio", "ruff", "mypy", "pre-commit", "autopep8>=2.3.2", "build"]
 
 [tool.ruff]
-line-length = 100
+line-length = 150
 target-version = "py311"
 exclude = ["__pycache__", ".venv", "build", "dist", ".eggs"]
 
