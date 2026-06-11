@@ -1,3 +1,4 @@
+import io
 import logging
 from typing import Any
 
@@ -59,13 +60,53 @@ def _button_message(to: str, content: str, buttons: list[MessageButton],
     return payload
 
 
-def _image_message(to: str, image_url: str, caption: str) -> dict[str, Any]:
-    payload = {
+def _list_message(to: str, content: str, buttons: list[MessageButton]) -> dict[str, Any]:
+    rows = [
+        {
+            "id": button["id"],
+            "title": button["title"][:24],
+        }
+        for button in buttons[:10]
+    ]
+
+    return {
+        "messaging_product": "whatsapp",
+        "to": to,
+        "type": "interactive",
+        "interactive": {
+            "type": "list",
+            "body": {
+                "text": content,
+            },
+            "action": {
+                "button": "Ver opções",
+                "sections": [
+                    {
+                        "title": "Opções",
+                        "rows": rows,
+                    }
+                ],
+            },
+        },
+    }
+
+
+def _image_message(to: str, caption: str, media_id: str | None = None, image_url: str | None = None) -> dict[str, Any]:
+    image: dict[str, Any] = {}
+    payload: dict[str, Any] = {
         "messaging_product": "whatsapp",
         "to": to,
         "type": "image",
-        "image": {"link": image_url, "caption": caption},
+        "image": image,
     }
+
+    if media_id:
+        image["id"] = media_id
+    elif image_url:
+        image["link"] = image_url
+
+    if caption:
+        image["caption"] = caption
 
     return payload
 
@@ -112,7 +153,7 @@ class WhatsAppAdapter(BotAdapter):
             "Content-Type": "application/json",
         }
 
-        payload = self._parse_message(message)
+        payload = await self._parse_message(message)
 
         try:
             async with httpx.AsyncClient(timeout=30.0) as client:
@@ -133,12 +174,67 @@ class WhatsAppAdapter(BotAdapter):
                          e, exc_info=True)
             raise
 
-    def _parse_message(self, msg: Message) -> dict[str, Any]:
-        if msg.buttons and len(msg.buttons) > 0:
-            return _button_message(msg.chat_id, msg.content or "", msg.buttons, image_url=msg.image)
-        elif msg.image:
-            return _image_message(msg.chat_id, msg.image, msg.content or "")
-        elif msg.document:
+    async def _upload_media_to_whatsapp(self, media_url: str, media_type: str) -> str | None:
+        """Upload media to WhatsApp and return media_id."""
+        try:
+            media_url_endpoint = f"{self.base_url}/media"
+            headers = {"Authorization": f"Bearer {self.access_token}"}
+
+            # Fetch file from URL
+            async with httpx.AsyncClient(timeout=30.0) as client:
+                media_response = await client.get(media_url)
+                media_response.raise_for_status()
+                media_bytes = media_response.content
+
+            # Upload to WhatsApp using form data and file
+            data = {"messaging_product": "whatsapp", "type": media_type}
+            files = {"file": ("media_file", io.BytesIO(media_bytes), media_type)}
+
+            async with httpx.AsyncClient(timeout=60.0) as client:
+                response = await client.post(
+                    media_url_endpoint, headers=headers, data=data, files=files
+                )
+                if response.status_code != 200:
+                    logger.error(
+                        "WhatsApp media upload returned %s: %s",
+                        response.status_code,
+                        response.text,
+                    )
+                response.raise_for_status()
+                resp_data = response.json()
+                media_id = resp_data.get("id")
+                logger.info("Uploaded media to WhatsApp, media_id=%s", media_id)
+                return media_id if type(media_id).__name__ == "str" else None # would str(media_id) work?
+
+        except Exception as e:
+            logger.error("Error uploading media to WhatsApp: %s", e, exc_info=True)
+            return None
+
+    async def _parse_message(self, msg: Message) -> dict[str, Any]:
+        if msg.buttons:
+            if len(msg.buttons) <= 3:
+                return _button_message(
+                    msg.chat_id,
+                    msg.content or "",
+                    msg.buttons,
+                    image_url=msg.image,
+                )
+
+            return _list_message(
+                msg.chat_id,
+                msg.content or "",
+                msg.buttons,
+            )
+
+        if msg.image:
+            media_id = await self._upload_media_to_whatsapp(msg.image, "image/jpeg")
+            if media_id:
+                return _image_message(msg.chat_id, msg.content or "", media_id=media_id)
+            else:
+                logger.warning("Could not upload media to WhatsApp, falling back to link")
+                return _image_message(msg.chat_id, msg.content or "", image_url=msg.image)
+
+        if msg.document:
             return _document_message(msg.chat_id, msg.document, msg.content or "")
 
         return _text_message(msg.chat_id, msg.content or "")

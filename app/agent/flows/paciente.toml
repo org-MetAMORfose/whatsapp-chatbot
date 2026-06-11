@@ -1,0 +1,167 @@
+[meta]
+name = "paciente"
+description = "Fluxo de paciente buscando atendimento na Rede MetAMORfose."
+
+
+[nodes.paciente_inicio]
+description = "Coleta da área de atendimento desejada."
+message = """Olá, tudo bem? Qual área você deseja receber atendimento?
+
+Estamos aqui para te conectar aos profissionais da nossa Rede MetAMORfose de telemedicina, para acolher tudo o que você estiver sentindo!"""
+buttons = [
+  "Psiquiatria",
+  "Nutrição",
+  "Clínico geral",
+  "Psicoterapia"
+]
+
+[[nodes.paciente_inicio.transitions]]
+target = "paciente_psico_abordagem"
+conditions = ["psicoterapia"]
+
+[[nodes.paciente_inicio.transitions]]
+target = "paciente_psico_imediato"
+conditions = ["psiquiatria", "nutricao", "clinico geral"]
+
+
+[nodes.paciente_psico_abordagem]
+description = "Coleta da abordagem desejada para psicoterapia."
+message = "Você procura alguma abordagem específica para a psicoterapia?"
+buttons = [
+  "TCC",
+  "Psicanálise",
+  "Sem preferência"
+]
+
+[[nodes.paciente_psico_abordagem.transitions]]
+target = "paciente_psico_perfil"
+conditions = ["tcc", "psicanalise", "sem preferencia"]
+
+
+[nodes.paciente_psico_perfil]
+description = "Coleta de preferência de perfil profissional."
+message = "Você tem alguma preferência sobre o perfil do profissional?"
+buttons = [
+  "LGBTQIAPN+",
+  "Mulher",
+  "Mulher negra",
+  "Homem negro",
+  "Sem preferência"
+]
+
+[[nodes.paciente_psico_perfil.transitions]]
+target = "paciente_psico_imediato"
+conditions = ["lgbtqiapn+", "mulher", "mulher negra", "homem negro", "sem preferencia"]
+
+
+[nodes.paciente_psico_imediato]
+description = "Pergunta se deseja atendimento psicológico imediato."
+message = """Temos algumas opções de atendimento psicológico imediato.
+
+Você gostaria de ver as opções disponíveis agora?"""
+buttons = ["Sim", "Não"]
+
+[[nodes.paciente_psico_imediato.transitions]]
+target = "paciente_psico_imediato_opcoes"
+conditions = ["sim"]
+
+[[nodes.paciente_psico_imediato.transitions]]
+target = "paciente_faixa_valor"
+conditions = ["nao"]
+
+
+[nodes.paciente_psico_imediato_opcoes]
+description = "Opções de atendimento psicológico imediato."
+message = """Escolha uma opção de atendimento imediato.
+
+Os valores variam conforme o tempo de consulta e disponibilidade dos profissionais de saúde."""
+buttons = [
+  "R$50 - 20min",
+  "R$100 - 40min",
+  "R$150 - 60min",
+  "R$200 - 1h30",
+  "Sem interesse"
+]
+
+[[nodes.paciente_psico_imediato_opcoes.transitions]]
+target = "paciente_jornada_relatorio"
+conditions = ["r$50 - 20min", "r$100 - 40min", "r$150 - 60min", "r$200 - 1h30"]
+
+[[nodes.paciente_psico_imediato_opcoes.transitions]]
+target = "paciente_faixa_valor"
+conditions = ["sem interesse"]
+
+
+[nodes.paciente_faixa_valor]
+description = "Coleta da faixa de valor por sessão."
+message = """Qual dessas faixas por sessão se encaixa com a sua realidade?
+
+Os valores variam conforme o tempo de experiência clínica, cursos, qualificações, especializações e disponibilidade dos profissionais de saúde."""
+buttons = [
+  "Até R$150",
+  "Até R$300",
+  "Até R$600"
+]
+
+[[nodes.paciente_faixa_valor.transitions]]
+target = "paciente_jornada_relatorio"
+conditions = ["ate r$150", "ate r$300", "ate r$600"]
+
+
+[nodes.paciente_jornada_relatorio]
+description = "Oferta de atendimento com relatório personalizado."
+message = """Você quer receber atendimento com relatório personalizado da sua evolução?
+
+Esse acompanhamento pode ajudar o profissional a organizar melhor sua jornada de cuidado."""
+buttons = [
+  "Ansiedade",
+  "Depressão",
+  "Emagrecimento",
+  "Maternidade",
+  "Longevidade",
+  "Sono saudável",
+  "Sem relatório"
+]
+
+[[nodes.paciente_jornada_relatorio.transitions]]
+target = "paciente_apresentacao"
+conditions = ["ansiedade", "depressao", "emagrecimento", "maternidade", "longevidade", "sono saudavel", "sem relatorio"]
+
+
+[nodes.paciente_apresentacao]
+description = "Mensagem de apresentação do profissional indicado."
+message = """Olá, tudo bem? Parabéns por ter dado o primeiro passo e completado o cadastro inicial.
+
+Analisei suas respostas e vou te apresentar o profissional que mais combina com a sua demanda, para iniciarmos essa nova fase.
+
+Área: {area}
+Profissional indicado: {profissional_indicado}
+
+Temos uma equipe com mais de 600 profissionais. Se quiser ver outros perfis, é só me falar que te envio mais opções, pois o importante é que você já deu o primeiro passo de se cuidar.
+
+Ao fechar uma sessão com um de nossos profissionais, você ganha de presente da gente uma massagem relaxante na nossa parceira ProEstética em São Paulo. Para ganhar, basta nos apresentar o comprovante da sessão."""
+buttons = [
+  "Quero sessão",
+  "Outros perfis",
+  "Tenho dúvida"
+]
+
+[[nodes.paciente_apresentacao.transitions]]
+target = "paciente_end"
+conditions = ["quero sessao", "outros perfis", "tenho duvida"]
+
+
+[nodes.paciente_nao_responde]
+description = "Mensagem de retomada quando o paciente não responde."
+message = """Olá, tudo bem?
+
+Creio que possa estar nos seus compromissos, então estarei aguardando o seu retorno para seguirmos com essa nova fase importante.
+
+Caso tenha ficado alguma dúvida, pode ficar à vontade para me enviar ☺️"""
+end = true
+
+
+[nodes.paciente_end]
+description = "Encerramento temporário do fluxo do paciente."
+message = "Atendimento encaminhado. Nossa equipe seguirá com você por aqui."
+end = true
