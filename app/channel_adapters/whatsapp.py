@@ -92,20 +92,21 @@ def _list_message(to: str, content: str, buttons: list[MessageButton]) -> dict[s
 
 
 def _image_message(to: str, caption: str, media_id: str | None = None, image_url: str | None = None) -> dict[str, Any]:
-    payload = {
+    image: dict[str, Any] = {}
+    payload: dict[str, Any] = {
         "messaging_product": "whatsapp",
         "to": to,
         "type": "image",
-        "image": {},
+        "image": image,
     }
 
     if media_id:
-        payload["image"]["id"] = media_id
+        image["id"] = media_id
     elif image_url:
-        payload["image"]["link"] = image_url
-    
+        image["link"] = image_url
+
     if caption:
-        payload["image"]["caption"] = caption
+        image["caption"] = caption
 
     return payload
 
