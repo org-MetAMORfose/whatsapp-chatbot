@@ -27,7 +27,7 @@ class UploadMediaController:
     async def upload_media(
         self,
         media_type: str = Form(default="image"),
-        file: UploadFile = File(...),
+        file: UploadFile = File(...), # noqa: B008 - FastAPI required pattern
     ) -> UploadMediaResponse:
         if media_type not in {"image", "document"}:
             raise HTTPException(
