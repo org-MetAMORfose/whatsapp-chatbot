@@ -6,7 +6,7 @@ services:
     container_name: chatbot-redis
     restart: unless-stopped
     ports:
-      - "${REDIS_PORT}:6379"
+      - "6380:6379"
     environment:
       REDIS_PASSWORD: ${REDIS_PASSWORD:?REDIS_PASSWORD is required}
     volumes:

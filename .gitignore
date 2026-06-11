@@ -137,6 +137,7 @@ celerybeat.pid
 # Environments
 .env*
 !.env.example
+!.env.local.example
 .envrc
 .venv
 env/
@@ -210,3 +211,9 @@ __marimo__/
 # Custom files
 DOCUMENTACAO.md 
 NGROK_DEPLOY.md
+
+#gui
+ssh-claude.pem
+ssh-claude.pem.pub
+ssh-guilherme.pem
+vps-info.txt

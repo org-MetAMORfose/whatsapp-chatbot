@@ -8,6 +8,7 @@ from app.channel_adapters.whatsapp import WhatsAppAdapter
 from app.context import AppContext
 from app.controllers.health_controller import HealthController
 from app.controllers.send_message_controller import SendMessageController
+from app.controllers.upload_media_controller import UploadMediaController
 from app.controllers.whatsapp_controller import WhatsAppController
 from app.message_queue.message_queue import MessageQueue
 from app.repository.person_repository import PersonRepository
@@ -56,6 +57,10 @@ class WhatsAppRunner:
         self.app.include_router(controller.router)
         self.app.include_router(health_controller.router)
         self.app.include_router(send_message_controller.router)
+
+        if s3_service is not None:
+            upload_media_controller = UploadMediaController(s3_service=s3_service)
+            self.app.include_router(upload_media_controller.router)
 
     async def start(self) -> None:
         await self.dispatcher.start()
