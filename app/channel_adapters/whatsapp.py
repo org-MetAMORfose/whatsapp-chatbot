@@ -1,6 +1,6 @@
 import io
 import logging
-from typing import Any, MutableMapping
+from typing import Any
 
 import httpx
 
@@ -203,7 +203,7 @@ class WhatsAppAdapter(BotAdapter):
                 resp_data = response.json()
                 media_id = resp_data.get("id")
                 logger.info("Uploaded media to WhatsApp, media_id=%s", media_id)
-                return media_id if type(media_id).__name__ == 'str' else None# would str(media_id) work?
+                return media_id if type(media_id).__name__ == "str" else None # would str(media_id) work?
 
         except Exception as e:
             logger.error("Error uploading media to WhatsApp: %s", e, exc_info=True)
