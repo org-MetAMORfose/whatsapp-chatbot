@@ -22,6 +22,7 @@ dependencies = [
   "redis>=7.3.0",
   "python-telegram-bot>=22.7",
   "dotenv>=0.9.9",
+  "python-multipart",
   "types-redis>=4.6.0.20241004",
   "toml>=0.10.2",
   "types-toml>=0.10.8.20260408",
@@ -41,7 +42,7 @@ include = ["app"]
 dev = ["pytest", "pytest-asyncio", "ruff", "mypy", "pre-commit", "autopep8>=2.3.2", "build"]
 
 [tool.ruff]
-line-length = 100
+line-length = 150
 target-version = "py311"
 exclude = ["__pycache__", ".venv", "build", "dist", ".eggs"]
 
