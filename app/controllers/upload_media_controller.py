@@ -26,8 +26,8 @@ class UploadMediaController:
 
     async def upload_media(
         self,
-        media_type: Annotated[str, Form()] = "image",
-        file: Annotated[UploadFile, File(...)] = None, # Or just leave = File(...) out if using Annotated
+        media_type: str = Form(default="image"),
+        file: UploadFile = File(...),
     ) -> UploadMediaResponse:
         if media_type not in {"image", "document"}:
             raise HTTPException(
