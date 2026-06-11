@@ -2,11 +2,15 @@
 
 import logging
 from collections.abc import Awaitable, Callable
+from functools import partial
 from typing import Final
 
 from app.agent.chat_flow import Node
 from app.domain.message import Message
-from app.repository.professional_stage_repository import ProfessionalStageRepository
+from app.repository.professional_repository import ProfessionalRepository
+from app.repository.professional_stage_repository import (
+    ProfessionalStageRepository,
+)
 
 Action = Callable[[Message], Awaitable[str]]
 
@@ -19,34 +23,72 @@ class ActionExecutor:
     def __init__(
         self,
         professional_stage_repository: ProfessionalStageRepository,
+        professional_repository: ProfessionalRepository,
     ) -> None:
         self.professional_stage_repository = professional_stage_repository
+        self.professional_repository = professional_repository
 
         self.actions: Final[dict[str, Action]] = {
-            "redis_create_professional_stage": self.redis_create_professional_stage,
-            "redis_update_professional_qualification": (
-                self.redis_update_professional_qualification
+            "redis_create_professional_stage": (
+                self.redis_create_professional_stage
             ),
-            "redis_update_professional_video_tool": (
-                self.redis_update_professional_video_tool
+            "redis_update_professional_name": partial(
+                self.redis_update_professional,
+                field="name",
             ),
-            "redis_update_professional_council_registration": (
-                self.redis_update_professional_council_registration
+            "redis_update_professional_area": partial(
+                self.redis_update_professional,
+                field="area",
             ),
-            "redis_get_professional_stage_context": (
-                self.redis_get_professional_stage_context
+            "redis_update_professional_approach": partial(
+                self.redis_update_professional,
+                field="approach",
+            ),
+            "redis_update_professional_gender": partial(
+                self.redis_update_professional,
+                field="gender",
+            ),
+            "redis_update_professional_minority_group": partial(
+                self.redis_update_professional,
+                field="minority_group",
+            ),
+            "redis_update_professional_qualification": partial(
+                self.redis_update_professional,
+                field="qualification",
+            ),
+            "redis_update_professional_disponibility": partial(
+                self.redis_update_professional,
+                field="disponibility",
+            ),
+            "redis_update_professional_video_tool": partial(
+                self.redis_update_professional,
+                field="video_tool",
+            ),
+            "redis_update_professional_council_registration": partial(
+                self.redis_update_professional,
+                field="council_registration",
+            ),
+            "redis_update_professional_council_registration_document": (
+                self.redis_update_professional_council_registration_document
+            ),
+            "redis_get_professional_stage_summary": (
+                self.redis_get_professional_stage_summary
+            ),
+            "postgres_register_professional_application": (
+                self.postgres_register_professional_application
             ),
         }
 
     async def run(self, node: Node, message: Message) -> str:
         """Execute actions by name."""
-        action_names = node.actions
         result = ""
 
-        for name in action_names:
+        for name in node.actions:
             action = self.actions.get(name)
+
             logger.debug(
-                f"Executing action: {name} for message {message.message_id}"
+                f"Executing action: {name} "
+                f"for message {message.message_id}"
             )
 
             if action is None:
@@ -64,64 +106,85 @@ class ActionExecutor:
         await self.professional_stage_repository.get_or_create_context(
             message
         )
-
         return ""
 
-    async def redis_update_professional_qualification(
+    async def redis_update_professional(
         self,
         message: Message,
+        *,
+        field: str,
     ) -> str:
-        """Store professional qualification."""
+        """Store a professional text field."""
         await self.professional_stage_repository.update_context(
             message,
-            {"qualification": message.content},
+            {field: message.content},
         )
-
         return ""
 
-    async def redis_update_professional_video_tool(
+    async def redis_update_professional_council_registration_document(
         self,
         message: Message,
     ) -> str:
-        """Store preferred video tool."""
+        """Store professional document media id."""
+        media = message.image or message.document
+
+        if media is None:
+            return ""
+
         await self.professional_stage_repository.update_context(
             message,
-            {"video_tool": message.content},
+            {
+                "council_registration_document": media,
+            },
         )
 
         return ""
 
-    async def redis_update_professional_council_registration(
+    async def redis_get_professional_stage_summary(
         self,
         message: Message,
     ) -> str:
-        """Store council registration number."""
-        await self.professional_stage_repository.update_context(
-            message,
-            {"council_registration": message.content},
-        )
-
-        return ""
-
-    async def redis_get_professional_stage_context(
-        self,
-        message: Message,
-    ) -> str:
-        """Return professional registration context."""
-        logger.info(
-            f"Retrieving professional stage context for message {message.message_id}"
-        )
+        """Return a summary of the professional registration context."""
         context = await self.professional_stage_repository.get_context(
             message
         )
 
         if context is None:
-            return "Professional context not found.\n"
+            return "Não encontrei os dados preenchidos até agora.\n"
+
+        def format_value(
+            value: str | None,
+            max_length: int = 100,
+        ) -> str:
+            if value is None or value.strip() == "":
+                return "Não informado"
+
+            value = value.strip()
+
+            if len(value) > max_length:
+                return f"{value[:max_length]}..."
+
+            return value
 
         return (
-            f"Professional context:\n"
-            f"- Qualification: {context.qualification}\n"
-            f"- Video tool: {context.video_tool}\n"
-            f"- Council registration: "
-            f"{context.council_registration}\n"
+            "Resumo dos dados informados:\n"
+            f"- Nome: {format_value(context.name, 50)}\n"
+            f"- Área de atuação: {format_value(context.area, 50)}\n"
+            f"- Abordagem: {format_value(context.approach, 50)}\n"
+            f"- Gênero: {format_value(context.gender, 30)}\n"
+            f"- Identificação: {format_value(context.minority_group, 50)}\n"
+            f"- Qualificação/currículo: "
+            f"{format_value(context.qualification, 200)}\n"
+            f"- Disponibilidade: {format_value(context.disponibility, 100)}\n"
+            f"- Ferramenta online: {format_value(context.video_tool, 50)}\n"
+            f"- Registro profissional: "
+            f"{format_value(context.council_registration, 50)}\n"
         )
+
+    async def postgres_register_professional_application(
+        self,
+        message: Message,
+    ) -> str:
+        """Register professional application in PostgreSQL."""
+
+        return ""
