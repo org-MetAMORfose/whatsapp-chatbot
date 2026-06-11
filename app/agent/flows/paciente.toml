@@ -55,8 +55,8 @@ conditions = ["lgbtqiapn+", "mulher", "mulher negra", "homem negro", "sem prefer
 
 
 [nodes.paciente_psico_imediato]
-description = "Pergunta se deseja atendimento psicológico imediato."
-message = """Temos algumas opções de atendimento psicológico imediato.
+description = "Pergunta se deseja atendimento imediato."
+message = """Temos algumas opções de atendimento imediato.
 
 Você gostaria de ver as opções disponíveis agora?"""
 buttons = ["Sim", "Não"]

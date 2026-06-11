@@ -2,6 +2,7 @@
 name = "selecao_profissional"
 description = "Fluxo de contratação, coleta de informações e validação de profissionais."
 
+
 [nodes.lgpd]
 description = "Aviso de privacidade antes da coleta de dados."
 message = """Antes de prosseguirmos, informamos que os dados fornecidos serão utilizados para avaliação do seu cadastro profissional e eventual formalização de parceria com a Rede MetAMORfose.
@@ -13,8 +14,10 @@ buttons = ["Concordo"]
 target = "explicacao_rede"
 conditions = ["concordo"]
 
+
 [nodes.explicacao_rede]
 description = "Explicação breve sobre funcionamento da Rede."
+actions = ["redis_create_professional_stage"]
 message = """A Rede MetAMORfose conecta profissionais de saúde a pacientes que buscam atendimento online.
 
 Você define o valor da sua consulta, recebe diretamente do paciente e possui autonomia para definir agenda, duração e forma de pagamento.
@@ -26,8 +29,10 @@ buttons = ["Prosseguir"]
 target = "nome_completo"
 conditions = ["prosseguir"]
 
+
 [nodes.nome_completo]
 description = "Coleta do nome completo."
+actions = ["redis_update_professional_name"]
 message = "Qual é o seu nome completo?"
 input = "Texto"
 
@@ -35,57 +40,171 @@ input = "Texto"
 target = "area_atuacao"
 conditions = []
 
+
 [nodes.area_atuacao]
 description = "Coleta da área principal de atuação."
+actions = ["redis_update_professional_area"]
 message = "Qual é sua principal área de atuação?"
 buttons = [
   "Nutrição",
   "Clínico geral",
   "Psiquiatria",
   "Psicoterapia",
-  "Psicoterapia TCC",
   "Psicanálise",
   "Terapia holística",
   "Outra"
 ]
-input = "Texto, se selecionar Outra."
 
 [[nodes.area_atuacao.transitions]]
-target = "perfil_atendimento"
-conditions = ["nutricao", "clinico geral", "psiquiatria", "psicoterapia", "psicoterapia tcc", "psicanalise", "terapia holistica", "outra"]
+target = "orientacao_medica_rqe"
+conditions = ["clinico geral", "psiquiatria"]
 
-[nodes.perfil_atendimento]
-description = "Coleta de recorte de atendimento, identidade, público ou vivência profissional."
-message = """Você atende algum público, recorte ou demanda específica?"""
+[[nodes.area_atuacao.transitions]]
+target = "abordagem_psicoterapia"
+conditions = ["psicoterapia"]
+
+[[nodes.area_atuacao.transitions]]
+target = "genero"
+conditions = ["nutricao", "psicanalise", "terapia holistica"]
+
+[[nodes.area_atuacao.transitions]]
+target = "area_atuacao_outro"
+conditions = ["outra"]
+
+
+[nodes.area_atuacao_outro]
+description = "Coleta textual de outra área de atuação."
+actions = ["redis_update_professional_area"]
+message = "Escreva sua área de atuação."
+input = "Texto"
+
+[[nodes.area_atuacao_outro.transitions]]
+target = "genero"
+conditions = []
+
+
+[nodes.orientacao_medica_rqe]
+description = "Explicação específica para profissionais médicos sobre CRM e RQE."
+message = """Para profissionais médicos:
+
+Não é necessário possuir RQE para se cadastrar. Um médico com CRM ativo pode atender em diferentes áreas, mas sem RQE não deve se anunciar como especialista.
+
+Por exemplo: um médico sem RQE em psiquiatria pode atuar como clínico geral atendendo demandas de saúde mental, mas não deve se apresentar como psiquiatra especialista.
+
+Pedimos apenas transparência na apresentação aos pacientes."""
+buttons = ["Entendi"]
+
+[[nodes.orientacao_medica_rqe.transitions]]
+target = "genero"
+conditions = ["entendi"]
+
+
+[nodes.abordagem_psicoterapia]
+description = "Coleta da abordagem principal para profissionais de psicoterapia."
+actions = ["redis_update_professional_approach"]
+message = "Qual é sua abordagem principal na psicoterapia?"
 buttons = [
-  "LGBTQIAPN+",
-  "Mulheres",
-  "Mulheres negras",
-  "Homens negros",
-  "Outro recorte",
-  "Sem recorte"
+  "TCC",
+  "Psicanálise",
+  "Outra"
 ]
-input = "Texto, se selecionar Outro recorte específico."
 
-[[nodes.perfil_atendimento.transitions]]
+[[nodes.abordagem_psicoterapia.transitions]]
+target = "genero"
+conditions = ["tcc", "psicanalise"]
+
+[[nodes.abordagem_psicoterapia.transitions]]
+target = "abordagem_psicoterapia_outro"
+conditions = ["outra"]
+
+
+[nodes.abordagem_psicoterapia_outro]
+description = "Coleta textual de outra abordagem."
+actions = ["redis_update_professional_approach"]
+message = "Escreva sua abordagem principal."
+input = "Texto"
+
+[[nodes.abordagem_psicoterapia_outro.transitions]]
+target = "genero"
+conditions = []
+
+
+[nodes.genero]
+description = "Coleta de gênero."
+actions = ["redis_update_professional_gender"]
+message = "Como você se identifica?"
+buttons = [
+  "Homem",
+  "Mulher",
+  "Homem trans",
+  "Mulher trans",
+  "Prefiro não informar"
+]
+
+[[nodes.genero.transitions]]
+target = "identificacao"
+conditions = [
+  "homem",
+  "mulher",
+  "homem trans",
+  "mulher trans",
+  "prefiro nao informar"
+]
+
+
+[nodes.identificacao]
+description = "Coleta de identificação social ou grupo minorizado."
+actions = ["redis_update_professional_minority_group"]
+message = "Você se identifica com algum desses grupos?"
+buttons = [
+  "Negro",
+  "Negro LGBT",
+  "LGBT",
+  "Prefiro não informar",
+  "Outro"
+]
+
+[[nodes.identificacao.transitions]]
 target = "qualificacao"
-conditions = ["lgbtqiapn+", "mulheres", "mulheres negras", "homens negros", "outro recorte", "sem recorte"]
+conditions = [
+  "negro",
+  "negro lgbt",
+  "lgbt",
+  "prefiro nao informar"
+]
+
+[[nodes.identificacao.transitions]]
+target = "identificacao_outro"
+conditions = ["outro"]
+
+
+[nodes.identificacao_outro]
+description = "Coleta textual de outra identificação."
+actions = ["redis_update_professional_minority_group"]
+message = "Escreva como você se identifica."
+input = "Texto"
+
+[[nodes.identificacao_outro.transitions]]
+target = "qualificacao"
+conditions = []
+
 
 [nodes.qualificacao]
-description = "Coleta de abordagem, especializações e currículo."
-message = """Qual é sua abordagem teórica principal? Você possui especializações, pós-graduações ou cursos complementares?
+description = "Coleta de formação, especializações, abordagem e currículo."
+actions = ["redis_update_professional_qualification"]
+message = """Conte um pouco sobre sua formação, experiência profissional, especializações, cursos complementares ou currículo.
 
-Não necessita do RQE. Aceitamos pós ou especializações, mas é importante enfatizar que, segundo as leis, um médico com apenas o CRM pode atuar em qualquer área, incluindo a psiquiatria, mas sem RQE ele não pode se anunciar como especialista.
-
-Ele atua, de fato, como clínico geral atendendo psiquiatria, não como psiquiatra especialista. Então, na hora de atender nossos pacientes, pedimos essa transparência."""
-input = "Texto. Basicamente o currículo."
+Você pode incluir graduação, pós-graduação, certificados, abordagem teórica, experiência clínica ou outras informações relevantes para avaliação do cadastro."""
+input = "Texto"
 
 [[nodes.qualificacao.transitions]]
 target = "disponibilidade"
 conditions = []
 
+
 [nodes.disponibilidade]
 description = "Coleta de disponibilidade de agenda."
+actions = ["redis_update_professional_disponibility"]
 message = "Em quais dias e horários costuma atender?"
 input = "Texto"
 
@@ -93,50 +212,382 @@ input = "Texto"
 target = "ferramenta_online"
 conditions = []
 
+
 [nodes.ferramenta_online]
 description = "Coleta da ferramenta usada para atendimento online."
+actions = [
+  "redis_update_professional_video_tool",
+  "redis_get_professional_stage_summary"
+]
 message = "Qual ferramenta costuma utilizar para os atendimentos online?"
 buttons = ["Google Meet", "Zoom", "WhatsApp", "Outra"]
-input = "Texto, se selecionar Outra."
 
 [[nodes.ferramenta_online.transitions]]
-target = "registro_profissional"
-conditions = ["google meet", "zoom", "whatsapp", "outra"]
+target = "resumo_dados"
+conditions = ["google meet", "zoom", "whatsapp"]
 
-[nodes.registro_profissional]
-description = "Solicitação de registro profissional ativo."
-message = "Você possui registro profissional ativo? Envie foto ou comprovante do seu registro."
-input = "Imagem ou documento"
+[[nodes.ferramenta_online.transitions]]
+target = "ferramenta_online_outro"
+conditions = ["outra"]
 
-[[nodes.registro_profissional.transitions]]
-target = "materiais_apoio"
+
+[nodes.ferramenta_online_outro]
+description = "Coleta textual de outra ferramenta online."
+actions = [
+  "redis_update_professional_video_tool",
+  "redis_get_professional_stage_summary"
+]
+message = "Escreva qual ferramenta utiliza."
+input = "Texto"
+
+[[nodes.ferramenta_online_outro.transitions]]
+target = "resumo_dados"
 conditions = []
 
-[nodes.materiais_apoio]
-description = "Envio de links institucionais durante análise do registro."
-message = """Enquanto a nossa equipe verifica seu Registro no Conselho, conheça mais sobre a MetAMORfose:
 
-Site oficial: orgmetamorfose.com.br
-Depoimentos: orgmetamorfose.com.br/depoimentos
-Instagram: instagram.com/org.metamorfose
-Inovação - Fomos investidos pela Agência USP de Inovação em 2023, em nome da fundadora Luiza Fogaça: https://auspin.usp.br/editalbolsa2023/
-No UOL Brasil Agora Online: https://brasilagoraonline.com.br/noticias/2026/01/rede-metamorfose-consolida-modelo-de-telemedicina-apos-investimento-da-usp/
-Na R7 Business Feed: https://businessfeed.com.br/consultas-online-rede-metamorfose-cresce-e-fortalece-modelo-de-telemedicina/
-Mais algumas notícias sobre nós:
-https://egobrazil.ig.com.br/rede-metamorfose-revoluciona-a-telemedicina-com-cuidado-humano-e-tecnologia-avancada/
-https://gazetadanoticia.com.br/2026/02/25/como-e-trabalhar-sendo-profissional-de-saude-na-rede-metamorfose/
-https://gazetadasemana.com.br/coluna/14869/como-a-metamorfose-mudou-minha-visao-sobre-telemedicina
+[nodes.resumo_dados]
+description = "Confirmação dos dados textuais antes do comprovante."
+message = "Os dados estão corretos?"
+buttons = ["Confirmar", "Corrigir"]
 
-Termos e Contrato: orgmetamorfose.com.br/termos"""
+[[nodes.resumo_dados.transitions]]
+target = "comprovante_registro"
+conditions = ["confirmar"]
+
+[[nodes.resumo_dados.transitions]]
+target = "escolha_correcao"
+conditions = ["corrigir"]
+
+
+[nodes.comprovante_registro]
+description = "Solicitação de comprovante do registro, formação ou certificação."
+actions = ["redis_update_professional_council_registration_document"]
+message = """Agora envie uma foto, imagem ou documento que comprove seu registro, formação ou certificação profissional.
+
+Pode ser carteira do conselho, certificado, declaração, diploma ou outro documento relacionado à sua atuação."""
+input = "Imagem ou documento"
+
+[[nodes.comprovante_registro.transitions]]
+target = "confirmacao_envio"
+conditions = []
+
+
+[nodes.confirmacao_envio]
+description = "Confirmação final antes de gravar no PostgreSQL."
+message = """Deseja enviar sua solicitação para análise da equipe?"""
+buttons = ["Enviar", "Corrigir"]
+
+[[nodes.confirmacao_envio.transitions]]
+target = "cadastro_postgres"
+conditions = ["enviar"]
+
+[[nodes.confirmacao_envio.transitions]]
+target = "escolha_correcao"
+conditions = ["corrigir"]
+
+
+[nodes.cadastro_postgres]
+description = "Registra o cadastro do profissional no PostgreSQL."
+actions = ["postgres_register_professional_application"]
+message = "Sua solicitação foi enviada para análise da equipe responsável."
 buttons = ["Enviar feedback", "Encerrar"]
 
-[[nodes.materiais_apoio.transitions]]
+[[nodes.cadastro_postgres.transitions]]
 target = "feedback_inicio"
 conditions = ["enviar feedback"]
 
-[[nodes.materiais_apoio.transitions]]
+[[nodes.cadastro_postgres.transitions]]
 target = "selecao_profissional_end"
 conditions = ["encerrar"]
+
+
+[nodes.escolha_correcao]
+description = "Escolha de qual informação será corrigida."
+message = "Qual informação você gostaria de corrigir?"
+buttons = [
+  "Nome",
+  "Área",
+  "Abordagem",
+  "Gênero",
+  "Identificação",
+  "Qualificação",
+  "Disponibilidade",
+  "Ferramenta",
+  "Comprovante"
+]
+
+[[nodes.escolha_correcao.transitions]]
+target = "corrigir_nome"
+conditions = ["nome"]
+
+[[nodes.escolha_correcao.transitions]]
+target = "corrigir_area"
+conditions = ["area"]
+
+[[nodes.escolha_correcao.transitions]]
+target = "corrigir_abordagem"
+conditions = ["abordagem"]
+
+[[nodes.escolha_correcao.transitions]]
+target = "corrigir_genero"
+conditions = ["genero"]
+
+[[nodes.escolha_correcao.transitions]]
+target = "corrigir_identificacao"
+conditions = ["identificacao"]
+
+[[nodes.escolha_correcao.transitions]]
+target = "corrigir_qualificacao"
+conditions = ["qualificacao"]
+
+[[nodes.escolha_correcao.transitions]]
+target = "corrigir_disponibilidade"
+conditions = ["disponibilidade"]
+
+[[nodes.escolha_correcao.transitions]]
+target = "corrigir_ferramenta"
+conditions = ["ferramenta"]
+
+[[nodes.escolha_correcao.transitions]]
+target = "corrigir_comprovante"
+conditions = ["comprovante"]
+
+
+[nodes.corrigir_nome]
+description = "Correção do nome completo."
+actions = [
+  "redis_update_professional_name",
+  "redis_get_professional_stage_summary"
+]
+message = "Digite o nome completo correto."
+input = "Texto"
+
+[[nodes.corrigir_nome.transitions]]
+target = "resumo_dados"
+conditions = []
+
+
+[nodes.corrigir_area]
+description = "Correção da área principal de atuação."
+actions = [
+  "redis_update_professional_area",
+  "redis_get_professional_stage_summary"
+]
+message = "Qual é a área principal de atuação correta?"
+buttons = [
+  "Nutrição",
+  "Clínico geral",
+  "Psiquiatria",
+  "Psicoterapia",
+  "Psicanálise",
+  "Terapia holística",
+  "Outra"
+]
+
+[[nodes.corrigir_area.transitions]]
+target = "resumo_dados"
+conditions = [
+  "nutricao",
+  "clinico geral",
+  "psiquiatria",
+  "psicoterapia",
+  "psicanalise",
+  "terapia holistica"
+]
+
+[[nodes.corrigir_area.transitions]]
+target = "corrigir_area_outro"
+conditions = ["outra"]
+
+
+[nodes.corrigir_area_outro]
+description = "Correção textual da área de atuação."
+actions = [
+  "redis_update_professional_area",
+  "redis_get_professional_stage_summary"
+]
+message = "Escreva a área de atuação correta."
+input = "Texto"
+
+[[nodes.corrigir_area_outro.transitions]]
+target = "resumo_dados"
+conditions = []
+
+
+[nodes.corrigir_abordagem]
+description = "Correção da abordagem principal."
+actions = [
+  "redis_update_professional_approach",
+  "redis_get_professional_stage_summary"
+]
+message = "Qual é a abordagem principal correta?"
+buttons = [
+  "TCC",
+  "Psicanálise",
+  "Não se aplica",
+  "Outra"
+]
+
+[[nodes.corrigir_abordagem.transitions]]
+target = "resumo_dados"
+conditions = [
+  "tcc",
+  "psicanalise",
+  "nao se aplica"
+]
+
+[[nodes.corrigir_abordagem.transitions]]
+target = "corrigir_abordagem_outro"
+conditions = ["outra"]
+
+
+[nodes.corrigir_abordagem_outro]
+description = "Correção textual da abordagem."
+actions = [
+  "redis_update_professional_approach",
+  "redis_get_professional_stage_summary"
+]
+message = "Escreva a abordagem correta."
+input = "Texto"
+
+[[nodes.corrigir_abordagem_outro.transitions]]
+target = "resumo_dados"
+conditions = []
+
+
+[nodes.corrigir_genero]
+description = "Correção do gênero."
+actions = [
+  "redis_update_professional_gender",
+  "redis_get_professional_stage_summary"
+]
+message = "Como você se identifica?"
+buttons = [
+  "Homem",
+  "Mulher",
+  "Homem trans",
+  "Mulher trans",
+  "Prefiro não informar"
+]
+
+[[nodes.corrigir_genero.transitions]]
+target = "resumo_dados"
+conditions = []
+
+
+[nodes.corrigir_identificacao]
+description = "Correção da identificação social ou grupo minorizado."
+actions = [
+  "redis_update_professional_minority_group",
+  "redis_get_professional_stage_summary"
+]
+message = "Você se identifica com algum desses grupos?"
+buttons = [
+  "Negro",
+  "Negro LGBT",
+  "LGBT",
+  "Prefiro não informar",
+  "Outro"
+]
+
+[[nodes.corrigir_identificacao.transitions]]
+target = "resumo_dados"
+conditions = [
+  "negro",
+  "negro lgbt",
+  "lgbt",
+  "prefiro nao informar"
+]
+
+[[nodes.corrigir_identificacao.transitions]]
+target = "corrigir_identificacao_outro"
+conditions = ["outro"]
+
+
+[nodes.corrigir_identificacao_outro]
+description = "Correção textual de outra identificação."
+actions = [
+  "redis_update_professional_minority_group",
+  "redis_get_professional_stage_summary"
+]
+message = "Escreva como você se identifica."
+input = "Texto"
+
+[[nodes.corrigir_identificacao_outro.transitions]]
+target = "resumo_dados"
+conditions = []
+
+
+[nodes.corrigir_qualificacao]
+description = "Correção da formação, especializações ou currículo."
+actions = [
+  "redis_update_professional_qualification",
+  "redis_get_professional_stage_summary"
+]
+message = "Digite a formação, experiência, especializações ou currículo correto."
+input = "Texto"
+
+[[nodes.corrigir_qualificacao.transitions]]
+target = "resumo_dados"
+conditions = []
+
+
+[nodes.corrigir_disponibilidade]
+description = "Correção da disponibilidade de agenda."
+actions = [
+  "redis_update_professional_disponibility",
+  "redis_get_professional_stage_summary"
+]
+message = "Digite a disponibilidade correta de dias e horários."
+input = "Texto"
+
+[[nodes.corrigir_disponibilidade.transitions]]
+target = "resumo_dados"
+conditions = []
+
+
+[nodes.corrigir_ferramenta]
+description = "Correção da ferramenta de atendimento online."
+actions = [
+  "redis_update_professional_video_tool",
+  "redis_get_professional_stage_summary"
+]
+message = "Qual ferramenta correta você costuma utilizar para atendimentos online?"
+buttons = ["Google Meet", "Zoom", "WhatsApp", "Outra"]
+
+[[nodes.corrigir_ferramenta.transitions]]
+target = "resumo_dados"
+conditions = ["google meet", "zoom", "whatsapp"]
+
+[[nodes.corrigir_ferramenta.transitions]]
+target = "corrigir_ferramenta_outro"
+conditions = ["outra"]
+
+
+[nodes.corrigir_ferramenta_outro]
+description = "Correção textual da ferramenta online."
+actions = [
+  "redis_update_professional_video_tool",
+  "redis_get_professional_stage_summary"
+]
+message = "Escreva a ferramenta correta."
+input = "Texto"
+
+[[nodes.corrigir_ferramenta_outro.transitions]]
+target = "resumo_dados"
+conditions = []
+
+
+[nodes.corrigir_comprovante]
+description = "Correção do comprovante de registro, formação ou certificação."
+actions = ["redis_update_professional_council_registration_document"]
+message = "Envie novamente a foto, imagem ou documento correto."
+input = "Imagem ou documento"
+
+[[nodes.corrigir_comprovante.transitions]]
+target = "confirmacao_envio"
+conditions = []
+
 
 [nodes.selecao_profissional_end]
 description = "Encerramento do fluxo de seleção profissional."

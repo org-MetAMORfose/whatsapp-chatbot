@@ -5,9 +5,14 @@ description = "Entrada principal do atendimento, separando fluxo de paciente e p
 [nodes.start]
 description = "Mensagem inicial e seleção do tipo de atendimento."
 message = """Olá, tudo bem?
-Caso tenha preenchido alguma informação incorretamente, basta enviar a palavra RESET para reiniciar o atendimento.
 
-Como posso ajudar?"""
+Você está conversando com o chatbot da Rede MetAMORfose. 😊
+
+Caso tenha preenchido alguma informação incorretamente ou queira recomeçar o atendimento, basta enviar a palavra RESET a qualquer momento para reiniciar o fluxo.
+
+Como posso ajudar você hoje?
+
+Selecione uma das opções abaixo:"""
 buttons = ["Sou paciente", "Sou profissional"]
 
 [[nodes.start.transitions]]

@@ -52,8 +52,10 @@ class AgentWorker:
         self.outbound_queue = outbound
         self.flow = ChatFlow.from_file()
         self.chat_repository = chat_repository
-        self.professional_repository = professional_repository
-        self.action_executor = ActionExecutor(professional_stage_repository)
+        self.action_executor = ActionExecutor(
+            professional_stage_repository,
+            professional_repository,
+        )
 
     async def start(
         self,
@@ -118,98 +120,121 @@ class AgentWorker:
             logger.info("Agent worker stopped gracefully.")
 
     async def _process_message(self, message: Message) -> Response:
-        """Process a message from the queue.
-
-        Args:
-            message: The QueuedMessage to process
-        """
-        if message.image or message.document:
-            media_type = "imagem" if message.image else "documento"
-
-            logger.info(
-                "Received %s message from %s",
-                media_type,
-                message.user_id,
-            )
-            return Response(content=f"Recebi sua {media_type}, obrigado!")
-
-        if not message.content:
+        """Process a message from the queue."""
+        if not message.content and not message.image and not message.document:
             logger.warning(
                 "Received message with no content: %s",
                 message,
             )
             return Response(content="Mensagem vazia recebida.")
 
-        content = normalize_text(message.content)
+        if message.content:
+            content = normalize_text(message.content)
+        else:
+            content = ""
 
         logger.debug(
             "Processing message content: %s for chat %s",
             content,
             message.chat_id,
         )
-        # Use a different key for flow state to avoid conflicts with chat context
+
         context = await self.chat_repository.get_context(
-            user_id=message.user_id, channel=message.channel)
+            user_id=message.user_id,
+            channel=message.channel,
+        )
+
         current_state = context.state if context else None
-        logger.debug(f"Current state from Redis: {current_state}")
-        logger.debug(f"Available flow states: {list(self.flow.keys())}")
+
+        if content == "reset":
+            logger.info(
+                "Reset requested by user %s in chat %s",
+                message.user_id,
+                message.chat_id,
+            )
+
+            node = self.flow.get("start")
+
+            if not node or node.get("end"):
+                logger.error("No valid start node found.")
+                return Response(content="Erro ao reiniciar o fluxo.")
+
+            if context:
+                await self.chat_repository.update_context(
+                    message,
+                    state="start",
+                )
+            else:
+                await self.chat_repository.create_context(
+                    user_id=message.user_id,
+                    channel=message.channel,
+                    state="start",
+                )
+
+            return _response_from_node(node)
 
         if current_state is None:
             current_state = "start"
-            logger.debug(f"Starting flow with state: {current_state}")
             node = self.flow.get(current_state)
+
             if node and not node.get("end"):
                 await self.chat_repository.create_context(
-                    user_id=message.user_id, channel=message.channel, state=current_state)
-                logger.debug("Set redis flow_state to: %s", current_state)
+                    user_id=message.user_id,
+                    channel=message.channel,
+                    state=current_state,
+                )
 
                 return _response_from_node(node)
-            else:
-                return Response(content="Erro ao iniciar o fluxo.")
 
-        # Continue the flow
+            return Response(content="Erro ao iniciar o fluxo.")
+
         node = self.flow.get(current_state)
-        logger.debug("Node for state %s: %s", current_state, node)
+
         if not node:
             logger.error("No node found for state: %s", current_state)
             return Response(content="Erro no fluxo. estado desconhecido.")
 
         if node.get("end"):
-            await self.chat_repository.delete_context(user_id=message.user_id,
-                                                      channel=message.channel)
+            await self.chat_repository.delete_context(
+                user_id=message.user_id,
+                channel=message.channel,
+            )
             return Response(content=str(node.message))
 
         func_output = await self.action_executor.run(node, message)
-        logger.info(
-            "Action executor output: %s returned %s", node.actions, func_output)
+
         transition = node.next_transition(content)
+
         if transition is None:
             logger.error("Flow node %s has no transition.", current_state)
             return Response(content="Erro no fluxo. devido a transição inválida.")
 
         if transition.target:
             next_node = self.flow.get(transition.target)
-            logger.debug("Next node: %s", next_node)
+
             if next_node:
                 if next_node.get("end"):
-                    await self.chat_repository.delete_context(user_id=message.user_id,
-                                                              channel=message.channel)
+                    await self.chat_repository.delete_context(
+                        user_id=message.user_id,
+                        channel=message.channel,
+                    )
                 else:
-                    await self.chat_repository.update_context(message, state=transition.target)
-                logger.info("%s%s", func_output, str(next_node.message))
-
-                logger.debug("Next node buttons: %s", next_node.buttons)
+                    await self.chat_repository.update_context(
+                        message,
+                        state=transition.target,
+                    )
 
                 content = f"{func_output}{next_node.message}"
-                response = Response(content=content, buttons=next_node.buttons)
 
-                return response
-            else:
-                logger.error(
-                    "No node found for next_state: %s", transition.target)
-                return Response(content="Erro no próximo passo.")
-        else:
-            return Response(content="Fim do fluxo.")
+                return Response(
+                    content=content,
+                    buttons=next_node.buttons,
+                )
+
+            logger.error("No node found for next_state: %s", transition.target)
+            return Response(content="Erro no próximo passo.")
+
+        return Response(content="Fim do fluxo.")
 
 
 def remove_accents(input_str: str) -> str:
