@@ -69,7 +69,7 @@ class S3MediaService:
         )
 
         logger.info("Uploaded file to S3 (key=%s) and generated presigned URL", key)
-        return presigned
+        return str(presigned)
 
     async def upload_from_whatsapp(self, media_id: str, media_type: str) -> str:
         """Download a WhatsApp media object and upload it to S3. Returns the S3 URL."""
@@ -108,4 +108,4 @@ class S3MediaService:
         )
 
         logger.info("Uploaded WhatsApp media %s and generated presigned URL", media_id)
-        return presigned
+        return str(presigned)
