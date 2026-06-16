@@ -201,6 +201,16 @@ class AgentWorker:
             )
             return Response(content=str(node.message))
 
+        if _requires_media(node) and not _has_media(message):
+            if not _allows_text_without_media(node, content):
+                return Response(
+                    content=(
+                        "Você deve enviar o comprovante como imagem ou "
+                        "documento."
+                    ),
+                    buttons=node.buttons,
+                )
+
         func_output = await self.action_executor.run(node, message)
 
         transition = node.next_transition(content)
@@ -255,6 +265,21 @@ def remove_accents(input_str: str) -> str:
 def normalize_text(text: str) -> str:
     """Normalize text by stripping whitespace, converting to lowercase, and removing accents."""
     return remove_accents(text.strip().lower())
+
+
+def _requires_media(node: Node) -> bool:
+    return node.input == "Imagem ou documento"
+
+
+def _has_media(message: Message) -> bool:
+    return message.image is not None or message.document is not None
+
+
+def _allows_text_without_media(node: Node, content: str) -> bool:
+    return any(
+        transition.conditions and transition.matches(content)
+        for transition in node.transitions
+    )
 
 
 def _response_from_node(node: Node) -> Response:

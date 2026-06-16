@@ -6,13 +6,11 @@ description = "Entrada principal do atendimento, separando fluxo de paciente e p
 description = "Mensagem inicial e seleção do tipo de atendimento."
 message = """Olá, tudo bem?
 
-Você está conversando com o chatbot da Rede MetAMORfose. 😊
+Como posso ajudar você hoje?
+Selecione a opção desejada
 
 Caso tenha preenchido alguma informação incorretamente ou queira recomeçar o atendimento, basta enviar a palavra RESET a qualquer momento para reiniciar o fluxo.
-
-Como posso ajudar você hoje?
-
-Selecione uma das opções abaixo:"""
+"""
 buttons = ["Sou paciente", "Sou profissional"]
 
 [[nodes.start.transitions]]
@@ -26,7 +24,7 @@ conditions = ["sou profissional"]
 [nodes.profissional_start]
 description = "Entrada específica para profissionais."
 message = """Você já faz parte da Rede MetAMORfose ou deseja participar do processo seletivo?"""
-buttons = ["Processo seletivo", "Já sou da Rede", "FAQ"]
+buttons = ["Processo seletivo", "Já sou da Rede", "Dúvidas"]
 
 [[nodes.profissional_start.transitions]]
 target = "lgpd"
@@ -38,4 +36,4 @@ conditions = ["ja sou da rede"]
 
 [[nodes.profissional_start.transitions]]
 target = "faq_inicio"
-conditions = ["faq"]
+conditions = ["duvidas"]
