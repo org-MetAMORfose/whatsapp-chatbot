@@ -33,6 +33,7 @@ class Node(BaseModel):
     description: str | None = None
     message: str
     end: bool = False
+    input: str | None = None
     actions: list[str] = Field(default_factory=list)
     transitions: list[Transition] = Field(default_factory=list)
     buttons: list[str] | None = None

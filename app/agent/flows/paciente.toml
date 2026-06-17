@@ -132,11 +132,7 @@ conditions = ["ansiedade", "depressao", "emagrecimento", "maternidade", "longevi
 description = "Mensagem de apresentação do profissional indicado."
 message = """Olá, tudo bem? Parabéns por ter dado o primeiro passo e completado o cadastro inicial.
 
-Analisei suas respostas e vou te apresentar o profissional que mais combina com a sua demanda, para iniciarmos essa nova fase.
-
-Área: {area}
-Profissional indicado: {profissional_indicado}
-
+Em breve um dos nossos profissionais de saúde vai te chamar aqui no whatsapp.
 Temos uma equipe com mais de 600 profissionais. Se quiser ver outros perfis, é só me falar que te envio mais opções, pois o importante é que você já deu o primeiro passo de se cuidar.
 
 Ao fechar uma sessão com um de nossos profissionais, você ganha de presente da gente uma massagem relaxante na nossa parceira ProEstética em São Paulo. Para ganhar, basta nos apresentar o comprovante da sessão."""

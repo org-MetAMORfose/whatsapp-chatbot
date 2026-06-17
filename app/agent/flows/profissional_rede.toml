@@ -5,7 +5,7 @@ description = "Fluxo para profissionais que já fazem parte da Rede MetAMORfose.
 [nodes.profissional_rede_inicio]
 description = "Triagem inicial do profissional já cadastrado."
 message = "Olá! Como podemos ajudar você hoje?"
-buttons = ["Outros assuntos", "Reposição paciente"]
+buttons = ["Outros assuntos", "Reposição paciente", "Renovação por Pix"]
 
 [[nodes.profissional_rede_inicio.transitions]]
 target = "falar_atendente"
@@ -14,6 +14,34 @@ conditions = ["outros assuntos"]
 [[nodes.profissional_rede_inicio.transitions]]
 target = "solicitar_reposicao"
 conditions = ["reposicao paciente"]
+
+[[nodes.profissional_rede_inicio.transitions]]
+target = "renovacao_pix"
+conditions = ["renovacao por pix", "renovação por pix"]
+
+[nodes.renovacao_pix]
+description = "Reenvio das instruções de renovação por Pix."
+message = """Para renovar por Pix, faça o pagamento para Luiza Fogaça, gestora da plataforma.
+
+Chave Pix: 61609380000150
+
+Como o pagamento via Pix é feito fora do site, o sistema não consegue atualizar o selo de "ativo" automaticamente na tela do perfil. Mas, em nosso sistema interno, o perfil é confirmado e você aparece normalmente para os pacientes.
+
+A renovação por Pix precisa ser feita manualmente todo mês.
+
+Por favor, envie o comprovante do Pix como imagem ou documento para conferirmos a renovação."""
+input = "Imagem ou documento"
+
+[[nodes.renovacao_pix.transitions]]
+target = "renovacao_pix_recebida"
+conditions = []
+
+[nodes.renovacao_pix_recebida]
+description = "Confirmação de recebimento do comprovante de renovação por Pix."
+message = """Obrigado.
+Recebemos seu comprovante de renovação por Pix e vamos conferir o pagamento.
+Retornaremos assim que a renovação for confirmada."""
+end = true
 
 [nodes.falar_atendente]
 description = "Encaminhamento para atendimento humano."
@@ -24,7 +52,9 @@ end = true
 
 [nodes.solicitar_reposicao]
 description = "Solicitação de comprovantes para reposição."
-message = "Para solicitar uma reposição, envie os comprovantes que demonstrem que o paciente não respondeu dentro do prazo previsto."
+message = """Para solicitar uma reposição, envie os comprovantes que demonstrem que o paciente não respondeu dentro de 15 dias.
+
+Aceitamos Print ou gravação de tela sem edição e recorte de data recente que demonstre que o paciente não respondeu"""
 input = "Imagem ou documento"
 
 [[nodes.solicitar_reposicao.transitions]]

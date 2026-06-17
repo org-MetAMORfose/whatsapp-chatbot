@@ -20,7 +20,20 @@ description = "Explicação breve sobre funcionamento da Rede."
 actions = ["redis_create_professional_stage"]
 message = """A Rede MetAMORfose conecta profissionais de saúde a pacientes que buscam atendimento online.
 
-Você define o valor da sua consulta, recebe diretamente do paciente e possui autonomia para definir agenda, duração e forma de pagamento.
+Como funciona:
+- Você define o valor da sua consulta.
+- O paciente paga diretamente a você.
+- Você tem autonomia para combinar agenda, duração, ferramenta de atendimento e forma de pagamento.
+
+Nossa mensalidade cobre a divulgação do seu perfil e o envio de conexões com pacientes. Os planos são:
+
+- Premium - R$190/mês: perfil + 4 conexões com pacientes.
+- Platinum - R$570/mês: perfil + 12 conexões com pacientes.
+- Gold - R$1.190/mês: perfil + mais de 20 conexões com pacientes, em número variável.
+
+Nosso site é orgmetamorfose.com.br
+
+Se, após a análise do processo seletivo, seu cadastro profissional não for aceito, o valor pago será reembolsado integralmente.
 
 Gostaria de continuar?"""
 buttons = ["Prosseguir"]
@@ -37,6 +50,17 @@ message = "Qual é o seu nome completo?"
 input = "Texto"
 
 [[nodes.nome_completo.transitions]]
+target = "email_profissional"
+conditions = []
+
+
+[nodes.email_profissional]
+description = "Coleta do e-mail profissional."
+actions = ["redis_update_professional_email"]
+message = "Qual é o seu e-mail?"
+input = "Texto"
+
+[[nodes.email_profissional.transitions]]
 target = "area_atuacao"
 conditions = []
 
@@ -160,8 +184,7 @@ buttons = [
   "Negro",
   "Negro LGBT",
   "LGBT",
-  "Prefiro não informar",
-  "Outro"
+  "Prefiro não informar"
 ]
 
 [[nodes.identificacao.transitions]]
@@ -173,22 +196,6 @@ conditions = [
   "prefiro nao informar"
 ]
 
-[[nodes.identificacao.transitions]]
-target = "identificacao_outro"
-conditions = ["outro"]
-
-
-[nodes.identificacao_outro]
-description = "Coleta textual de outra identificação."
-actions = ["redis_update_professional_minority_group"]
-message = "Escreva como você se identifica."
-input = "Texto"
-
-[[nodes.identificacao_outro.transitions]]
-target = "qualificacao"
-conditions = []
-
-
 [nodes.qualificacao]
 description = "Coleta de formação, especializações, abordagem e currículo."
 actions = ["redis_update_professional_qualification"]
@@ -198,17 +205,6 @@ Você pode incluir graduação, pós-graduação, certificados, abordagem teóri
 input = "Texto"
 
 [[nodes.qualificacao.transitions]]
-target = "disponibilidade"
-conditions = []
-
-
-[nodes.disponibilidade]
-description = "Coleta de disponibilidade de agenda."
-actions = ["redis_update_professional_disponibility"]
-message = "Em quais dias e horários costuma atender?"
-input = "Texto"
-
-[[nodes.disponibilidade.transitions]]
 target = "ferramenta_online"
 conditions = []
 
@@ -216,14 +212,13 @@ conditions = []
 [nodes.ferramenta_online]
 description = "Coleta da ferramenta usada para atendimento online."
 actions = [
-  "redis_update_professional_video_tool",
-  "redis_get_professional_stage_summary"
+  "redis_update_professional_video_tool"
 ]
 message = "Qual ferramenta costuma utilizar para os atendimentos online?"
 buttons = ["Google Meet", "Zoom", "WhatsApp", "Outra"]
 
 [[nodes.ferramenta_online.transitions]]
-target = "resumo_dados"
+target = "comprovante_registro"
 conditions = ["google meet", "zoom", "whatsapp"]
 
 [[nodes.ferramenta_online.transitions]]
@@ -234,24 +229,23 @@ conditions = ["outra"]
 [nodes.ferramenta_online_outro]
 description = "Coleta textual de outra ferramenta online."
 actions = [
-  "redis_update_professional_video_tool",
-  "redis_get_professional_stage_summary"
+  "redis_update_professional_video_tool"
 ]
 message = "Escreva qual ferramenta utiliza."
 input = "Texto"
 
 [[nodes.ferramenta_online_outro.transitions]]
-target = "resumo_dados"
+target = "comprovante_registro"
 conditions = []
 
 
 [nodes.resumo_dados]
-description = "Confirmação dos dados textuais antes do comprovante."
+description = "Confirmação dos dados antes da escolha do plano."
 message = "Os dados estão corretos?"
 buttons = ["Confirmar", "Corrigir"]
 
 [[nodes.resumo_dados.transitions]]
-target = "comprovante_registro"
+target = "cadastro_postgres"
 conditions = ["confirmar"]
 
 [[nodes.resumo_dados.transitions]]
@@ -261,44 +255,44 @@ conditions = ["corrigir"]
 
 [nodes.comprovante_registro]
 description = "Solicitação de comprovante do registro, formação ou certificação."
-actions = ["redis_update_professional_council_registration_document"]
+actions = [
+  "redis_update_professional_council_registration_document",
+  "redis_get_professional_stage_summary"
+]
 message = """Agora envie uma foto, imagem ou documento que comprove seu registro, formação ou certificação profissional.
 
-Pode ser carteira do conselho, certificado, declaração, diploma ou outro documento relacionado à sua atuação."""
+Pode ser carteira do conselho, certificado, declaração, diploma ou outro documento relacionado à sua atuação.
+
+Caso não tenha registro profissional, toque em "Sem registro" para continuar."""
+buttons = ["Sem registro"]
 input = "Imagem ou documento"
 
 [[nodes.comprovante_registro.transitions]]
-target = "confirmacao_envio"
+target = "resumo_dados"
+conditions = ["sem registro"]
+
+[[nodes.comprovante_registro.transitions]]
+target = "resumo_dados"
 conditions = []
 
 
-[nodes.confirmacao_envio]
-description = "Confirmação final antes de gravar no PostgreSQL."
-message = """Deseja enviar sua solicitação para análise da equipe?"""
-buttons = ["Enviar", "Corrigir"]
-
-[[nodes.confirmacao_envio.transitions]]
-target = "cadastro_postgres"
-conditions = ["enviar"]
-
-[[nodes.confirmacao_envio.transitions]]
-target = "escolha_correcao"
-conditions = ["corrigir"]
-
-
 [nodes.cadastro_postgres]
-description = "Registra o cadastro do profissional no PostgreSQL."
+description = "Apresenta planos antes do pagamento."
 actions = ["postgres_register_professional_application"]
-message = "Sua solicitação foi enviada para análise da equipe responsável."
-buttons = ["Enviar feedback", "Encerrar"]
+message = """Para preencher uma das vagas disponíveis e começar a receber conexões com pacientes, o próximo passo é escolher o plano de parceria.
+
+- Premium – R$190/mês: Perfil + 4 conexões com pacientes
+- Platinum – R$570/mês: Perfil + 12 conexões
+- Gold – R$1.190/mês: Perfil + mais de 20 conexões (número variável de conexões)
+
+Se o cadastro não for aceito no processo seletivo, o pagamento será reembolsado integralmente.
+
+Qual modalidade você escolhe para preencher a vaga?"""
+buttons = ["Premium", "Platinum", "Gold"]
 
 [[nodes.cadastro_postgres.transitions]]
-target = "feedback_inicio"
-conditions = ["enviar feedback"]
-
-[[nodes.cadastro_postgres.transitions]]
-target = "selecao_profissional_end"
-conditions = ["encerrar"]
+target = "selecao_profissional_pagamento"
+conditions = ["premium", "platinum", "gold"]
 
 
 [nodes.escolha_correcao]
@@ -306,12 +300,12 @@ description = "Escolha de qual informação será corrigida."
 message = "Qual informação você gostaria de corrigir?"
 buttons = [
   "Nome",
+  "E-mail",
   "Área",
   "Abordagem",
   "Gênero",
   "Identificação",
   "Qualificação",
-  "Disponibilidade",
   "Ferramenta",
   "Comprovante"
 ]
@@ -319,6 +313,10 @@ buttons = [
 [[nodes.escolha_correcao.transitions]]
 target = "corrigir_nome"
 conditions = ["nome"]
+
+[[nodes.escolha_correcao.transitions]]
+target = "corrigir_email"
+conditions = ["e-mail", "email"]
 
 [[nodes.escolha_correcao.transitions]]
 target = "corrigir_area"
@@ -341,10 +339,6 @@ target = "corrigir_qualificacao"
 conditions = ["qualificacao"]
 
 [[nodes.escolha_correcao.transitions]]
-target = "corrigir_disponibilidade"
-conditions = ["disponibilidade"]
-
-[[nodes.escolha_correcao.transitions]]
 target = "corrigir_ferramenta"
 conditions = ["ferramenta"]
 
@@ -363,6 +357,20 @@ message = "Digite o nome completo correto."
 input = "Texto"
 
 [[nodes.corrigir_nome.transitions]]
+target = "resumo_dados"
+conditions = []
+
+
+[nodes.corrigir_email]
+description = "Correção do e-mail profissional."
+actions = [
+  "redis_update_professional_email",
+  "redis_get_professional_stage_summary"
+]
+message = "Digite o e-mail correto."
+input = "Texto"
+
+[[nodes.corrigir_email.transitions]]
 target = "resumo_dados"
 conditions = []
 
@@ -486,8 +494,7 @@ buttons = [
   "Negro",
   "Negro LGBT",
   "LGBT",
-  "Prefiro não informar",
-  "Outro"
+  "Prefiro não informar"
 ]
 
 [[nodes.corrigir_identificacao.transitions]]
@@ -498,25 +505,6 @@ conditions = [
   "lgbt",
   "prefiro nao informar"
 ]
-
-[[nodes.corrigir_identificacao.transitions]]
-target = "corrigir_identificacao_outro"
-conditions = ["outro"]
-
-
-[nodes.corrigir_identificacao_outro]
-description = "Correção textual de outra identificação."
-actions = [
-  "redis_update_professional_minority_group",
-  "redis_get_professional_stage_summary"
-]
-message = "Escreva como você se identifica."
-input = "Texto"
-
-[[nodes.corrigir_identificacao_outro.transitions]]
-target = "resumo_dados"
-conditions = []
-
 
 [nodes.corrigir_qualificacao]
 description = "Correção da formação, especializações ou currículo."
@@ -532,31 +520,16 @@ target = "resumo_dados"
 conditions = []
 
 
-[nodes.corrigir_disponibilidade]
-description = "Correção da disponibilidade de agenda."
-actions = [
-  "redis_update_professional_disponibility",
-  "redis_get_professional_stage_summary"
-]
-message = "Digite a disponibilidade correta de dias e horários."
-input = "Texto"
-
-[[nodes.corrigir_disponibilidade.transitions]]
-target = "resumo_dados"
-conditions = []
-
-
 [nodes.corrigir_ferramenta]
 description = "Correção da ferramenta de atendimento online."
 actions = [
-  "redis_update_professional_video_tool",
-  "redis_get_professional_stage_summary"
+  "redis_update_professional_video_tool"
 ]
 message = "Qual ferramenta correta você costuma utilizar para atendimentos online?"
 buttons = ["Google Meet", "Zoom", "WhatsApp", "Outra"]
 
 [[nodes.corrigir_ferramenta.transitions]]
-target = "resumo_dados"
+target = "corrigir_comprovante"
 conditions = ["google meet", "zoom", "whatsapp"]
 
 [[nodes.corrigir_ferramenta.transitions]]
@@ -567,29 +540,83 @@ conditions = ["outra"]
 [nodes.corrigir_ferramenta_outro]
 description = "Correção textual da ferramenta online."
 actions = [
-  "redis_update_professional_video_tool",
-  "redis_get_professional_stage_summary"
+  "redis_update_professional_video_tool"
 ]
 message = "Escreva a ferramenta correta."
 input = "Texto"
 
 [[nodes.corrigir_ferramenta_outro.transitions]]
-target = "resumo_dados"
+target = "corrigir_comprovante"
 conditions = []
 
 
 [nodes.corrigir_comprovante]
 description = "Correção do comprovante de registro, formação ou certificação."
-actions = ["redis_update_professional_council_registration_document"]
-message = "Envie novamente a foto, imagem ou documento correto."
+actions = [
+  "redis_update_professional_council_registration_document",
+  "redis_get_professional_stage_summary"
+]
+message = """Envie novamente a foto, imagem ou documento correto.
+
+Caso não tenha registro profissional, toque em "Sem registro" para continuar."""
+buttons = ["Sem registro"]
 input = "Imagem ou documento"
 
 [[nodes.corrigir_comprovante.transitions]]
-target = "confirmacao_envio"
+target = "resumo_dados"
+conditions = ["sem registro"]
+
+[[nodes.corrigir_comprovante.transitions]]
+target = "resumo_dados"
 conditions = []
 
 
+[nodes.selecao_profissional_pagamento]
+description = "Encerramento do fluxo de seleção profissional."
+message = """Certo. Como você prefere? Via pix ou crédito? Via pix está em nome de Luiza Fogaça, a gestora da plataforma. A chave pix: 61609380000150
+
+Se preferir por crédito no site, a assinatura é faturada mensalmente no mesmo dia - mas você pode cancelar a qualquer momento se quiser - o link é https://orgmetamorfose.com.br/assinatura
+
+Como o pagamento via Pix é feito fora do site, o sistema não consegue atualizar o selo de "ativo" automaticamente na tela do perfil. Mas, em nosso sistema interno, o perfil é confirmado e você aparece normalmente para os pacientes.
+
+A única diferença prática é:
+- No Cartão: A renovação é automática.
+- No Pix: É necessário fazer o pagamento manualmente todo mês para renovar. Independentemente disso, seu acesso e o recebimento de novos pacientes estão totalmente garantidos.
+
+Se, após a análise do processo seletivo, seu cadastro profissional não for aceito, o valor pago será reembolsado integralmente.
+
+Por favor, envie o comprovante do Pix como imagem ou documento para finalizarmos a conferência."""
+input = "Imagem ou documento"
+
+[[nodes.selecao_profissional_pagamento.transitions]]
+target = "selecao_profissional_end"
+conditions = []
+
 [nodes.selecao_profissional_end]
 description = "Encerramento do fluxo de seleção profissional."
-message = "Obrigado. Sua solicitação foi recebida e será analisada pela equipe responsável."
+message = """Obrigada. Boas vindas ao nosso time da Rede MetAMORfose.
+
+O próximo passo é criar seu perfil profissional em: https://www.orgmetamorfose.com.br/account/my-account
+
+Finalizado o perfil, após 7 dias, as conexões com pacientes serão enviadas para o e-mail informado pelo endereço: no-reply@orgmetamorfosepro.com
+
+Nós promovemos seu perfil e realizamos as conexões com pacientes, mas não interferimos nos agendamentos ou quantidade de sessões fechadas. Vamos verificar seu pagamento e seu registro e te retornamos. Você tem alguma dúvida?"""
+
+buttons = ["Enviar feedback", "Dúvidas", "Encerrar"]
+
+[[nodes.selecao_profissional_end.transitions]]
+target = "feedback_inicio"
+conditions = ["enviar feedback"]
+
+[[nodes.selecao_profissional_end.transitions]]
+target = "faq_inicio"
+conditions = ["duvidas"]
+
+[[nodes.selecao_profissional_end.transitions]]
+target = "selecao_profissional_finalizado"
+conditions = ["encerrar"]
+
+[nodes.selecao_profissional_finalizado]
+description = "Finalização do fluxo de seleção profissional."
+message = "Atendimento encerrado. Obrigada pelo contato."
 end = true

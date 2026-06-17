@@ -15,9 +15,9 @@ class ProfessionalStageContext(BaseModel):
     channel: Channel
 
     name: str | None = None
+    email: str | None = None
     area: str | None = None
     qualification: str | None = None
-    disponibility: str | None = None
     video_tool: str | None = None
     council_registration: str | None = None
     gender: str | None = None

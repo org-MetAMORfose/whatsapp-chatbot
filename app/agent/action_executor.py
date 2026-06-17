@@ -36,6 +36,10 @@ class ActionExecutor:
                 self.redis_update_professional,
                 field="name",
             ),
+            "redis_update_professional_email": partial(
+                self.redis_update_professional,
+                field="email",
+            ),
             "redis_update_professional_area": partial(
                 self.redis_update_professional,
                 field="area",
@@ -55,10 +59,6 @@ class ActionExecutor:
             "redis_update_professional_qualification": partial(
                 self.redis_update_professional,
                 field="qualification",
-            ),
-            "redis_update_professional_disponibility": partial(
-                self.redis_update_professional,
-                field="disponibility",
             ),
             "redis_update_professional_video_tool": partial(
                 self.redis_update_professional,
@@ -129,11 +129,20 @@ class ActionExecutor:
         media = message.image or message.document
 
         if media is None:
+            if message.content and message.content.strip().lower() == "sem registro":
+                await self.professional_stage_repository.update_context(
+                    message,
+                    {
+                        "council_registration": "Sem registro",
+                    },
+                )
+
             return ""
 
         await self.professional_stage_repository.update_context(
             message,
             {
+                "council_registration": "Documento enviado",
                 "council_registration_document": media,
             },
         )
@@ -169,13 +178,13 @@ class ActionExecutor:
         return (
             "Resumo dos dados informados:\n"
             f"- Nome: {format_value(context.name, 50)}\n"
+            f"- E-mail: {format_value(context.email, 80)}\n"
             f"- Área de atuação: {format_value(context.area, 50)}\n"
             f"- Abordagem: {format_value(context.approach, 50)}\n"
             f"- Gênero: {format_value(context.gender, 30)}\n"
             f"- Identificação: {format_value(context.minority_group, 50)}\n"
             f"- Qualificação/currículo: "
             f"{format_value(context.qualification, 200)}\n"
-            f"- Disponibilidade: {format_value(context.disponibility, 100)}\n"
             f"- Ferramenta online: {format_value(context.video_tool, 50)}\n"
             f"- Registro profissional: "
             f"{format_value(context.council_registration, 50)}\n"
