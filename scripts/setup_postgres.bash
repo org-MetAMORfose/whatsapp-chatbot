@@ -1,8 +1,10 @@
 #!/usr/bin/env bash
-# Installs PostgreSQL, creates the database user and database, and applies schema.sql.
+# Installs PostgreSQL, creates the database user and database, and applies Alembic migrations.
 # Supports Ubuntu and Amazon Linux 2/2023.
 
 set -euo pipefail
+
+PROJECT_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 
 # ---------------------------------------------------------------------------
 # Configuration – override via environment variables before running
@@ -10,7 +12,7 @@ set -euo pipefail
 DB_NAME="${DB_NAME:-chatbot}"
 DB_USER="${DB_USER:-chatbot}"
 DB_PASSWORD="${DB_PASSWORD:-changeme}"
-SCHEMA_FILE="$(dirname "$0")/schema.sql"
+DATABASE_URL="${DATABASE_URL:-postgresql+psycopg://$DB_USER:$DB_PASSWORD@localhost:5432/$DB_NAME}"
 
 # ---------------------------------------------------------------------------
 # Detect distro
@@ -93,17 +95,15 @@ SQL
 }
 
 # ---------------------------------------------------------------------------
-# Apply schema
+# Apply migrations
 # ---------------------------------------------------------------------------
-apply_schema() {
-    if [ ! -f "$SCHEMA_FILE" ]; then
-        echo "WARNING: schema file not found at $SCHEMA_FILE, skipping." >&2
-        return
-    fi
-
-    echo ">>> Applying schema from $SCHEMA_FILE..."
-    sudo -u postgres psql -v ON_ERROR_STOP=1 -d "$DB_NAME" -f "$SCHEMA_FILE"
-    echo ">>> Schema applied."
+apply_migrations() {
+    echo ">>> Applying Alembic migrations..."
+    (
+        cd "$PROJECT_ROOT"
+        DATABASE_URL="$DATABASE_URL" uv run alembic upgrade head
+    )
+    echo ">>> Migrations applied."
 }
 
 # ---------------------------------------------------------------------------
@@ -111,7 +111,7 @@ apply_schema() {
 # ---------------------------------------------------------------------------
 install_postgres
 setup_database
-apply_schema
+apply_migrations
 
 echo ""
 echo "=== Done ==="
