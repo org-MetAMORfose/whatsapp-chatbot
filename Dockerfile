@@ -14,4 +14,4 @@ RUN uv sync --frozen
 
 ENV PATH="/app/.venv/bin:$PATH"
 
-CMD ["uv", "run", "app"]
+CMD ["sh", "-c", "uv run alembic upgrade head && uv run app"]
