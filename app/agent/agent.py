@@ -9,6 +9,7 @@ from app.agent.chat_flow import ChatFlow, Node
 from app.context import AppContext
 from app.domain.message import Message, MessageButton
 from app.message_queue import MessageQueue
+from app.repository.person_repository import PersonRepository
 from app.repository.professional_repository import ProfessionalRepository
 from app.repository.professional_stage_repository import ProfessionalStageRepository
 from app.repository.redis_repository import ChatRepository
@@ -46,6 +47,7 @@ class AgentWorker:
         chat_repository: ChatRepository,
         professional_repository: ProfessionalRepository,
         professional_stage_repository: ProfessionalStageRepository,
+        person_repository: PersonRepository,
     ):
         self.ctx = ctx
         self.inbound_queue = inbound
@@ -55,6 +57,7 @@ class AgentWorker:
         self.action_executor = ActionExecutor(
             professional_stage_repository,
             professional_repository,
+            person_repository,
         )
 
     async def start(
@@ -184,9 +187,11 @@ class AgentWorker:
                     state=current_state,
                 )
 
-                return _response_from_node(node)
+                if node.next_transition(content) is None:
+                    return _response_from_node(node)
 
-            return Response(content="Erro ao iniciar o fluxo.")
+            else:
+                return Response(content="Erro ao iniciar o fluxo.")
 
         node = self.flow.get(current_state)
 
@@ -216,8 +221,11 @@ class AgentWorker:
         transition = node.next_transition(content)
 
         if transition is None:
-            logger.error("Flow node %s has no transition.", current_state)
-            return Response(content="Erro no fluxo. devido a transição inválida.")
+            logger.info(
+                "Invalid response for flow node %s; repeating current node.",
+                current_state,
+            )
+            return _response_from_node(node)
 
         if transition.target:
             next_node = self.flow.get(transition.target)

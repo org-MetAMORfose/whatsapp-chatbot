@@ -2,6 +2,7 @@ import logging
 from datetime import datetime
 
 from app.domain.db.message_history_model import MessageHistoryModel
+from app.domain.enum.chat_state import ChatState
 from app.domain.message import Message
 from app.message_queue import MessageQueue
 from app.repository.person_repository import PersonRepository
@@ -16,7 +17,7 @@ class MessageReceiverService:
         person_repository: PersonRepository,
     ) -> None:
         self.inbound_queue = inbound_queue
-        self.person_repository=person_repository
+        self.person_repository = person_repository
 
     async def handle(self, message: Message) -> None:
         logger.info("Received message: %s", message)
@@ -24,8 +25,6 @@ class MessageReceiverService:
         if not message.chat_id:
             logger.warning("Received message without chat_id: %s", message)
             return
-
-        await self.inbound_queue.publish(message)
 
         person = self.person_repository.get_or_create_person(
             phone_number=message.user_id,
@@ -42,3 +41,12 @@ class MessageReceiverService:
         )
 
         self.person_repository.create_message(history_message)
+
+        if person.chat_state == ChatState.AGENT_STOP:
+            logger.info(
+                "Skipping agent queue for person %s because the agent is stopped.",
+                person.id,
+            )
+            return
+
+        await self.inbound_queue.publish(message)

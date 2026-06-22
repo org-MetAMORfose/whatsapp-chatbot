@@ -19,6 +19,7 @@ from app.domain.db.professional_status_history_model import (
     ProfessionalStatusHistoryModel,
 )
 from app.domain.enum.channels import Channel
+from app.domain.enum.chat_state import ChatState
 from app.domain.enum.professional_status import ProfessionalStatus
 
 
@@ -48,7 +49,7 @@ def make_person(
         name: str | None = None,
         cpf: str | None = None,
         channel: Channel | None = None,
-        chat_state: str = "START",
+        chat_state: ChatState = ChatState.AGENT_RUNNING,
         created_at: datetime | None = None,
     ) -> PersonModel:
         person = PersonModel(
@@ -130,7 +131,6 @@ def make_professional(
                 background=background,
                 video_platform=video_platform,
                 email=email,
-                status_id=0,
                 created_at=created_at or datetime.utcnow(),
             )
 
@@ -140,8 +140,6 @@ def make_professional(
             status_history.professional_id = professional.id
             session.add(status_history)
             session.flush()
-
-            professional.status_id = status_history.id
 
             session.commit()
             session.refresh(professional)

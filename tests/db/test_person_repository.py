@@ -9,6 +9,7 @@ from sqlalchemy.orm import Session, sessionmaker
 from app.domain.db.message_history_model import MessageHistoryModel
 from app.domain.db.person_model import PersonModel
 from app.domain.enum.channels import Channel
+from app.domain.enum.chat_state import ChatState
 from app.repository.person_repository import PersonRepository
 
 
@@ -25,7 +26,7 @@ def test_create(
         phone_number="11111111111",
         name="Arthur",
         cpf="12345678900",
-        chat_state="START",
+        chat_state=ChatState.AGENT_RUNNING,
         created_at=datetime.utcnow(),
     )
 
@@ -111,13 +112,77 @@ def test_update_chat_state(
     person_repository: PersonRepository,
     make_person: Callable[..., PersonModel],
 ) -> None:
-    person = make_person(phone_number="77777777777", chat_state="START")
+    person = make_person(
+        phone_number="77777777777",
+        chat_state=ChatState.AGENT_RUNNING,
+    )
 
-    person_repository.update_chat_state(person.id, "NEXT_STATE")
+    updated = person_repository.update_chat_state(
+        person.id,
+        ChatState.NEW_PATIENT,
+    )
     found = person_repository.get_by_id(person.id)
 
+    assert updated is True
     assert found is not None
-    assert found.chat_state == "NEXT_STATE"
+    assert found.chat_state == ChatState.NEW_PATIENT
+
+
+def test_update_chat_state_does_not_replace_higher_priority(
+    person_repository: PersonRepository,
+    make_person: Callable[..., PersonModel],
+) -> None:
+    person = make_person(
+        phone_number="77777777778",
+        chat_state=ChatState.PROFESSIONAL_REGISTRATION,
+    )
+
+    updated = person_repository.update_chat_state(
+        person.id,
+        ChatState.FEEDBACK,
+    )
+    found = person_repository.get_by_id(person.id)
+
+    assert updated is False
+    assert found is not None
+    assert found.chat_state == ChatState.PROFESSIONAL_REGISTRATION
+
+
+def test_update_chat_state_replaces_equal_priority(
+    person_repository: PersonRepository,
+    make_person: Callable[..., PersonModel],
+) -> None:
+    person = make_person(
+        phone_number="77777777779",
+        chat_state=ChatState.QUESTION,
+    )
+
+    updated = person_repository.update_chat_state(
+        person.id,
+        ChatState.QUESTION,
+    )
+
+    assert updated is True
+
+
+def test_agent_running_resumes_from_agent_stop(
+    person_repository: PersonRepository,
+    make_person: Callable[..., PersonModel],
+) -> None:
+    person = make_person(
+        phone_number="77777777780",
+        chat_state=ChatState.AGENT_STOP,
+    )
+
+    updated = person_repository.update_chat_state(
+        person.id,
+        ChatState.AGENT_RUNNING,
+    )
+    found = person_repository.get_by_id(person.id)
+
+    assert updated is True
+    assert found is not None
+    assert found.chat_state == ChatState.AGENT_RUNNING
 
 
 def test_get_with_message_history(

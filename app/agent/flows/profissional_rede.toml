@@ -4,6 +4,7 @@ description = "Fluxo para profissionais que já fazem parte da Rede MetAMORfose.
 
 [nodes.profissional_rede_inicio]
 description = "Triagem inicial do profissional já cadastrado."
+actions = ["postgres_set_professional_support_state"]
 message = "Olá! Como podemos ajudar você hoje?"
 buttons = ["Outros assuntos", "Reposição paciente", "Renovação por Pix"]
 
@@ -21,6 +22,7 @@ conditions = ["renovacao por pix", "renovação por pix"]
 
 [nodes.renovacao_pix]
 description = "Reenvio das instruções de renovação por Pix."
+actions = ["postgres_set_payment_renewal_state"]
 message = """Para renovar por Pix, faça o pagamento para Luiza Fogaça, gestora da plataforma.
 
 Chave Pix: 61609380000150

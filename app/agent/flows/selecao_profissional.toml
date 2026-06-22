@@ -278,7 +278,6 @@ conditions = []
 
 [nodes.cadastro_postgres]
 description = "Apresenta planos antes do pagamento."
-actions = ["postgres_register_professional_application"]
 message = """Para preencher uma das vagas disponíveis e começar a receber conexões com pacientes, o próximo passo é escolher o plano de parceria.
 
 - Premium – R$190/mês: Perfil + 4 conexões com pacientes
@@ -573,6 +572,10 @@ conditions = []
 
 [nodes.selecao_profissional_pagamento]
 description = "Encerramento do fluxo de seleção profissional."
+actions = [
+  "postgres_register_professional_application",
+  "postgres_set_professional_registration_state"
+]
 message = """Certo. Como você prefere? Via pix ou crédito? Via pix está em nome de Luiza Fogaça, a gestora da plataforma. A chave pix: 61609380000150
 
 Se preferir por crédito no site, a assinatura é faturada mensalmente no mesmo dia - mas você pode cancelar a qualquer momento se quiser - o link é https://orgmetamorfose.com.br/assinatura

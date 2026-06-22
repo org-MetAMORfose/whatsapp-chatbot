@@ -63,6 +63,7 @@ async def _async_main(app_context: AppContext) -> None:
         chat_repository=chat_repo,
         professional_stage_repository=professional_stage_repository,
         professional_repository=professional_repository,
+        person_repository=person_repository,
     )
 
     telegram_runner: TelegramRunner | None = None

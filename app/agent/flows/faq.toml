@@ -4,6 +4,7 @@ description = "Fluxo de perguntas frequentes."
 
 [nodes.faq_inicio]
 description = "FAQ temporário."
+actions = ["postgres_set_question_state"]
 message = """O FAQ ainda está em construção.
 
 Talvez a gente use IA futuramente, mas isso ainda precisa ser planejado."""
