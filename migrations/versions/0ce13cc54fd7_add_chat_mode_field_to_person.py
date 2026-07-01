@@ -26,6 +26,7 @@ def upgrade() -> None:
     op.alter_column("person", "chat_mode", server_default=None)
 
     op.execute("ALTER TABLE person ALTER COLUMN chat_state DROP DEFAULT")
+    op.execute("ALTER TABLE person ALTER COLUMN chat_state DROP NOT NULL")
     op.execute("UPDATE person SET chat_state = NULL WHERE chat_state IN ('AGENT_RUNNING', 'AGENT_STOP')")
     op.execute(
         """
