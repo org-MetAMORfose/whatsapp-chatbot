@@ -19,6 +19,7 @@ from app.domain.db.professional_status_history_model import (
     ProfessionalStatusHistoryModel,
 )
 from app.domain.enum.channels import Channel
+from app.domain.enum.chat_mode import ChatMode
 from app.domain.enum.chat_state import ChatState
 from app.domain.enum.professional_status import ProfessionalStatus
 
@@ -49,7 +50,8 @@ def make_person(
         name: str | None = None,
         cpf: str | None = None,
         channel: Channel | None = None,
-        chat_state: ChatState = ChatState.AGENT_RUNNING,
+        chat_state: ChatState | None = None,
+        chat_mode: ChatMode = ChatMode.AUTOMATIC,
         created_at: datetime | None = None,
     ) -> PersonModel:
         person = PersonModel(
@@ -58,6 +60,7 @@ def make_person(
             cpf=cpf,
             channel=channel,
             chat_state=chat_state,
+            chat_mode=chat_mode,
             created_at=created_at or datetime.utcnow(),
         )
         with session_factory() as session:

@@ -66,7 +66,7 @@ class PersonRepository:
                 phone_number=phone_number,
                 name=name,
                 channel=channel,
-                chat_state=ChatState.AGENT_RUNNING,
+                chat_state=None,
                 created_at=datetime.utcnow(),
             )
             session.add(person)
@@ -118,11 +118,11 @@ class PersonRepository:
             if person is None:
                 return False
 
-            is_agent_resume = chat_state == ChatState.AGENT_RUNNING
+            is_agent_resume = chat_state is None
             if (
                 not is_agent_resume
-                and CHAT_STATE_PRIORITY[chat_state]
-                < CHAT_STATE_PRIORITY[person.chat_state]
+                and person.chat_state is not None
+                and (CHAT_STATE_PRIORITY[chat_state] < CHAT_STATE_PRIORITY[person.chat_state])
             ):
                 return False
 

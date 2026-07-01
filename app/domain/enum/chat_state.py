@@ -6,8 +6,6 @@ from enum import Enum
 class ChatState(str, Enum):
     """Reason why a conversation may need human attention."""
 
-    AGENT_RUNNING = "agent_running"
-    AGENT_STOP = "agent_stop"
     FEEDBACK = "feedback"
     QUESTION = "question"
     PROFESSIONAL_SUPPORT = "professional_support"
@@ -17,8 +15,6 @@ class ChatState(str, Enum):
 
 
 CHAT_STATE_PRIORITY: dict[ChatState, int] = {
-    ChatState.AGENT_RUNNING: 0,
-    ChatState.AGENT_STOP: 70,
     ChatState.FEEDBACK: 10,
     ChatState.QUESTION: 20,
     ChatState.PROFESSIONAL_SUPPORT: 30,
