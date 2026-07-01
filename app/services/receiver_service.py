@@ -2,7 +2,7 @@ import logging
 from datetime import datetime
 
 from app.domain.db.message_history_model import MessageHistoryModel
-from app.domain.enum.chat_state import ChatState
+from app.domain.enum.chat_mode import ChatMode
 from app.domain.message import Message
 from app.message_queue import MessageQueue
 from app.repository.person_repository import PersonRepository
@@ -42,9 +42,9 @@ class MessageReceiverService:
 
         self.person_repository.create_message(history_message)
 
-        if person.chat_state == ChatState.AGENT_STOP:
+        if person.chat_mode == ChatMode.MANUAL:
             logger.info(
-                "Skipping agent queue for person %s because the agent is stopped.",
+                "Skipping agent queue for person %s because the agent is in manual mode.",
                 person.id,
             )
             return

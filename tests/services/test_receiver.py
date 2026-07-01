@@ -4,7 +4,7 @@ from unittest.mock import AsyncMock, MagicMock
 import pytest
 
 from app.domain.enum.channels import Channel
-from app.domain.enum.chat_state import ChatState
+from app.domain.enum.chat_mode import ChatMode
 from app.domain.message import Message
 from app.message_queue.message_queue import MessageQueue
 from app.services.receiver_service import MessageReceiverService
@@ -19,7 +19,7 @@ async def test_handle_appends_message_to_history_and_publishes_to_queue() -> Non
     person_repository = MagicMock()
     person_repository.get_or_create_person.return_value = MagicMock(
         id=10,
-        chat_state=ChatState.AGENT_RUNNING,
+        chat_mode=ChatMode.AUTOMATIC,
     )
     service = MessageReceiverService(
         inbound_queue=inbound_queue,
@@ -48,7 +48,7 @@ async def test_handle_saves_history_but_does_not_queue_when_agent_stopped() -> N
     person_repository = MagicMock()
     person_repository.get_or_create_person.return_value = MagicMock(
         id=11,
-        chat_state=ChatState.AGENT_STOP,
+        chat_mode=ChatMode.MANUAL,
     )
     service = MessageReceiverService(
         inbound_queue=inbound_queue,

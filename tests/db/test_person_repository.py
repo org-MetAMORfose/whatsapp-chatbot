@@ -9,6 +9,7 @@ from sqlalchemy.orm import Session, sessionmaker
 from app.domain.db.message_history_model import MessageHistoryModel
 from app.domain.db.person_model import PersonModel
 from app.domain.enum.channels import Channel
+from app.domain.enum.chat_mode import ChatMode
 from app.domain.enum.chat_state import ChatState
 from app.repository.person_repository import PersonRepository
 
@@ -26,7 +27,7 @@ def test_create(
         phone_number="11111111111",
         name="Arthur",
         cpf="12345678900",
-        chat_state=ChatState.AGENT_RUNNING,
+        chat_state=None,
         created_at=datetime.utcnow(),
     )
 
@@ -114,7 +115,7 @@ def test_update_chat_state(
 ) -> None:
     person = make_person(
         phone_number="77777777777",
-        chat_state=ChatState.AGENT_RUNNING,
+        chat_mode=ChatMode.AUTOMATIC,
     )
 
     updated = person_repository.update_chat_state(
@@ -171,18 +172,18 @@ def test_agent_running_resumes_from_agent_stop(
 ) -> None:
     person = make_person(
         phone_number="77777777780",
-        chat_state=ChatState.AGENT_STOP,
+        chat_mode=ChatMode.MANUAL,
     )
 
     updated = person_repository.update_chat_state(
         person.id,
-        ChatState.AGENT_RUNNING,
+        ChatState.FEEDBACK,
     )
     found = person_repository.get_by_id(person.id)
 
     assert updated is True
     assert found is not None
-    assert found.chat_state == ChatState.AGENT_RUNNING
+    assert found.chat_state == ChatState.FEEDBACK
 
 
 def test_get_with_message_history(
