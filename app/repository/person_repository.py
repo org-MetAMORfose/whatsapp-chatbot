@@ -9,6 +9,7 @@ from sqlalchemy.orm import Session, joinedload, selectinload
 from app.domain.db.message_history_model import MessageHistoryModel
 from app.domain.db.person_model import PersonModel
 from app.domain.enum.channels import Channel
+from app.domain.enum.chat_state import CHAT_STATE_PRIORITY, ChatState
 
 
 class PersonRepository:
@@ -65,7 +66,7 @@ class PersonRepository:
                 phone_number=phone_number,
                 name=name,
                 channel=channel,
-                chat_state="START",
+                chat_state=ChatState.AGENT_RUNNING,
                 created_at=datetime.utcnow(),
             )
             session.add(person)
@@ -106,14 +107,42 @@ class PersonRepository:
         with self._session_factory() as session:
             return session.scalar(stmt) is not None
 
-    def update_chat_state(self, person_id: int, chat_state: str) -> None:
-        """Update the chat state of an existing person."""
+    def update_chat_state(
+        self,
+        person_id: int,
+        chat_state: ChatState,
+    ) -> bool:
+        """Update chat state when the new reason has equal or higher priority."""
         with self._session_factory() as session:
             person = session.get(PersonModel, person_id)
-            if person is not None:
-                person.chat_state = chat_state
-                session.flush()
-                session.commit()
+            if person is None:
+                return False
+
+            is_agent_resume = chat_state == ChatState.AGENT_RUNNING
+            if (
+                not is_agent_resume
+                and CHAT_STATE_PRIORITY[chat_state]
+                < CHAT_STATE_PRIORITY[person.chat_state]
+            ):
+                return False
+
+            person.chat_state = chat_state
+            session.flush()
+            session.commit()
+            return True
+
+    def update_chat_state_by_contact(
+        self,
+        phone_number: str,
+        channel: Channel,
+        chat_state: ChatState,
+    ) -> bool:
+        """Find a person by contact and apply the priority-aware state update."""
+        person = self.get_by_phone_number_and_channel(phone_number, channel)
+        if person is None:
+            return False
+
+        return self.update_chat_state(person.id, chat_state)
 
     def get_with_message_history(self, person_id: int) -> PersonModel | None:
         """Return a person with message history eagerly loaded."""

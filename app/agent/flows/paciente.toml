@@ -130,6 +130,7 @@ conditions = ["ansiedade", "depressao", "emagrecimento", "maternidade", "longevi
 
 [nodes.paciente_apresentacao]
 description = "Mensagem de apresentação do profissional indicado."
+actions = ["postgres_set_new_patient_state"]
 message = """Olá, tudo bem? Parabéns por ter dado o primeiro passo e completado o cadastro inicial.
 
 Em breve um dos nossos profissionais de saúde vai te chamar aqui no whatsapp.

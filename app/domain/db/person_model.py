@@ -8,6 +8,7 @@ from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.domain.db.base import Base
 from app.domain.enum.channels import Channel
+from app.domain.enum.chat_state import ChatState
 
 if TYPE_CHECKING:
     from app.domain.db.message_history_model import MessageHistoryModel
@@ -29,7 +30,12 @@ class PersonModel(Base):
     channel: Mapped[Channel | None] = mapped_column(Enum(Channel), nullable=True)
     name: Mapped[str | None] = mapped_column(String, nullable=True)
     cpf: Mapped[str | None] = mapped_column(String, unique=True, nullable=True)
-    chat_state: Mapped[str] = mapped_column(String, nullable=False, default="START")
+    chat_state: Mapped[ChatState] = mapped_column(
+        Enum(ChatState),
+        nullable=False,
+        default=ChatState.AGENT_RUNNING,
+        server_default=ChatState.AGENT_RUNNING.name,
+    )
     created_at: Mapped[datetime] = mapped_column(DateTime, nullable=False)
 
     professional: Mapped["ProfessionalModel"] = relationship(

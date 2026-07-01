@@ -42,11 +42,6 @@ class ProfessionalModel(Base):
     background: Mapped[str | None] = mapped_column(Text, nullable=True)
     video_platform: Mapped[str | None] = mapped_column(String, nullable=True)
     email: Mapped[str | None] = mapped_column(String, nullable=True)
-    status_id: Mapped[int] = mapped_column(
-        ForeignKey("professional_status_history.id", ondelete="RESTRICT"),
-        unique=True,
-        nullable=False,
-    )
     created_at: Mapped[datetime] = mapped_column(DateTime, nullable=False)
 
     person: Mapped["PersonModel"] = relationship(
@@ -54,17 +49,24 @@ class ProfessionalModel(Base):
         back_populates="professional",
     )
 
-    current_status: Mapped["ProfessionalStatusHistoryModel"] = relationship(
-        "ProfessionalStatusHistoryModel",
-        foreign_keys=[status_id],
-    )
-
     status_history: Mapped[list["ProfessionalStatusHistoryModel"]] = relationship(
         "ProfessionalStatusHistoryModel",
         back_populates="professional",
         foreign_keys="ProfessionalStatusHistoryModel.professional_id",
         cascade="all, delete-orphan",
+        order_by=(
+            "ProfessionalStatusHistoryModel.created_at,"
+            "ProfessionalStatusHistoryModel.id"
+        ),
     )
+
+    @property
+    def current_status(self) -> "ProfessionalStatusHistoryModel":
+        """Return the most recent status history entry."""
+        if not self.status_history:
+            raise RuntimeError("Professional has no status history.")
+
+        return self.status_history[-1]
 
     professional_patients: Mapped[list["ProfessionalPatientModel"]] = relationship(
         "ProfessionalPatientModel",

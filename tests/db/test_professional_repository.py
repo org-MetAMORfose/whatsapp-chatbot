@@ -5,7 +5,6 @@ from datetime import datetime, timedelta
 import pytest
 from sqlalchemy.orm import Session, sessionmaker
 
-from app.domain.db.professional_model import ProfessionalModel
 from app.domain.db.professional_status_history_model import (
     ProfessionalStatusHistoryModel,
 )
@@ -46,6 +45,53 @@ def test_get_by_id_returns_none_when_not_found(
     found = professional_repository.get_by_id(999999)
 
     assert found is None
+
+
+def test_create_application(
+    professional_repository: ProfessionalRepository,
+    make_person,
+) -> None:
+    person = make_person(phone_number="11930000001")
+
+    professional = professional_repository.create_application(
+        person_id=person.id,
+        area="Psicoterapia",
+        professional_register=f"PENDING-{person.id}",
+        register_type="PENDING_REVIEW",
+        approach="TCC",
+        background="Formação",
+        video_platform="Meet",
+        email="application@test.com",
+    )
+
+    found = professional_repository.get_by_person_id(person.id)
+
+    assert found is not None
+    assert found.id == professional.id
+    assert found.area == "Psicoterapia"
+    assert found.current_status.professional_status == ProfessionalStatus.REGISTER_PENDING
+
+
+def test_create_application_is_idempotent_per_person(
+    professional_repository: ProfessionalRepository,
+    make_person,
+) -> None:
+    person = make_person(phone_number="11930000019")
+    application_data = {
+        "person_id": person.id,
+        "area": "Psicoterapia",
+        "professional_register": f"PENDING-{person.id}",
+        "register_type": "PENDING_REVIEW",
+        "approach": None,
+        "background": None,
+        "video_platform": None,
+        "email": "idempotent@test.com",
+    }
+
+    first = professional_repository.create_application(**application_data)
+    second = professional_repository.create_application(**application_data)
+
+    assert second.id == first.id
 
 
 def test_get_by_person_id(
@@ -106,7 +152,7 @@ def test_update_status(
     make_professional,
     make_person,
 ) -> None:
-    now = datetime.utcnow()
+    now = datetime.utcnow() + timedelta(seconds=1)
 
     professional = make_professional(
         person=make_person(phone_number="11930000040"),
@@ -122,7 +168,6 @@ def test_update_status(
     )
 
     assert updated is not None
-    assert updated.status_id != professional.status_id
     assert updated.current_status is not None
     assert updated.current_status.professional_status == ProfessionalStatus.ACTIVE
     assert updated.current_status.created_at == now
@@ -546,12 +591,6 @@ def test_get_active_professionals_with_less_than_n_patients_uses_current_active_
             created_at=now - timedelta(days=20),
         )
         session.add(new_active_status)
-        session.flush()
-
-        db_professional = session.get(ProfessionalModel, professional.id)
-        assert db_professional is not None
-        db_professional.status_id = new_active_status.id
-
         session.commit()
 
     patient_1 = make_patient(person=make_person(phone_number="11930000151"))
@@ -605,12 +644,6 @@ def test_get_average_patients_per_professional_30_days_uses_current_active_statu
             created_at=now - timedelta(days=20),
         )
         session.add(new_active_status)
-        session.flush()
-
-        db_professional = session.get(ProfessionalModel, professional.id)
-        assert db_professional is not None
-        db_professional.status_id = new_active_status.id
-
         session.commit()
 
     patient_1 = make_patient(person=make_person(phone_number="11930000161"))

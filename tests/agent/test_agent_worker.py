@@ -83,6 +83,7 @@ def make_worker(
         chat_repository=cast(Any, chat_repository),
         professional_repository=MagicMock(),
         professional_stage_repository=MagicMock(),
+        person_repository=MagicMock(),
     )
     if flow is not None:
         worker.flow = flow
@@ -167,6 +168,37 @@ async def test_first_message_creates_context_and_returns_start() -> None:
     assert response.content == start_node.message
     assert response.buttons == start_node.buttons
     assert chat_repository.created_state == "start"
+
+
+@pytest.mark.asyncio
+async def test_first_message_can_transition_from_start() -> None:
+    chat_repository = FakeChatRepository()
+    flow = ChatFlow.from_file()
+    worker = make_worker(chat_repository, flow=flow)
+    professional_node = flow.get("profissional_start")
+    assert professional_node is not None
+
+    response = await worker._process_message(make_message("Sou profissional"))
+
+    assert response.content == professional_node.message
+    assert response.buttons == professional_node.buttons
+    assert chat_repository.created_state == "start"
+    assert chat_repository.updated_state == "profissional_start"
+
+
+@pytest.mark.asyncio
+async def test_invalid_response_repeats_current_node() -> None:
+    chat_repository = FakeChatRepository(state="start")
+    flow = ChatFlow.from_file()
+    worker = make_worker(chat_repository, flow=flow)
+    start_node = flow.get("start")
+    assert start_node is not None
+
+    response = await worker._process_message(make_message("Oi"))
+
+    assert response.content == start_node.message
+    assert response.buttons == start_node.buttons
+    assert chat_repository.updated_state is None
 
 
 @pytest.mark.asyncio

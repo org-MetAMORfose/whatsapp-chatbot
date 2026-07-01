@@ -6,7 +6,9 @@ from functools import partial
 from typing import Final
 
 from app.agent.chat_flow import Node
+from app.domain.enum.chat_state import ChatState
 from app.domain.message import Message
+from app.repository.person_repository import PersonRepository
 from app.repository.professional_repository import ProfessionalRepository
 from app.repository.professional_stage_repository import (
     ProfessionalStageRepository,
@@ -24,9 +26,11 @@ class ActionExecutor:
         self,
         professional_stage_repository: ProfessionalStageRepository,
         professional_repository: ProfessionalRepository,
+        person_repository: PersonRepository,
     ) -> None:
         self.professional_stage_repository = professional_stage_repository
         self.professional_repository = professional_repository
+        self.person_repository = person_repository
 
         self.actions: Final[dict[str, Action]] = {
             "redis_create_professional_stage": (
@@ -77,6 +81,26 @@ class ActionExecutor:
             "postgres_register_professional_application": (
                 self.postgres_register_professional_application
             ),
+            "postgres_set_professional_registration_state": partial(
+                self.postgres_set_chat_state,
+                chat_state=ChatState.PROFESSIONAL_REGISTRATION,
+            ),
+            "postgres_set_payment_renewal_state": partial(
+                self.postgres_set_chat_state,
+                chat_state=ChatState.PAYMENT_RENEWAL,
+            ),
+            "postgres_set_question_state": partial(
+                self.postgres_set_chat_state,
+                chat_state=ChatState.QUESTION,
+            ),
+            "postgres_set_feedback_state": partial(
+                self.postgres_set_chat_state,
+                chat_state=ChatState.FEEDBACK,
+            ),
+            "postgres_set_professional_support_state": (
+                self.postgres_set_professional_support_state
+            ),
+            "postgres_set_new_patient_state": self.postgres_set_new_patient_state,
         }
 
     async def run(self, node: Node, message: Message) -> str:
@@ -194,6 +218,79 @@ class ActionExecutor:
         self,
         message: Message,
     ) -> str:
-        """Register professional application in PostgreSQL."""
+        """Register professional application in PostgreSQL after Pix receipt."""
+        context = await self.professional_stage_repository.get_context(message)
+        if context is None:
+            logger.error(
+                "Professional stage not found for user_id %s",
+                message.user_id,
+            )
+            return ""
 
+        person = self.person_repository.get_by_phone_number_and_channel(
+            message.user_id,
+            message.channel,
+        )
+        if person is None:
+            logger.error(
+                "Person not found while registering professional user_id %s",
+                message.user_id,
+            )
+            return ""
+
+        if context.name:
+            person.name = context.name
+            self.person_repository.update(person)
+
+        self.professional_repository.create_application(
+            person_id=person.id,
+            area=context.area or "Não informado",
+            professional_register=f"PENDING-{person.id}",
+            register_type="PENDING_REVIEW",
+            approach=context.approach,
+            background=context.qualification,
+            video_platform=context.video_tool,
+            email=context.email,
+            created_at=message.created_at,
+        )
+        return ""
+
+    async def postgres_set_chat_state(
+        self,
+        message: Message,
+        *,
+        chat_state: ChatState,
+    ) -> str:
+        """Set an administrative chat state according to its priority."""
+        self.person_repository.update_chat_state_by_contact(
+            phone_number=message.user_id,
+            channel=message.channel,
+            chat_state=chat_state,
+        )
+        return ""
+
+    async def postgres_set_professional_support_state(
+        self,
+        message: Message,
+    ) -> str:
+        """Flag requests made through the professional support option."""
+        content = (message.content or "").strip().lower()
+        if content == "outros assuntos":
+            await self.postgres_set_chat_state(
+                message,
+                chat_state=ChatState.PROFESSIONAL_SUPPORT,
+            )
+        return ""
+
+    async def postgres_set_new_patient_state(
+        self,
+        message: Message,
+    ) -> str:
+        """Flag a patient who requested a session."""
+        content = (message.content or "").strip().lower()
+        if content == "quero sessão":
+            await self.postgres_set_chat_state(
+                message,
+                chat_state=ChatState.NEW_PATIENT,
+            )
         return ""

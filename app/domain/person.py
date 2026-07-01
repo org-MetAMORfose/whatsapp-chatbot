@@ -5,6 +5,7 @@ from datetime import datetime
 from pydantic import BaseModel
 
 from app.domain.enum.channels import Channel
+from app.domain.enum.chat_state import ChatState
 
 
 class Person(BaseModel):
@@ -15,5 +16,5 @@ class Person(BaseModel):
     name: str | None = None
     cpf: str | None = None
     channel: Channel | None = None
-    chat_state: str = "START"
+    chat_state: ChatState = ChatState.AGENT_RUNNING
     created_at: datetime

@@ -4,6 +4,7 @@ description = "Fluxo de coleta de feedback."
 
 [nodes.feedback_inicio]
 description = "Solicitação de feedback."
+actions = ["postgres_set_feedback_state"]
 message = "Gostaria de compartilhar algum feedback sobre o atendimento ou sobre a Rede MetAMORfose?"
 input = "Texto"
 

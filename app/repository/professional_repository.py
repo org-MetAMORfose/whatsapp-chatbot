@@ -5,7 +5,8 @@ from collections.abc import Callable
 from datetime import datetime, timedelta
 
 from sqlalchemy import func, select
-from sqlalchemy.orm import Session, joinedload
+from sqlalchemy.orm import Session, joinedload, selectinload
+from sqlalchemy.sql.selectable import Subquery
 
 from app.domain.db.patient_model import PatientModel
 from app.domain.db.professional_model import ProfessionalModel
@@ -29,14 +30,60 @@ class ProfessionalRepository:
             session.refresh(professional)
             return professional
 
+    def create_application(
+        self,
+        *,
+        person_id: int,
+        area: str,
+        professional_register: str,
+        register_type: str,
+        approach: str | None,
+        background: str | None,
+        video_platform: str | None,
+        email: str | None,
+        created_at: datetime | None = None,
+    ) -> ProfessionalModel:
+        """Create a professional application with its initial status."""
+        with self._session_factory() as session:
+            existing = session.scalar(
+                select(ProfessionalModel).where(
+                    ProfessionalModel.person_id == person_id,
+                )
+            )
+            if existing is not None:
+                return existing
+
+            professional = ProfessionalModel(
+                person_id=person_id,
+                area=area,
+                professional_register=professional_register,
+                register_type=register_type,
+                approach=approach,
+                background=background,
+                video_platform=video_platform,
+                email=email,
+                created_at=created_at or datetime.utcnow(),
+            )
+            session.add(professional)
+            session.flush()
+
+            status_history = ProfessionalStatusHistoryModel(
+                professional_id=professional.id,
+                professional_status=ProfessionalStatus.REGISTER_PENDING,
+                created_at=created_at or datetime.utcnow(),
+            )
+            session.add(status_history)
+            session.commit()
+            session.refresh(professional)
+            return professional
+
     def get_by_id(self, professional_id: int) -> ProfessionalModel | None:
         with self._session_factory() as session:
             stmt = (
                 select(ProfessionalModel)
                 .options(
                     joinedload(ProfessionalModel.person),
-                    joinedload(ProfessionalModel.current_status),
-                    joinedload(ProfessionalModel.status_history),
+                    selectinload(ProfessionalModel.status_history),
                 )
                 .where(ProfessionalModel.id == professional_id)
             )
@@ -48,8 +95,7 @@ class ProfessionalRepository:
                 select(ProfessionalModel)
                 .options(
                     joinedload(ProfessionalModel.person),
-                    joinedload(ProfessionalModel.current_status),
-                    joinedload(ProfessionalModel.status_history),
+                    selectinload(ProfessionalModel.status_history),
                 )
                 .where(ProfessionalModel.person_id == person_id)
             )
@@ -69,8 +115,7 @@ class ProfessionalRepository:
                 .options(
                     joinedload(ProfessionalModel.patients).joinedload(PatientModel.person),
                     joinedload(ProfessionalModel.person),
-                    joinedload(ProfessionalModel.current_status),
-                    joinedload(ProfessionalModel.status_history),
+                    selectinload(ProfessionalModel.status_history),
                 )
                 .where(ProfessionalModel.id == professional_id)
             )
@@ -106,18 +151,13 @@ class ProfessionalRepository:
             )
 
             session.add(status_history)
-            session.flush()
-
-            professional.status_id = status_history.id
-
             session.commit()
 
             stmt = (
                 select(ProfessionalModel)
                 .options(
                     joinedload(ProfessionalModel.person),
-                    joinedload(ProfessionalModel.current_status),
-                    joinedload(ProfessionalModel.status_history),
+                    selectinload(ProfessionalModel.status_history),
                 )
                 .where(ProfessionalModel.id == professional_id)
             )
@@ -131,15 +171,20 @@ class ProfessionalRepository:
         now = datetime.utcnow()
 
         with self._session_factory() as session:
+            latest_status = self._latest_status_subquery()
             stmt = (
                 select(ProfessionalModel)
                 .join(
+                    latest_status,
+                    latest_status.c.professional_id == ProfessionalModel.id,
+                )
+                .join(
                     ProfessionalStatusHistoryModel,
-                    ProfessionalModel.status_id == ProfessionalStatusHistoryModel.id,
+                    ProfessionalStatusHistoryModel.id == latest_status.c.status_id,
                 )
                 .options(
                     joinedload(ProfessionalModel.person),
-                    joinedload(ProfessionalModel.current_status),
+                    selectinload(ProfessionalModel.status_history),
                 )
                 .where(
                     ProfessionalStatusHistoryModel.professional_status == ProfessionalStatus.ACTIVE,
@@ -186,15 +231,20 @@ class ProfessionalRepository:
         now = datetime.utcnow()
 
         with self._session_factory() as session:
+            latest_status = self._latest_status_subquery()
             stmt = (
                 select(ProfessionalModel)
                 .join(
+                    latest_status,
+                    latest_status.c.professional_id == ProfessionalModel.id,
+                )
+                .join(
                     ProfessionalStatusHistoryModel,
-                    ProfessionalModel.status_id == ProfessionalStatusHistoryModel.id,
+                    ProfessionalStatusHistoryModel.id == latest_status.c.status_id,
                 )
                 .options(
                     joinedload(ProfessionalModel.person),
-                    joinedload(ProfessionalModel.current_status),
+                    selectinload(ProfessionalModel.status_history),
                 )
                 .where(
                     ProfessionalStatusHistoryModel.professional_status == ProfessionalStatus.ACTIVE,
@@ -270,3 +320,29 @@ class ProfessionalRepository:
                 result.append((professional, average))
 
             return result
+
+    @staticmethod
+    def _latest_status_subquery() -> Subquery:
+        """Select the latest status history id for every professional."""
+        ranked_statuses = select(
+            ProfessionalStatusHistoryModel.id.label("status_id"),
+            ProfessionalStatusHistoryModel.professional_id,
+            func.row_number()
+            .over(
+                partition_by=ProfessionalStatusHistoryModel.professional_id,
+                order_by=(
+                    ProfessionalStatusHistoryModel.created_at.desc(),
+                    ProfessionalStatusHistoryModel.id.desc(),
+                ),
+            )
+            .label("position"),
+        ).subquery()
+
+        return (
+            select(
+                ranked_statuses.c.status_id,
+                ranked_statuses.c.professional_id,
+            )
+            .where(ranked_statuses.c.position == 1)
+            .subquery()
+        )
