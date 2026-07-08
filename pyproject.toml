@@ -31,6 +31,9 @@ dependencies = [
   "python-json-logger>=2.0",
   "python-logging-loki>=0.3",
   "alembic>=1.18.4",
+  "openai>=2.44.0",
+  "chainlit>=2.11.1",
+  "asyncpg>=0.31.0",
 ]
 
 [project.scripts]
@@ -57,6 +60,9 @@ select = ["E", "F", "I", "N", "Q", "S", "B", "C4", "TID"]
 asyncio_mode = "auto"
 pythonpath = ["."]
 testpaths = ["tests"]
+markers = [
+  "integration: marks tests that call external services (disabled by default)",
+]
 
 [tool.mypy]
 python_version = "3.11"
