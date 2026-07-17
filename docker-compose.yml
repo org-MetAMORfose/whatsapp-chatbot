@@ -66,6 +66,8 @@ services:
         condition: service_healthy
     ports:
       - "8000:8000"
+    volumes:
+      - ./secrets:/app/secrets:ro
     networks:
       - chatbot_net
 

@@ -12,6 +12,8 @@ authors = [
 readme = "README.md"
 requires-python = ">=3.11"
 dependencies = [
+  "google-api-python-client>=2.0,<3.0",
+  "google-auth>=2.0,<3.0",
   "sqlalchemy",
   "fastapi",
   "uvicorn[standard]",
@@ -57,10 +59,14 @@ select = ["E", "F", "I", "N", "Q", "S", "B", "C4", "TID"]
 asyncio_mode = "auto"
 pythonpath = ["."]
 testpaths = ["tests"]
+markers = [
+  "integration: tests that call external services and may mutate real data",
+]
 
 [tool.mypy]
 python_version = "3.11"
 strict = true
+exclude = ["^secrets/"]
 ignore_missing_imports = true
 warn_unused_ignores = true
 warn_redundant_casts = true
