@@ -107,3 +107,7 @@ AWS_REGION = __get_env_variable("AWS_REGION", "us-east-1")
 S3_BUCKET_NAME = __get_env_variable("S3_BUCKET_NAME", "")
 
 GOOGLE_SERVICE_ACCOUNT_CREDENTIALS = load_google_service_account_credentials()
+GOOGLE_PATIENTS_SPREADSHEET_URL = __get_env_variable(
+    "GOOGLE_PATIENTS_SPREADSHEET_URL", "")
+GOOGLE_PROFESSIONALS_SPREADSHEET_URL = __get_env_variable(
+    "GOOGLE_PROFESSIONALS_SPREADSHEET_URL", "")
