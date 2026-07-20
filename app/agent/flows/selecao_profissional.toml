@@ -574,6 +574,7 @@ conditions = []
 description = "Encerramento do fluxo de seleção profissional."
 actions = [
   "postgres_register_professional_application",
+  "sheets_register_professional",
   "postgres_set_professional_registration_state"
 ]
 message = """Certo. Como você prefere? Via pix ou crédito? Via pix está em nome de Luiza Fogaça, a gestora da plataforma. A chave pix: 61609380000150

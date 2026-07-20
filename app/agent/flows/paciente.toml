@@ -3,9 +3,21 @@ name = "paciente"
 description = "Fluxo de paciente buscando atendimento na Rede MetAMORfose."
 
 
+[nodes.paciente_nome]
+description = "Coleta do nome do paciente."
+actions = ["redis_update_patient_name"]
+message = """Olá, tudo bem? Para começarmos, qual é o seu nome?"""
+input = "Texto"
+
+[[nodes.paciente_nome.transitions]]
+target = "paciente_inicio"
+conditions = []
+
+
 [nodes.paciente_inicio]
 description = "Coleta da área de atendimento desejada."
-message = """Olá, tudo bem? Qual área você deseja receber atendimento?
+actions = ["redis_update_patient_area"]
+message = """Prazer em te conhecer! Qual área você deseja receber atendimento?
 
 Estamos aqui para te conectar aos profissionais da nossa Rede MetAMORfose de telemedicina, para acolher tudo o que você estiver sentindo!"""
 buttons = [
@@ -110,6 +122,7 @@ conditions = ["ate r$150", "ate r$300", "ate r$600"]
 
 [nodes.paciente_jornada_relatorio]
 description = "Oferta de atendimento com relatório personalizado."
+actions = ["sheets_register_patient"]
 message = """Você quer receber atendimento com relatório personalizado da sua evolução?
 
 Esse acompanhamento pode ajudar o profissional a organizar melhor sua jornada de cuidado."""

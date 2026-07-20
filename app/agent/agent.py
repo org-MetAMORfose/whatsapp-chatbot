@@ -9,10 +9,12 @@ from app.agent.chat_flow import ChatFlow, Node
 from app.context import AppContext
 from app.domain.message import Message, MessageButton
 from app.message_queue import MessageQueue
+from app.repository.patient_stage_repository import PatientStageRepository
 from app.repository.person_repository import PersonRepository
 from app.repository.professional_repository import ProfessionalRepository
 from app.repository.professional_stage_repository import ProfessionalStageRepository
 from app.repository.redis_repository import ChatRepository
+from app.services.google_sheets_service import GoogleSheetsService
 
 logger = logging.getLogger(__name__)
 
@@ -48,6 +50,8 @@ class AgentWorker:
         professional_repository: ProfessionalRepository,
         professional_stage_repository: ProfessionalStageRepository,
         person_repository: PersonRepository,
+        patient_stage_repository: PatientStageRepository,
+        google_sheets_service: GoogleSheetsService,
     ):
         self.ctx = ctx
         self.inbound_queue = inbound
@@ -58,6 +62,8 @@ class AgentWorker:
             professional_stage_repository,
             professional_repository,
             person_repository,
+            patient_stage_repository,
+            google_sheets_service,
         )
 
     async def start(

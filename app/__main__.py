@@ -10,12 +10,17 @@ import app.config.settings as config
 from app.agent.agent import AgentWorker
 from app.context import AppContext
 from app.message_queue import MessageQueue
+from app.repository.patient_stage_repository import PatientStageRepository
 from app.repository.person_repository import PersonRepository
 from app.repository.professional_repository import ProfessionalRepository
 from app.repository.professional_stage_repository import ProfessionalStageRepository
 from app.repository.redis_repository import ChatRepository
 from app.runners.telegram_runner import TelegramRunner
 from app.runners.whatsapp_runner import WhatsAppRunner
+from app.services.google_sheets_service import (
+    GoogleSheetsService,
+    GoogleSheetsServiceError,
+)
 from app.services.receiver_service import MessageReceiverService
 
 logger = logging.getLogger(__name__)
@@ -50,6 +55,13 @@ async def _async_main(app_context: AppContext) -> None:
 
     chat_repo = ChatRepository(redis_client)
     professional_stage_repository = ProfessionalStageRepository(redis_client)
+    patient_stage_repository = PatientStageRepository(redis_client)
+
+    try:
+        google_sheets_service = GoogleSheetsService()
+    except GoogleSheetsServiceError as e:
+        logger.fatal("Failed to initialize Google Sheets service: %s", e)
+        sys.exit(1)
 
     message_receiver_service = MessageReceiverService(
         inbound_queue=inbound_queue,
@@ -64,6 +76,8 @@ async def _async_main(app_context: AppContext) -> None:
         professional_stage_repository=professional_stage_repository,
         professional_repository=professional_repository,
         person_repository=person_repository,
+        patient_stage_repository=patient_stage_repository,
+        google_sheets_service=google_sheets_service,
     )
 
     telegram_runner: TelegramRunner | None = None
