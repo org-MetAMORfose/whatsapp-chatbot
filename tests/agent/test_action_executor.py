@@ -5,6 +5,7 @@ import pytest
 
 from app.agent.action_executor import ActionExecutor
 from app.domain.enum.channels import Channel
+from app.domain.enum.chat_mode import ChatMode
 from app.domain.enum.chat_state import ChatState
 from app.domain.message import Message
 from app.domain.professional_stage import ProfessionalStageContext
@@ -83,6 +84,19 @@ async def test_new_patient_only_marks_session_request() -> None:
         make_message("Quero sessão"),
     )
     person_repository.update_chat_state_by_contact.assert_called_once()
+
+
+@pytest.mark.asyncio
+async def test_manual_chat_mode_is_enabled_when_user_selects_duvidas() -> None:
+    executor, _, _, person_repository = make_executor()
+
+    await executor.postgres_set_manual_chat_mode(make_message("Dúvidas"))
+
+    person_repository.update_chat_mode_by_contact.assert_called_once_with(
+        phone_number="5511999999999",
+        channel=Channel.WHATSAPP,
+        chat_mode=ChatMode.MANUAL,
+    )
 
 
 @pytest.mark.asyncio

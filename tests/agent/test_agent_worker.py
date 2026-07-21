@@ -187,6 +187,47 @@ async def test_first_message_can_transition_from_start() -> None:
 
 
 @pytest.mark.asyncio
+async def test_transition_target_actions_are_executed() -> None:
+    chat_repository = FakeChatRepository()
+    flow = ChatFlow.from_data(
+        {
+            "nodes": {
+                "start": {
+                    "message": "start",
+                    "transitions": [
+                        {
+                            "target": "faq",
+                            "conditions": ["duvidas"],
+                        }
+                    ],
+                },
+                "faq": {
+                    "message": "faq",
+                    "actions": ["manual_mode"],
+                    "transitions": [
+                        {
+                            "target": "end",
+                            "conditions": [],
+                        }
+                    ],
+                },
+                "end": {
+                    "message": "end",
+                    "end": True,
+                },
+            }
+        }
+    )
+    worker = make_worker(chat_repository, flow=flow)
+
+    await worker._process_message(make_message("duvidas"))
+
+    assert worker.action_executor.run.await_count == 2
+    assert chat_repository.created_state == "start"
+    assert chat_repository.updated_state == "faq"
+
+
+@pytest.mark.asyncio
 async def test_invalid_response_repeats_current_node() -> None:
     chat_repository = FakeChatRepository(state="start")
     flow = ChatFlow.from_file()
