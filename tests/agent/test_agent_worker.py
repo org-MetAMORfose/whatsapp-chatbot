@@ -261,6 +261,24 @@ async def test_reset_returns_to_start_and_updates_context() -> None:
 
 
 @pytest.mark.asyncio
+async def test_sair_returns_to_start_and_updates_context() -> None:
+    flow = ChatFlow.from_file()
+    non_start_state = next(node_id for node_id in flow.nodes if node_id != "start")
+    chat_repository = FakeChatRepository(state=non_start_state)
+    worker = make_worker(chat_repository, flow=flow)
+    start_node = flow.get("start")
+    assert start_node is not None
+
+    response = await worker._process_message(make_message("sair"))
+
+    assert response.content == start_node.message
+    assert response.buttons == start_node.buttons
+    assert chat_repository.updated_state == "start"
+    assert chat_repository.context is not None
+    assert chat_repository.context.state == "start"
+
+
+@pytest.mark.asyncio
 async def test_media_node_blocks_text_without_media() -> None:
     chat_repository = FakeChatRepository(state="upload")
     flow = media_flow()

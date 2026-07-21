@@ -42,11 +42,20 @@ class MessageReceiverService:
 
         self.person_repository.create_message(history_message)
 
-        if person.chat_mode == ChatMode.MANUAL:
+        content = (message.content or "").strip().lower()
+        if person.chat_mode == ChatMode.MANUAL and content != "sair":
             logger.info(
                 "Skipping agent queue for person %s because the agent is in manual mode.",
                 person.id,
             )
             return
+
+        if person.chat_mode == ChatMode.MANUAL and content == "sair":
+            logger.info(
+                "Resetting manual mode for person %s before rerouting message to the flow.",
+                person.id,
+            )
+            person.chat_mode = ChatMode.AUTOMATIC
+            self.person_repository.update(person)
 
         await self.inbound_queue.publish(message)
