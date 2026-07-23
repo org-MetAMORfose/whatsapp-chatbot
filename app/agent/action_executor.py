@@ -1,18 +1,27 @@
 """Executes configured agent actions for the chat flow."""
 
+import asyncio
 import logging
 from collections.abc import Awaitable, Callable
 from functools import partial
 from typing import Final
 
+from pydantic import ValidationError
+
 from app.agent.chat_flow import Node
 from app.domain.enum.chat_mode import ChatMode
 from app.domain.enum.chat_state import ChatState
 from app.domain.message import Message
+from app.domain.sheets import PatientSheet, ProfessionalSheet
+from app.repository.patient_stage_repository import PatientStageRepository
 from app.repository.person_repository import PersonRepository
 from app.repository.professional_repository import ProfessionalRepository
 from app.repository.professional_stage_repository import (
     ProfessionalStageRepository,
+)
+from app.services.google_sheets_service import (
+    GoogleSheetsService,
+    GoogleSheetsServiceError,
 )
 
 Action = Callable[[Message], Awaitable[str]]
@@ -28,10 +37,14 @@ class ActionExecutor:
         professional_stage_repository: ProfessionalStageRepository,
         professional_repository: ProfessionalRepository,
         person_repository: PersonRepository,
+        patient_stage_repository: PatientStageRepository,
+        google_sheets_service: GoogleSheetsService,
     ) -> None:
         self.professional_stage_repository = professional_stage_repository
         self.professional_repository = professional_repository
         self.person_repository = person_repository
+        self.patient_stage_repository = patient_stage_repository
+        self.google_sheets_service = google_sheets_service
 
         self.actions: Final[dict[str, Action]] = {
             "redis_create_professional_stage": (
@@ -105,6 +118,16 @@ class ActionExecutor:
                 self.postgres_set_professional_support_state
             ),
             "postgres_set_new_patient_state": self.postgres_set_new_patient_state,
+            "redis_update_patient_name": partial(
+                self.redis_update_patient,
+                field="name",
+            ),
+            "redis_update_patient_area": partial(
+                self.redis_update_patient,
+                field="area",
+            ),
+            "sheets_register_patient": self.sheets_register_patient,
+            "sheets_register_professional": self.sheets_register_professional,
         }
 
     async def run(self, node: Node, message: Message) -> str:
@@ -309,4 +332,78 @@ class ActionExecutor:
                 message,
                 chat_state=ChatState.NEW_PATIENT,
             )
+        return ""
+
+    async def redis_update_patient(
+        self,
+        message: Message,
+        *,
+        field: str,
+    ) -> str:
+        """Store a patient text field."""
+        await self.patient_stage_repository.update_context(
+            message,
+            {field: message.content},
+        )
+        return ""
+
+    async def sheets_register_patient(
+        self,
+        message: Message,
+    ) -> str:
+        """Write the patient's data to the patients Google Sheet."""
+        context = await self.patient_stage_repository.get_context(message)
+        if context is None:
+            logger.error(
+                "Patient stage not found for user_id %s",
+                message.user_id,
+            )
+            return ""
+
+        try:
+            patient = PatientSheet(
+                name=context.name or "",
+                phone=message.user_id,
+                area=context.area or "",
+            )
+            await asyncio.to_thread(
+                self.google_sheets_service.register_patient, patient
+            )
+        except (GoogleSheetsServiceError, ValidationError):
+            logger.exception(
+                "Failed to register patient %s in Google Sheets",
+                message.user_id,
+            )
+
+        return ""
+
+    async def sheets_register_professional(
+        self,
+        message: Message,
+    ) -> str:
+        """Write the professional's data to the professionals Google Sheet."""
+        context = await self.professional_stage_repository.get_context(message)
+        if context is None:
+            logger.error(
+                "Professional stage not found for user_id %s",
+                message.user_id,
+            )
+            return ""
+
+        try:
+            professional = ProfessionalSheet(
+                name=context.name or "",
+                area=context.area or "",
+                phone=message.user_id,
+                active=False,
+            )
+            await asyncio.to_thread(
+                self.google_sheets_service.register_professional, professional
+            )
+        except (GoogleSheetsServiceError, ValidationError):
+            logger.exception(
+                "Failed to register professional %s in Google Sheets",
+                message.user_id,
+            )
+
         return ""

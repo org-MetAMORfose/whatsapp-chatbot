@@ -84,6 +84,8 @@ def make_worker(
         professional_repository=MagicMock(),
         professional_stage_repository=MagicMock(),
         person_repository=MagicMock(),
+        patient_stage_repository=MagicMock(),
+        google_sheets_service=MagicMock(),
     )
     if flow is not None:
         worker.flow = flow
