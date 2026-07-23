@@ -155,7 +155,7 @@ class AgentWorker:
 
         current_state = context.state if context else None
 
-        if content == "reset":
+        if content in {"reset", "sair"}:
             logger.info(
                 "Reset requested by user %s in chat %s",
                 message.user_id,
@@ -237,6 +237,10 @@ class AgentWorker:
             next_node = self.flow.get(transition.target)
 
             if next_node:
+                next_func_output = ""
+                if next_node.actions:
+                    next_func_output = await self.action_executor.run(next_node, message)
+
                 if next_node.get("end"):
                     await self.chat_repository.delete_context(
                         user_id=message.user_id,
@@ -248,7 +252,7 @@ class AgentWorker:
                         state=transition.target,
                     )
 
-                content = f"{func_output}{next_node.message}"
+                content = f"{func_output}{next_func_output}{next_node.message}"
 
                 return Response(
                     content=content,

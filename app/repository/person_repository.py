@@ -9,6 +9,7 @@ from sqlalchemy.orm import Session, joinedload, selectinload
 from app.domain.db.message_history_model import MessageHistoryModel
 from app.domain.db.person_model import PersonModel
 from app.domain.enum.channels import Channel
+from app.domain.enum.chat_mode import ChatMode
 from app.domain.enum.chat_state import CHAT_STATE_PRIORITY, ChatState
 
 
@@ -143,6 +144,21 @@ class PersonRepository:
             return False
 
         return self.update_chat_state(person.id, chat_state)
+
+    def update_chat_mode_by_contact(
+        self,
+        phone_number: str,
+        channel: Channel,
+        chat_mode: ChatMode,
+    ) -> bool:
+        """Find a person by contact and switch its conversation mode."""
+        person = self.get_by_phone_number_and_channel(phone_number, channel)
+        if person is None:
+            return False
+
+        person.chat_mode = chat_mode
+        self.update(person)
+        return True
 
     def get_with_message_history(self, person_id: int) -> PersonModel | None:
         """Return a person with message history eagerly loaded."""

@@ -11,7 +11,7 @@ Selecione a opção desejada
 
 Caso tenha preenchido alguma informação incorretamente ou queira recomeçar o atendimento, basta enviar a palavra RESET a qualquer momento para reiniciar o fluxo.
 """
-buttons = ["Sou paciente", "Sou profissional"]
+buttons = ["Sou paciente", "Sou profissional", "Dúvidas"]
 
 [[nodes.start.transitions]]
 target = "paciente_nome"
@@ -20,6 +20,10 @@ conditions = ["sou paciente"]
 [[nodes.start.transitions]]
 target = "profissional_start"
 conditions = ["sou profissional"]
+
+[[nodes.start.transitions]]
+target = "faq_inicio"
+conditions = ["duvidas"]
 
 [nodes.profissional_start]
 description = "Entrada específica para profissionais."

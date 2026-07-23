@@ -67,3 +67,34 @@ async def test_handle_saves_history_but_does_not_queue_when_agent_stopped() -> N
 
     person_repository.create_message.assert_called_once()
     inbound_queue.publish.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_handle_restores_automatic_mode_when_sair_command_is_sent_in_manual_mode() -> None:
+    inbound_queue = MagicMock(spec=MessageQueue)
+    inbound_queue.publish = AsyncMock()
+    person = MagicMock(
+        id=12,
+        chat_mode=ChatMode.MANUAL,
+    )
+    person_repository = MagicMock()
+    person_repository.get_or_create_person.return_value = person
+    service = MessageReceiverService(
+        inbound_queue=inbound_queue,
+        person_repository=person_repository,
+    )
+    message = Message(
+        message_id=3,
+        created_at=datetime.now(UTC),
+        channel=Channel.WHATSAPP,
+        chat_id="789",
+        user_id="user_3",
+        content="sair",
+    )
+
+    await service.handle(message)
+
+    person_repository.create_message.assert_called_once()
+    person_repository.update.assert_called_once_with(person)
+    person.chat_mode = ChatMode.AUTOMATIC
+    inbound_queue.publish.assert_awaited_once_with(message)

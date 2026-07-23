@@ -189,6 +189,47 @@ async def test_first_message_can_transition_from_start() -> None:
 
 
 @pytest.mark.asyncio
+async def test_transition_target_actions_are_executed() -> None:
+    chat_repository = FakeChatRepository()
+    flow = ChatFlow.from_data(
+        {
+            "nodes": {
+                "start": {
+                    "message": "start",
+                    "transitions": [
+                        {
+                            "target": "faq",
+                            "conditions": ["duvidas"],
+                        }
+                    ],
+                },
+                "faq": {
+                    "message": "faq",
+                    "actions": ["manual_mode"],
+                    "transitions": [
+                        {
+                            "target": "end",
+                            "conditions": [],
+                        }
+                    ],
+                },
+                "end": {
+                    "message": "end",
+                    "end": True,
+                },
+            }
+        }
+    )
+    worker = make_worker(chat_repository, flow=flow)
+
+    await worker._process_message(make_message("duvidas"))
+
+    assert worker.action_executor.run.await_count == 2
+    assert chat_repository.created_state == "start"
+    assert chat_repository.updated_state == "faq"
+
+
+@pytest.mark.asyncio
 async def test_invalid_response_repeats_current_node() -> None:
     chat_repository = FakeChatRepository(state="start")
     flow = ChatFlow.from_file()
@@ -213,6 +254,24 @@ async def test_reset_returns_to_start_and_updates_context() -> None:
     assert start_node is not None
 
     response = await worker._process_message(make_message("reset"))
+
+    assert response.content == start_node.message
+    assert response.buttons == start_node.buttons
+    assert chat_repository.updated_state == "start"
+    assert chat_repository.context is not None
+    assert chat_repository.context.state == "start"
+
+
+@pytest.mark.asyncio
+async def test_sair_returns_to_start_and_updates_context() -> None:
+    flow = ChatFlow.from_file()
+    non_start_state = next(node_id for node_id in flow.nodes if node_id != "start")
+    chat_repository = FakeChatRepository(state=non_start_state)
+    worker = make_worker(chat_repository, flow=flow)
+    start_node = flow.get("start")
+    assert start_node is not None
+
+    response = await worker._process_message(make_message("sair"))
 
     assert response.content == start_node.message
     assert response.buttons == start_node.buttons
