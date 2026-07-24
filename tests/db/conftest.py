@@ -159,6 +159,10 @@ def make_patient(
     def _make_patient(
         *,
         person: PersonModel | None = None,
+        area: str | None = None,
+        psychotherapy_approach: str | None = None,
+        professional_profile: str | None = None,
+        price_range: str | None = None,
         created_at: datetime | None = None,
     ) -> PatientModel:
         if person is None:
@@ -166,6 +170,10 @@ def make_patient(
 
         patient = PatientModel(
             person_id=person.id,
+            area=area,
+            psychotherapy_approach=psychotherapy_approach,
+            professional_profile=professional_profile,
+            price_range=price_range,
             created_at=created_at or datetime.utcnow(),
         )
         with session_factory() as session:

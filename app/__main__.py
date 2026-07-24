@@ -10,6 +10,7 @@ import app.config.settings as config
 from app.agent.agent import AgentWorker
 from app.context import AppContext
 from app.message_queue import MessageQueue
+from app.repository.patient_repository import PatientRepository
 from app.repository.patient_stage_repository import PatientStageRepository
 from app.repository.person_repository import PersonRepository
 from app.repository.professional_repository import ProfessionalRepository
@@ -46,7 +47,7 @@ async def _async_main(app_context: AppContext) -> None:
 
     session_factory = infra.create_session_factory(db_engine)
 
-    # pacient_repository = PatientRepository(session_factory)
+    patient_repository = PatientRepository(session_factory)
     professional_repository = ProfessionalRepository(session_factory)
     person_repository = PersonRepository(session_factory)
 
@@ -76,6 +77,7 @@ async def _async_main(app_context: AppContext) -> None:
         professional_stage_repository=professional_stage_repository,
         professional_repository=professional_repository,
         person_repository=person_repository,
+        patient_repository=patient_repository,
         patient_stage_repository=patient_stage_repository,
         google_sheets_service=google_sheets_service,
     )

@@ -4,11 +4,12 @@ import unicodedata
 from dataclasses import dataclass
 from uuid import uuid4
 
-from app.agent.action_executor import ActionExecutor
+from app.agent.action_executor import ActionExecutor, ActionResult
 from app.agent.chat_flow import ChatFlow, Node
 from app.context import AppContext
 from app.domain.message import Message, MessageButton
 from app.message_queue import MessageQueue
+from app.repository.patient_repository import PatientRepository
 from app.repository.patient_stage_repository import PatientStageRepository
 from app.repository.person_repository import PersonRepository
 from app.repository.professional_repository import ProfessionalRepository
@@ -50,6 +51,7 @@ class AgentWorker:
         professional_repository: ProfessionalRepository,
         professional_stage_repository: ProfessionalStageRepository,
         person_repository: PersonRepository,
+        patient_repository: PatientRepository,
         patient_stage_repository: PatientStageRepository,
         google_sheets_service: GoogleSheetsService,
     ):
@@ -62,6 +64,7 @@ class AgentWorker:
             professional_stage_repository,
             professional_repository,
             person_repository,
+            patient_repository,
             patient_stage_repository,
             google_sheets_service,
         )
@@ -222,7 +225,14 @@ class AgentWorker:
                     buttons=node.buttons,
                 )
 
-        func_output = await self.action_executor.run(node, message)
+        action_result = await self.action_executor.run(node, message)
+        if isinstance(action_result, ActionResult):
+            func_output = action_result.output
+            action_next_node = action_result.next_node
+        else:
+            # Allows existing custom executors to keep returning a plain string.
+            func_output = action_result
+            action_next_node = None
 
         transition = node.next_transition(content)
 
@@ -233,8 +243,9 @@ class AgentWorker:
             )
             return _response_from_node(node)
 
-        if transition.target:
-            next_node = self.flow.get(transition.target)
+        next_target = action_next_node or transition.target
+        if next_target:
+            next_node = self.flow.get(next_target)
 
             if next_node:
                 if next_node.get("end"):
@@ -245,7 +256,7 @@ class AgentWorker:
                 else:
                     await self.chat_repository.update_context(
                         message,
-                        state=transition.target,
+                        state=next_target,
                     )
 
                 content = f"{func_output}{next_node.message}"
@@ -255,7 +266,7 @@ class AgentWorker:
                     buttons=next_node.buttons,
                 )
 
-            logger.error("No node found for next_state: %s", transition.target)
+            logger.error("No node found for next_state: %s", next_target)
             return Response(content="Erro no próximo passo.")
 
         return Response(content="Fim do fluxo.")
