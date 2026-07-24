@@ -162,7 +162,7 @@ class PersonRepository:
             .options(
                 selectinload(PersonModel.messages),
                 joinedload(PersonModel.professional),
-                joinedload(PersonModel.patient),
+                selectinload(PersonModel.patients),
             )
             .where(PersonModel.id == person_id)
         )

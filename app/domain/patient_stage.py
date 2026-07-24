@@ -16,6 +16,10 @@ class PatientStageContext(BaseModel):
 
     name: str | None = None
     area: str | None = None
+    psychotherapy_approach: str | None = None
+    professional_profile: str | None = None
+    price_range: str | None = None
+    is_returning: bool = False
 
     created_at: datetime = Field(default_factory=datetime.utcnow)
     updated_at: datetime = Field(default_factory=datetime.utcnow)

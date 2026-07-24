@@ -30,8 +30,28 @@ class PatientRepository:
             return session.scalar(stmt)
 
     def get_by_person_id(self, person_id: int) -> PatientModel | None:
+        """Return the most recent request for a person."""
+        return self.get_latest_by_person_id(person_id)
+
+    def exists_by_person_id(self, person_id: int) -> bool:
+        """Return whether a person has at least one patient request."""
         with self._session_factory() as session:
-            stmt = select(PatientModel).where(PatientModel.person_id == person_id)
+            stmt = (
+                select(PatientModel.id)
+                .where(PatientModel.person_id == person_id)
+                .limit(1)
+            )
+            return session.scalar(stmt) is not None
+
+    def get_latest_by_person_id(self, person_id: int) -> PatientModel | None:
+        """Return the latest patient request for a person."""
+        with self._session_factory() as session:
+            stmt = (
+                select(PatientModel)
+                .where(PatientModel.person_id == person_id)
+                .order_by(PatientModel.created_at.desc(), PatientModel.id.desc())
+                .limit(1)
+            )
             return session.scalar(stmt)
 
     def get_professionals(self, patient_id: int) -> list[ProfessionalModel]:
