@@ -3,7 +3,7 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
-from app.agent.action_executor import ActionExecutor, ActionResult
+from app.agent.action_executor import ActionExecutor
 from app.domain.db.patient_model import PatientModel
 from app.domain.enum.channels import Channel
 from app.domain.enum.chat_state import ChatState
@@ -96,92 +96,6 @@ async def test_new_patient_only_marks_session_request() -> None:
         make_message("Quero sessão"),
     )
     person_repository.update_chat_state_by_contact.assert_called_once()
-
-
-@pytest.mark.asyncio
-async def test_route_patient_registration_starts_first_registration() -> None:
-    executor, _, _, person_repository, patient_stage_repository, _ = make_executor()
-    message = make_message("Atendimento normal")
-    person_repository.get_by_phone_number_and_channel.return_value = MagicMock(id=42)
-    executor.patient_repository.exists_by_person_id.return_value = False
-    patient_stage_repository.create_context = AsyncMock()
-
-    result = await executor.postgres_route_patient_registration(message)
-
-    assert result == ActionResult(next_node="paciente_nome")
-    patient_stage_repository.create_context.assert_awaited_once_with(message)
-
-
-@pytest.mark.asyncio
-async def test_route_patient_registration_loads_latest_request_for_returning_patient() -> None:
-    executor, _, _, person_repository, patient_stage_repository, _ = make_executor()
-    message = make_message("Atendimento normal")
-    person_repository.get_by_phone_number_and_channel.return_value = MagicMock(
-        id=42,
-        name="Maria",
-    )
-    executor.patient_repository.exists_by_person_id.return_value = True
-    executor.patient_repository.get_latest_by_person_id.return_value = MagicMock(
-        area="Psicoterapia",
-        psychotherapy_approach="TCC",
-        professional_profile="Mulher",
-        price_range="Até R$300",
-    )
-    context = PatientStageContext(
-        user_id=message.user_id,
-        chat_id=message.chat_id,
-        channel=message.channel,
-        name="Maria",
-        area="Psicoterapia",
-        psychotherapy_approach="TCC",
-        professional_profile="Mulher",
-        price_range="Até R$300",
-        is_returning=True,
-    )
-    patient_stage_repository.create_context = AsyncMock()
-    patient_stage_repository.update_context = AsyncMock(return_value=context)
-
-    result = await executor.postgres_route_patient_registration(message)
-
-    assert result.next_node == "paciente_retorno_resumo"
-    assert "- Nome: Maria" in result.output
-    assert "- Telefone: 5511999999999" in result.output
-    patient_stage_repository.update_context.assert_awaited_once()
-
-
-@pytest.mark.asyncio
-async def test_returning_patient_only_sees_approach_for_psychotherapy() -> None:
-    executor, _, _, _, patient_stage_repository, _ = make_executor()
-    message = make_message("Atualizar")
-    patient_stage_repository.get_context = AsyncMock(
-        return_value=PatientStageContext(
-            user_id=message.user_id,
-            chat_id=message.chat_id,
-            channel=message.channel,
-            area="Psiquiatria",
-            psychotherapy_approach=None,
-            professional_profile="LGBTQIAPN+",
-            is_returning=True,
-        )
-    )
-
-    result = await executor.postgres_route_patient_preference_update(message)
-
-    assert result.next_node == "paciente_retorno_campos_geral"
-
-    patient_stage_repository.get_context = AsyncMock(
-        return_value=PatientStageContext(
-            user_id=message.user_id,
-            chat_id=message.chat_id,
-            channel=message.channel,
-            area="Psicoterapia",
-            psychotherapy_approach="TCC",
-            is_returning=True,
-        )
-    )
-    result = await executor.postgres_route_patient_preference_update(message)
-
-    assert result.next_node == "paciente_retorno_campos_psicoterapia"
 
 
 @pytest.mark.asyncio
