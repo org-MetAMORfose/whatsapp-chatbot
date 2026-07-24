@@ -1,4 +1,4 @@
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
@@ -50,6 +50,57 @@ async def test_receive_webhook_forwards_extracted_messages_to_handler() -> None:
     message_handler.handle.assert_any_await(extracted_messages[0])
     message_handler.handle.assert_any_await(extracted_messages[1])
     assert result == {"status": "ok"}
+
+
+@pytest.mark.asyncio
+async def test_receive_webhook_discards_messages_older_than_ten_minutes() -> None:
+    message_handler = MagicMock()
+    message_handler.handle = AsyncMock()
+    controller = WhatsAppController(message_handler=message_handler)
+
+    stale_message = Message(
+        message_id=1,
+        channel=Channel.WHATSAPP,
+        created_at=datetime.now(UTC) - timedelta(minutes=10, seconds=1),
+        user_id="111",
+        chat_id="111",
+        content="old",
+    )
+    recent_message = Message(
+        message_id=2,
+        channel=Channel.WHATSAPP,
+        created_at=datetime.now(UTC) - timedelta(minutes=9),
+        user_id="222",
+        chat_id="222",
+        content="recent",
+    )
+
+    request = MagicMock()
+    request.json = AsyncMock(return_value={"entry": []})
+
+    with patch.object(
+        controller,
+        "_extract_messages",
+        return_value=[stale_message, recent_message],
+    ):
+        result = await controller.receive_webhook(request)
+
+    message_handler.handle.assert_awaited_once_with(recent_message)
+    assert result == {"status": "ok"}
+
+
+def test_is_recent_message_discards_messages_without_timestamp() -> None:
+    controller = WhatsAppController(message_handler=MagicMock())
+    message = Message(
+        message_id=1,
+        channel=Channel.WHATSAPP,
+        created_at=None,
+        user_id="111",
+        chat_id="111",
+        content="unknown age",
+    )
+
+    assert controller._is_recent_message(message) is False
 
 
 def test_parse_message_text_returns_expected_message() -> None:
