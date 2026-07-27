@@ -3,6 +3,7 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
+from app.agent.action_executor import ActionResult
 from app.agent.agent import AgentWorker
 from app.agent.chat_flow import ChatFlow
 from app.domain.chat import ChatContext
@@ -84,6 +85,7 @@ def make_worker(
         professional_repository=MagicMock(),
         professional_stage_repository=MagicMock(),
         person_repository=MagicMock(),
+        patient_repository=MagicMock(),
         patient_stage_repository=MagicMock(),
         google_sheets_service=MagicMock(),
     )
@@ -269,3 +271,31 @@ async def test_media_node_allows_explicit_text_transition_without_media() -> Non
 
     assert chat_repository.updated_state == "done"
     worker.action_executor.run.assert_awaited_once()
+
+
+@pytest.mark.asyncio
+async def test_action_can_override_static_flow_transition() -> None:
+    chat_repository = FakeChatRepository(state="route")
+    flow = ChatFlow.from_data(
+        {
+            "nodes": {
+                "start": {"message": "start"},
+                "route": {
+                    "message": "route",
+                    "actions": ["route_patient"],
+                    "transitions": [{"target": "first", "conditions": []}],
+                },
+                "first": {"message": "first"},
+                "returning": {"message": "returning"},
+            }
+        }
+    )
+    worker = make_worker(chat_repository, flow=flow)
+    cast(Any, worker.action_executor).run = AsyncMock(
+        return_value=ActionResult(next_node="returning")
+    )
+
+    response = await worker._process_message(make_message("Atendimento normal"))
+
+    assert response.content == "returning"
+    assert chat_repository.updated_state == "returning"
