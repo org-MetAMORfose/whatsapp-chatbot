@@ -1,6 +1,6 @@
 import hashlib
 import logging
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from typing import Any
 
 from fastapi import APIRouter, HTTPException, Query, Request
@@ -12,6 +12,7 @@ from app.services.receiver_service import MessageReceiverService
 from app.services.s3_media_service import S3MediaService
 
 logger = logging.getLogger(__name__)
+MAX_MESSAGE_AGE = timedelta(minutes=10)
 
 
 class WhatsAppController:
@@ -59,10 +60,25 @@ class WhatsAppController:
         messages = self._extract_messages(data)
 
         for message in messages:
+            if not self._is_recent_message(message):
+                logger.info(
+                    "Discarding stale WhatsApp message %s",
+                    message.message_id,
+                )
+                continue
+
             message = await self._resolve_media(message)
             await self.message_handler.handle(message)
 
         return {"status": "ok"}
+
+    @staticmethod
+    def _is_recent_message(message: Message) -> bool:
+        """Accept only messages received within the last ten minutes."""
+        if message.created_at is None:
+            return False
+
+        return datetime.now(UTC) - message.created_at <= MAX_MESSAGE_AGE
 
     async def _resolve_media(self, message: Message) -> Message:
         if self.s3_service is None:
