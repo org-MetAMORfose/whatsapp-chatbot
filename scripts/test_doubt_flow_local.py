@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 import asyncio
 from typing import Any, cast
-from unittest.mock import AsyncMock, MagicMock
+from unittest.mock import MagicMock
 
 from app.agent.agent import AgentWorker
 from app.agent.chat_flow import ChatFlow

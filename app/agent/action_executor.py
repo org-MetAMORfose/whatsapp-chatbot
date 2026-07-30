@@ -17,6 +17,7 @@ from app.domain.enum.chat_state import ChatState
 from app.domain.message import Message
 from app.domain.patient_stage import PatientStageContext
 from app.domain.sheets import PatientSheet, ProfessionalSheet
+from app.models.patient import PatientModel
 from app.repository.patient_repository import PatientRepository
 from app.repository.patient_stage_repository import PatientStageRepository
 from app.repository.person_repository import PersonRepository

@@ -109,6 +109,7 @@ async def test_manual_chat_mode_is_enabled_when_user_selects_duvidas() -> None:
         phone_number="5511999999999",
         channel=Channel.WHATSAPP,
         chat_mode=ChatMode.MANUAL,
+    )
 async def test_changing_to_non_psychotherapy_clears_only_approach() -> None:
     executor, _, _, _, patient_stage_repository, _ = make_executor()
     patient_stage_repository.update_context = AsyncMock()

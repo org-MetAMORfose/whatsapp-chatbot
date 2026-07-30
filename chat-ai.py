@@ -1,6 +1,6 @@
-from openai import OpenAI
 import chainlit as cl
 from dotenv import load_dotenv
+from openai import OpenAI
 
 load_dotenv()
 model = "gpt-4o"  # or "gpt-4o", "gpt-4o-mini", "gpt-4o-mini-preview", etc.
