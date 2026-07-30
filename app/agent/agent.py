@@ -250,7 +250,11 @@ class AgentWorker:
             if next_node:
                 next_func_output = ""
                 if next_node.actions:
-                    next_func_output = await self.action_executor.run(next_node, message)
+                    next_action_result = await self.action_executor.run(next_node, message)
+                if isinstance(next_action_result, ActionResult):
+                    next_func_output = next_action_result.output
+                else:
+                    next_func_output = next_action_result
 
                 if next_node.get("end"):
                     await self.chat_repository.delete_context(
