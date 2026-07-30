@@ -227,11 +227,11 @@ class AgentWorker:
 
         action_result = await self.action_executor.run(node, message)
         if isinstance(action_result, ActionResult):
-            func_output = action_result.output
+            func_output = action_result.output or ""
             action_next_node = action_result.next_node
         else:
             # Allows existing custom executors to keep returning a plain string.
-            func_output = action_result
+            func_output = action_result or ""
             action_next_node = None
 
         transition = node.next_transition(content)
@@ -249,12 +249,14 @@ class AgentWorker:
 
             if next_node:
                 next_func_output = ""
+                next_action_result = None
+                
                 if next_node.actions:
                     next_action_result = await self.action_executor.run(next_node, message)
                 if isinstance(next_action_result, ActionResult):
-                    next_func_output = next_action_result.output
+                        next_func_output = next_action_result.output or ""
                 else:
-                    next_func_output = next_action_result
+                        next_func_output = next_action_result or ""
 
                 if next_node.get("end"):
                     await self.chat_repository.delete_context(
