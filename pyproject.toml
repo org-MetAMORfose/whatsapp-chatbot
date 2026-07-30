@@ -36,6 +36,9 @@ dependencies = [
   "asyncpg>=0.31.0",
 ]
 
+[dependencies]  
+pyparsing = ">=3.0,<4.0"
+
 [project.scripts]
 app = "app.__main__:main"
 
