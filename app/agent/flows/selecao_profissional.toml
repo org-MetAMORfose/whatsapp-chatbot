@@ -577,7 +577,7 @@ actions = [
   "sheets_register_professional",
   "postgres_set_professional_registration_state"
 ]
-message = """Certo. Como você prefere? Via pix ou crédito? Via pix está em nome de Luiza Fogaça, a gestora da plataforma. A chave pix: 61609380000150
+message = """Certo. Como você prefere? Via pix ou crédito? Via pix está em nome de Luiza Fogaça, a gestora da plataforma. A chave pix: contato@orgmetamorfose.com
 
 Se preferir por crédito no site, a assinatura é faturada mensalmente no mesmo dia - mas você pode cancelar a qualquer momento se quiser - o link é https://orgmetamorfose.com.br/assinatura
 

@@ -75,6 +75,38 @@ def test_get_by_person_id_returns_none_when_not_found(
     assert found is None
 
 
+def test_exists_by_person_id_and_get_latest_by_person_id(
+    patient_repository: PatientRepository,
+    make_patient,
+    make_person,
+) -> None:
+    person = make_person(phone_number="11911111112")
+    older = make_patient(
+        person=person,
+        area="Nutrição",
+        created_at=datetime(2026, 1, 1),
+    )
+    latest = make_patient(
+        person=person,
+        area="Psicoterapia",
+        created_at=datetime(2026, 1, 2),
+    )
+
+    assert patient_repository.exists_by_person_id(person.id) is True
+    found = patient_repository.get_latest_by_person_id(person.id)
+
+    assert found is not None
+    assert found.id == latest.id
+    assert found.id != older.id
+    assert found.area == "Psicoterapia"
+
+
+def test_exists_by_person_id_returns_false_when_not_found(
+    patient_repository: PatientRepository,
+) -> None:
+    assert patient_repository.exists_by_person_id(999999) is False
+
+
 def test_get_professionals_returns_empty_list_when_patient_has_no_links(
     patient_repository: PatientRepository,
     make_patient,
