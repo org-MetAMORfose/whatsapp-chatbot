@@ -101,7 +101,7 @@ async def test_new_patient_only_marks_session_request() -> None:
 
 @pytest.mark.asyncio
 async def test_manual_chat_mode_is_enabled_when_user_selects_duvidas() -> None:
-    executor, _, _, person_repository = make_executor()
+    executor, _, _, person_repository, _, _ = make_executor()
 
     await executor.postgres_set_manual_chat_mode(make_message("Dúvidas"))
 
