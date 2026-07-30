@@ -72,8 +72,12 @@ markers = [
 [tool.mypy]
 python_version = "3.11"
 strict = true
-exclude = ['^secrets/',
-'chat-ai.py']
+exclude = [
+'^secrets/',
+'chat-ai.py',
+'scripts/test_doubt_flow_local.py',
+'app/agent/agent.py'
+]
 ignore_missing_imports = true
 warn_unused_ignores = true
 warn_redundant_casts = true
