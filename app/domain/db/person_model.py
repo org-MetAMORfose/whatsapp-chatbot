@@ -43,8 +43,10 @@ class PersonModel(Base):
     professional: Mapped["ProfessionalModel"] = relationship(
         "ProfessionalModel", back_populates="person", uselist=False
     )
-    patient: Mapped["PatientModel"] = relationship(
-        "PatientModel", back_populates="person", uselist=False
+    patients: Mapped[list["PatientModel"]] = relationship(
+        "PatientModel",
+        back_populates="person",
+        order_by="(PatientModel.created_at, PatientModel.id)",
     )
     messages: Mapped[list["MessageHistoryModel"]] = relationship(
         "MessageHistoryModel",

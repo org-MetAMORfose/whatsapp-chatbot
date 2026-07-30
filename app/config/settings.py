@@ -1,6 +1,9 @@
 """Application configuration loaded from environment variables."""
 
+import json
 import os
+from pathlib import Path
+from typing import Any, cast
 
 from dotenv import load_dotenv
 
@@ -19,6 +22,57 @@ def __get_env_variable(name: str, default: str | None = None) -> str:
 def __get_bool_env_variable(name: str, default: str = "0") -> bool:
     value = __get_env_variable(name, default).strip().lower()
     return value in {"1", "true", "yes", "on"}
+
+
+def __parse_json_object(value: str, error_message: str) -> dict[str, Any]:
+    try:
+        parsed: object = json.loads(value)
+    except json.JSONDecodeError as exc:
+        raise ValueError(error_message) from exc
+
+    if not isinstance(parsed, dict):
+        raise ValueError(
+            "Environment variable 'GOOGLE_SERVICE_ACCOUNT_CREDENTIALS' must resolve to a JSON object."
+        )
+
+    return cast(dict[str, Any], parsed)
+
+
+def load_google_service_account_credentials(value: str | None = None) -> dict[str, Any]:
+    """Load Google service account credentials from JSON content or a file path."""
+    raw_value = (
+        __get_env_variable("GOOGLE_SERVICE_ACCOUNT_CREDENTIALS", "")
+        if value is None
+        else value
+    ).strip()
+
+    if not raw_value:
+        raise ValueError(
+            "Environment variable 'GOOGLE_SERVICE_ACCOUNT_CREDENTIALS' must be set to a JSON object or a path to a JSON credentials file."
+        )
+
+    if raw_value.startswith(("{", "[")):
+        return __parse_json_object(
+            raw_value,
+            "Environment variable 'GOOGLE_SERVICE_ACCOUNT_CREDENTIALS' contains invalid JSON.",
+        )
+
+    credentials_path = Path(raw_value).expanduser()
+    try:
+        file_content = credentials_path.read_text(encoding="utf-8")
+    except FileNotFoundError as exc:
+        raise ValueError(
+            "Environment variable 'GOOGLE_SERVICE_ACCOUNT_CREDENTIALS' points to a credentials file that does not exist."
+        ) from exc
+    except OSError as exc:
+        raise ValueError(
+            "Environment variable 'GOOGLE_SERVICE_ACCOUNT_CREDENTIALS' points to a credentials file that could not be read."
+        ) from exc
+
+    return __parse_json_object(
+        file_content,
+        "Credentials file configured by 'GOOGLE_SERVICE_ACCOUNT_CREDENTIALS' contains invalid JSON.",
+    )
 
 
 load_dotenv()
@@ -51,3 +105,9 @@ AWS_ACCESS_KEY_ID = __get_env_variable("AWS_ACCESS_KEY_ID", "")
 AWS_SECRET_ACCESS_KEY = __get_env_variable("AWS_SECRET_ACCESS_KEY", "")
 AWS_REGION = __get_env_variable("AWS_REGION", "us-east-1")
 S3_BUCKET_NAME = __get_env_variable("S3_BUCKET_NAME", "")
+
+GOOGLE_SERVICE_ACCOUNT_CREDENTIALS = load_google_service_account_credentials()
+GOOGLE_PATIENTS_SPREADSHEET_URL = __get_env_variable(
+    "GOOGLE_PATIENTS_SPREADSHEET_URL", "")
+GOOGLE_PROFESSIONALS_SPREADSHEET_URL = __get_env_variable(
+    "GOOGLE_PROFESSIONALS_SPREADSHEET_URL", "")

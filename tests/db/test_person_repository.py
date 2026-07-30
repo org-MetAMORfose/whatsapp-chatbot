@@ -230,7 +230,7 @@ def test_get_full_profile(
 
     assert found is not None
     assert found.professional is not None
-    assert found.patient is not None
+    assert len(found.patients) == 1
     assert len(found.messages) == 1
     assert found.messages[0].content == "hello"
 
