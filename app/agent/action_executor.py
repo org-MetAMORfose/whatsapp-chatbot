@@ -12,12 +12,12 @@ from typing import Final
 from pydantic import ValidationError
 
 from app.agent.chat_flow import Node
+from app.domain.db.patient_model import PatientModel
 from app.domain.enum.chat_mode import ChatMode
 from app.domain.enum.chat_state import ChatState
 from app.domain.message import Message
 from app.domain.patient_stage import PatientStageContext
 from app.domain.sheets import PatientSheet, ProfessionalSheet
-from app.domain.db.patient_model import PatientModel
 from app.repository.patient_repository import PatientRepository
 from app.repository.patient_stage_repository import PatientStageRepository
 from app.repository.person_repository import PersonRepository
