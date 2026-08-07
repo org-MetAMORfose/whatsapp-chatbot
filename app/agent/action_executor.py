@@ -13,6 +13,7 @@ from pydantic import ValidationError
 
 from app.agent.chat_flow import Node
 from app.domain.db.patient_model import PatientModel
+from app.domain.enum.chat_mode import ChatMode
 from app.domain.enum.chat_state import ChatState
 from app.domain.message import Message
 from app.domain.patient_stage import PatientStageContext
@@ -131,6 +132,9 @@ class ActionExecutor:
             "postgres_set_question_state": partial(
                 self.postgres_set_chat_state,
                 chat_state=ChatState.QUESTION,
+            ),
+            "postgres_set_manual_chat_mode": (
+                self.postgres_set_manual_chat_mode
             ),
             "postgres_set_feedback_state": partial(
                 self.postgres_set_chat_state,
@@ -349,6 +353,18 @@ class ActionExecutor:
             phone_number=message.user_id,
             channel=message.channel,
             chat_state=chat_state,
+        )
+        return ""
+
+    async def postgres_set_manual_chat_mode(
+        self,
+        message: Message,
+    ) -> str:
+        """Move the conversation to the manual/AI handoff path."""
+        self.person_repository.update_chat_mode_by_contact(
+            phone_number=message.user_id,
+            channel=message.channel,
+            chat_mode=ChatMode.MANUAL,
         )
         return ""
 

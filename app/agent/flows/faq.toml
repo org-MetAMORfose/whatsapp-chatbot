@@ -3,11 +3,11 @@ name = "faq"
 description = "Fluxo de perguntas frequentes."
 
 [nodes.faq_inicio]
-description = "FAQ temporário."
-actions = ["postgres_set_question_state"]
-message = """O FAQ ainda está em construção.
+description = "Atendimento de dúvidas com troca para o canal manual/IA."
+actions = ["postgres_set_question_state", "postgres_set_manual_chat_mode"]
+message = """Você entrou no atendimento de dúvidas.
 
-Talvez a gente use IA futuramente, mas isso ainda precisa ser planejado."""
+Agora a conversa foi encaminhada para o canal de dúvidas. Continue falando que a IA pode responder com base na base de conhecimento da MetAMORfose."""
 buttons = ["Voltar ao início"]
 
 [[nodes.faq_inicio.transitions]]
