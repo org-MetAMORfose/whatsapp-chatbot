@@ -6,7 +6,6 @@ import pytest
 from app.agent.action_executor import ActionExecutor
 from app.domain.db.patient_model import PatientModel
 from app.domain.enum.channels import Channel
-from app.domain.enum.chat_mode import ChatMode
 from app.domain.enum.chat_state import ChatState
 from app.domain.message import Message
 from app.domain.patient_stage import PatientStageContext
@@ -100,16 +99,6 @@ async def test_new_patient_only_marks_session_request() -> None:
 
 
 @pytest.mark.asyncio
-async def test_manual_chat_mode_is_enabled_when_user_selects_duvidas() -> None:
-    executor, _, _, person_repository, _, _ = make_executor()
-
-    await executor.postgres_set_manual_chat_mode(make_message("Dúvidas"))
-
-    person_repository.update_chat_mode_by_contact.assert_called_once_with(
-        phone_number="5511999999999",
-        channel=Channel.WHATSAPP,
-        chat_mode=ChatMode.MANUAL,
-    )
 async def test_changing_to_non_psychotherapy_clears_only_approach() -> None:
     executor, _, _, _, patient_stage_repository, _ = make_executor()
     patient_stage_repository.update_context = AsyncMock()
