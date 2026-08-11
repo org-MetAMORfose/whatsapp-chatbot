@@ -8,7 +8,7 @@ from typing import Any, cast
 import redis.asyncio as redis
 
 from app.domain.message import Message
-from app.domain.patient_stage import PatientStageContext
+from app.domain.redis.patient_stage import PatientStageContext
 
 logger = logging.getLogger(__name__)
 

@@ -8,8 +8,8 @@ from app.domain.db.patient_model import PatientModel
 from app.domain.enum.channels import Channel
 from app.domain.enum.chat_state import ChatState
 from app.domain.message import Message
-from app.domain.patient_stage import PatientStageContext
-from app.domain.professional_stage import ProfessionalStageContext
+from app.domain.redis.patient_stage import PatientStageContext
+from app.domain.redis.professional_stage import ProfessionalStageContext
 from app.services.google_sheets_service import GoogleSheetsServiceError
 
 

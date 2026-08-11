@@ -1,7 +1,7 @@
 from app.channel_adapters.telegram import TelegramAdapter
 from app.context import AppContext
 from app.message_queue.message_queue import MessageQueue
-from app.repository.person_repository import PersonRepository
+from app.repository.sql.person_repository import PersonRepository
 from app.services.dispatcher_service import MessageDispatcherService
 from app.services.receiver_service import MessageReceiverService
 

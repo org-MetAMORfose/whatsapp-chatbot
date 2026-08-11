@@ -8,7 +8,7 @@ from app.domain.enum.channels import Channel
 from app.domain.message import Message
 from app.interfaces.bot_adapter import BotAdapter
 from app.message_queue.message_queue import MessageQueue
-from app.repository.person_repository import PersonRepository
+from app.repository.sql.person_repository import PersonRepository
 
 logger = logging.getLogger(__name__)
 

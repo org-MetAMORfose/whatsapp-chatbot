@@ -6,7 +6,7 @@ import pytest
 from sqlalchemy.orm import Session, sessionmaker
 
 from app.domain.db.patient_model import PatientModel
-from app.repository.patient_repository import PatientRepository
+from app.repository.sql.patient_repository import PatientRepository
 
 
 @pytest.fixture

@@ -33,6 +33,7 @@ dependencies = [
   "python-json-logger>=2.0",
   "python-logging-loki>=0.3",
   "alembic>=1.18.4",
+  "pgvector",
 ]
 
 [project.scripts]
