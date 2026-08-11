@@ -12,9 +12,6 @@ if TYPE_CHECKING:
     from app.domain.db.patient_model import PatientModel
     from app.domain.db.person_model import PersonModel
     from app.domain.db.professional_patient_model import ProfessionalPatientModel
-    from app.domain.db.professional_status_history_model import (
-        ProfessionalStatusHistoryModel,
-    )
 
 
 class ProfessionalModel(Base):
@@ -48,25 +45,6 @@ class ProfessionalModel(Base):
         "PersonModel",
         back_populates="professional",
     )
-
-    status_history: Mapped[list["ProfessionalStatusHistoryModel"]] = relationship(
-        "ProfessionalStatusHistoryModel",
-        back_populates="professional",
-        foreign_keys="ProfessionalStatusHistoryModel.professional_id",
-        cascade="all, delete-orphan",
-        order_by=(
-            "ProfessionalStatusHistoryModel.created_at,"
-            "ProfessionalStatusHistoryModel.id"
-        ),
-    )
-
-    @property
-    def current_status(self) -> "ProfessionalStatusHistoryModel":
-        """Return the most recent status history entry."""
-        if not self.status_history:
-            raise RuntimeError("Professional has no status history.")
-
-        return self.status_history[-1]
 
     professional_patients: Mapped[list["ProfessionalPatientModel"]] = relationship(
         "ProfessionalPatientModel",

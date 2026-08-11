@@ -15,15 +15,15 @@ from app.agent.chat_flow import Node
 from app.domain.db.patient_model import PatientModel
 from app.domain.enum.chat_state import ChatState
 from app.domain.message import Message
-from app.domain.patient_stage import PatientStageContext
+from app.domain.redis.patient_stage import PatientStageContext
 from app.domain.sheets import PatientSheet, ProfessionalSheet
-from app.repository.patient_repository import PatientRepository
-from app.repository.patient_stage_repository import PatientStageRepository
-from app.repository.person_repository import PersonRepository
-from app.repository.professional_repository import ProfessionalRepository
-from app.repository.professional_stage_repository import (
+from app.repository.redis.patient_stage_repository import PatientStageRepository
+from app.repository.redis.professional_stage_repository import (
     ProfessionalStageRepository,
 )
+from app.repository.sql.patient_repository import PatientRepository
+from app.repository.sql.person_repository import PersonRepository
+from app.repository.sql.professional_repository import ProfessionalRepository
 from app.services.google_sheets_service import (
     GoogleSheetsService,
     GoogleSheetsServiceError,

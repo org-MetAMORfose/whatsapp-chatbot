@@ -5,7 +5,7 @@ from app.domain.db.message_history_model import MessageHistoryModel
 from app.domain.enum.chat_mode import ChatMode
 from app.domain.message import Message
 from app.message_queue import MessageQueue
-from app.repository.person_repository import PersonRepository
+from app.repository.sql.person_repository import PersonRepository
 
 logger = logging.getLogger(__name__)
 

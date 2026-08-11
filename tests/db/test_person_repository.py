@@ -11,7 +11,7 @@ from app.domain.db.person_model import PersonModel
 from app.domain.enum.channels import Channel
 from app.domain.enum.chat_mode import ChatMode
 from app.domain.enum.chat_state import ChatState
-from app.repository.person_repository import PersonRepository
+from app.repository.sql.person_repository import PersonRepository
 
 
 @pytest.fixture

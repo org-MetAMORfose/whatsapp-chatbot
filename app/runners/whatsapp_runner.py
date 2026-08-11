@@ -11,7 +11,7 @@ from app.controllers.send_message_controller import SendMessageController
 from app.controllers.upload_media_controller import UploadMediaController
 from app.controllers.whatsapp_controller import WhatsAppController
 from app.message_queue.message_queue import MessageQueue
-from app.repository.person_repository import PersonRepository
+from app.repository.sql.person_repository import PersonRepository
 from app.services.dispatcher_service import MessageDispatcherService
 from app.services.receiver_service import MessageReceiverService
 from app.services.s3_media_service import S3MediaService

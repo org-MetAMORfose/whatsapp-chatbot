@@ -9,12 +9,12 @@ from app.agent.chat_flow import ChatFlow, Node
 from app.context import AppContext
 from app.domain.message import Message, MessageButton
 from app.message_queue import MessageQueue
-from app.repository.patient_repository import PatientRepository
-from app.repository.patient_stage_repository import PatientStageRepository
-from app.repository.person_repository import PersonRepository
-from app.repository.professional_repository import ProfessionalRepository
-from app.repository.professional_stage_repository import ProfessionalStageRepository
-from app.repository.redis_repository import ChatRepository
+from app.repository.redis.chat_repository import ChatRepository
+from app.repository.redis.patient_stage_repository import PatientStageRepository
+from app.repository.redis.professional_stage_repository import ProfessionalStageRepository
+from app.repository.sql.patient_repository import PatientRepository
+from app.repository.sql.person_repository import PersonRepository
+from app.repository.sql.professional_repository import ProfessionalRepository
 from app.services.google_sheets_service import GoogleSheetsService
 
 logger = logging.getLogger(__name__)

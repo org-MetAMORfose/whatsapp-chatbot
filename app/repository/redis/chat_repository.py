@@ -7,9 +7,9 @@ from typing import cast
 import redis.asyncio as redis
 from pydantic import ValidationError
 
-from app.domain.chat import ChatContext
 from app.domain.enum.channels import Channel
 from app.domain.message import Message
+from app.domain.redis.chat import ChatContext
 
 logger = logging.getLogger(__name__)
 
@@ -123,7 +123,7 @@ class ChatRepository:
 
         await self.save_context(context)
         return context
-    
+
     async def delete_context(
         self,
         user_id: str,

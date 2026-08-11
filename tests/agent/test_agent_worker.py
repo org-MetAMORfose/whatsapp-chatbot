@@ -6,9 +6,9 @@ import pytest
 from app.agent.action_executor import ActionResult
 from app.agent.agent import AgentWorker
 from app.agent.chat_flow import ChatFlow
-from app.domain.chat import ChatContext
 from app.domain.enum.channels import Channel
 from app.domain.message import Message
+from app.domain.redis.chat import ChatContext
 
 
 class FakeChatRepository:
