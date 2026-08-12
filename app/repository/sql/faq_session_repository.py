@@ -108,6 +108,47 @@ class FaqSessionRepository:
             session.refresh(faq_session)
             return faq_session
 
+    def finish_latest_active(
+        self,
+        *,
+        person_id: int,
+        outcome: FaqSessionOutcome,
+        answer_status: FaqAnswerStatus | None = None,
+    ) -> FaqSessionModel | None:
+        """Finish the person's latest active FAQ session atomically."""
+        with self._session_factory() as session:
+            faq_session = session.scalar(
+                select(FaqSessionModel)
+                .where(
+                    FaqSessionModel.person_id == person_id,
+                    FaqSessionModel.outcome == FaqSessionOutcome.ACTIVE,
+                )
+                .order_by(FaqSessionModel.created_at.desc(), FaqSessionModel.id.desc())
+                .limit(1)
+                .with_for_update()
+            )
+            if faq_session is None:
+                return None
+
+            if answer_status is not None:
+                interaction = session.scalar(
+                    select(FaqInteractionModel)
+                    .where(FaqInteractionModel.session_id == faq_session.id)
+                    .order_by(
+                        FaqInteractionModel.question_number.desc(),
+                        FaqInteractionModel.id.desc(),
+                    )
+                    .limit(1)
+                    .with_for_update()
+                )
+                if interaction is not None:
+                    interaction.answer_status = answer_status
+
+            faq_session.outcome = outcome
+            session.commit()
+            session.refresh(faq_session)
+            return faq_session
+
     @staticmethod
     def _is_abandoned(
         session: Session,

@@ -82,6 +82,7 @@ async def test_process_returns_selected_answer_and_records_interaction() -> None
         id=9,
         session_id=2,
         selected_entry_id=7,
+        question_number=1,
     )
 
     result = await flow.process(_message())
@@ -111,6 +112,7 @@ async def test_process_skips_selection_when_retrieval_has_no_candidates() -> Non
         id=9,
         session_id=2,
         selected_entry_id=None,
+        question_number=1,
     )
 
     result = await flow.process(_message())
@@ -149,6 +151,7 @@ async def test_process_treats_unknown_selected_id_as_not_found() -> None:
         id=9,
         session_id=2,
         selected_entry_id=None,
+        question_number=1,
     )
 
     result = await flow.process(_message())
