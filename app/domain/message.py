@@ -25,6 +25,7 @@ class Message(BaseModel):
     chat_id: str
     content: str | None
     pressed: int | None = None
+    history_id: int | None = None
 
     image: str | None = None
     document: str | None = None

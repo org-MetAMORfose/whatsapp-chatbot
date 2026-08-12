@@ -11,7 +11,7 @@ from app.services.receiver_service import MessageReceiverService
 
 
 @pytest.mark.asyncio
-async def test_handle_appends_message_to_history_and_publishes_to_queue() -> None:
+async def test_handle_queues_the_persisted_message_history_id() -> None:
 
     inbound_queue = MagicMock(spec=MessageQueue)
     inbound_queue.publish = AsyncMock()
@@ -21,6 +21,7 @@ async def test_handle_appends_message_to_history_and_publishes_to_queue() -> Non
         id=10,
         chat_mode=ChatMode.AUTOMATIC,
     )
+    person_repository.create_message.return_value = MagicMock(id=99)
     service = MessageReceiverService(
         inbound_queue=inbound_queue,
         person_repository=person_repository,
@@ -37,8 +38,14 @@ async def test_handle_appends_message_to_history_and_publishes_to_queue() -> Non
 
     await service.handle(message)
 
-    inbound_queue.publish.assert_awaited_once_with(message)
-    person_repository.create_message.assert_called_once()
+    inbound_queue.publish.assert_awaited_once()
+    queued_message = inbound_queue.publish.await_args.args[0]
+    assert queued_message.history_id == 99
+    assert message.history_id is None
+    persisted_message = person_repository.create_message.call_args.args[0]
+    assert persisted_message.person_id == 10
+    assert persisted_message.content == "Hello"
+    assert persisted_message.is_from_user is True
 
 
 @pytest.mark.asyncio

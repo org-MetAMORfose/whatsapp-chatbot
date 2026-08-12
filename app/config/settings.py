@@ -82,6 +82,15 @@ LOKI_URL = __get_env_variable("LOKI_URL", "http://loki:3100")
 LOKI_ENABLED = __get_bool_env_variable("LOKI_ENABLED", "false")
 setup_logging(level=LOG_LEVEL, loki_url=LOKI_URL, loki_enabled=LOKI_ENABLED)
 
+OPENAI_API_KEY = __get_env_variable("OPENAI_API_KEY", "")
+OPENAI_RESPONSE_MODEL = __get_env_variable("OPENAI_RESPONSE_MODEL", "")
+OPENAI_EMBEDDING_MODEL = __get_env_variable(
+    "OPENAI_EMBEDDING_MODEL",
+    "text-embedding-3-small",
+)
+FAQ_RETRIEVAL_LIMIT = int(__get_env_variable("FAQ_RETRIEVAL_LIMIT", "5"))
+CHATBOT_API_KEY = __get_env_variable("CHATBOT_API_KEY", "")
+
 REDIS_HOST = __get_env_variable("REDIS_HOST", "localhost")
 REDIS_PORT = int(__get_env_variable("REDIS_PORT", "6379"))
 REDIS_DB = int(__get_env_variable("REDIS_DB", "0"))

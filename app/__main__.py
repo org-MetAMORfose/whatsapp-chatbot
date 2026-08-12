@@ -13,6 +13,7 @@ from app.message_queue import MessageQueue
 from app.repository.redis.chat_repository import ChatRepository
 from app.repository.redis.patient_stage_repository import PatientStageRepository
 from app.repository.redis.professional_stage_repository import ProfessionalStageRepository
+from app.repository.sql.faq_knowledge_repository import FaqKnowledgeRepository
 from app.repository.sql.patient_repository import PatientRepository
 from app.repository.sql.person_repository import PersonRepository
 from app.repository.sql.professional_repository import ProfessionalRepository
@@ -50,6 +51,7 @@ async def _async_main(app_context: AppContext) -> None:
     patient_repository = PatientRepository(session_factory)
     professional_repository = ProfessionalRepository(session_factory)
     person_repository = PersonRepository(session_factory)
+    faq_knowledge_repository = FaqKnowledgeRepository(session_factory)
 
     inbound_queue = MessageQueue(redis_client, queue_name="inbound")
     outbound_queue = MessageQueue(redis_client, queue_name="outbound")
@@ -100,6 +102,7 @@ async def _async_main(app_context: AppContext) -> None:
             outbound_queue=outbound_queue,
             message_handler=message_receiver_service,
             person_repository=person_repository,
+            faq_knowledge_repository=faq_knowledge_repository,
         )
 
     loop = asyncio.get_running_loop()
