@@ -23,7 +23,7 @@ message = """A Rede MetAMORfose conecta profissionais de saúde a pacientes que 
 Como funciona:
 - Você define o valor da sua consulta.
 - O paciente paga diretamente a você.
-- Você tem autonomia para combinar agenda, duração, ferramenta de atendimento e forma de pagamento.
+- Você recebe o WhatsApp dos pacientes via e-mail, tem autonomia para combinar agenda, duração, ferramenta de atendimento e forma de pagamento.
 
 Nossa mensalidade cobre a divulgação do seu perfil e o envio de conexões com pacientes. Os planos são:
 
@@ -201,7 +201,7 @@ description = "Coleta de formação, especializações, abordagem e currículo."
 actions = ["redis_update_professional_qualification"]
 message = """Conte um pouco sobre sua formação, experiência profissional, especializações, cursos complementares ou currículo.
 
-Você pode incluir graduação, pós-graduação, certificados, abordagem teórica, experiência clínica ou outras informações relevantes para avaliação do cadastro."""
+Grave um vídeo de até um minuto sobre sua graduação, pós-graduação, certificados, abordagem teórica, experiência clínica ou outras informações relevantes para avaliação do cadastro - e no final do vídeo responder porque a proposta da MetAMORfose se alinha com sua experiência. Após a gravação do seu vídeo com rosto - precisamos garantir que é você - envie o link do seu vídeo aqui (você pode colocar em seu Google Drive, YouTube, Instagram ou outros, mas precisa estar público para visualizarmos)"""
 input = "Texto"
 
 [[nodes.qualificacao.transitions]]
@@ -278,7 +278,11 @@ conditions = []
 
 [nodes.cadastro_postgres]
 description = "Apresenta planos antes do pagamento."
-message = """Para preencher uma das vagas disponíveis e começar a receber conexões com pacientes, o próximo passo é escolher o plano de parceria.
+message = """A Rede de Telemedicina da MetAMORfose nasceu em 2020 pela necessidade de se ter uma solução de fácil acesso a consultas de saúde e programas de bem estar para as pessoas. Em 2023 recebemos investimento em nome de Luiza Fogaça pela Agência USP de Inovação para desenvolver a MetAMORfose na Europa, enquanto em 2024 recebemos mentoria de desenvolvimento pela Google for Startups, e em 2025 pela Microsoft for Startups Founders Hub: https://www.orgmetamorfose.com.br/missao
+
+Agência USP de Inovação: https://www.inovacao.usp.br/editalbolsa2023/
+
+Para preencher uma das vagas disponíveis e começar a receber conexões com pacientes, o próximo passo é escolher o plano de parceria.
 
 - Premium – R$190/mês: Perfil + 4 conexões com pacientes
 - Platinum – R$570/mês: Perfil + 12 conexões

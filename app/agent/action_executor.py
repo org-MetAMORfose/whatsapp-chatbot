@@ -12,8 +12,11 @@ from typing import Final
 from pydantic import ValidationError
 
 from app.agent.chat_flow import Node
+from app.agent.faq_flow import FaqFlow
 from app.domain.db.patient_model import PatientModel
 from app.domain.enum.chat_state import ChatState
+from app.domain.enum.faq_answer_status import FaqAnswerStatus
+from app.domain.enum.faq_session_outcome import FaqSessionOutcome
 from app.domain.message import Message
 from app.domain.redis.patient_stage import PatientStageContext
 from app.domain.sheets import PatientSheet, ProfessionalSheet
@@ -50,6 +53,9 @@ PATIENT_PRICE_RANGES: Final[frozenset[str]] = frozenset(
         "ate r$600",
     }
 )
+FAQ_SATISFIED_OPTION: Final = "estou satisfeito"
+FAQ_HUMAN_SUPPORT_OPTION: Final = "falar com atendente"
+FAQ_HUMAN_SUPPORT_THRESHOLD: Final = 3
 
 
 class ActionExecutor:
@@ -63,6 +69,7 @@ class ActionExecutor:
         patient_repository: PatientRepository,
         patient_stage_repository: PatientStageRepository,
         google_sheets_service: GoogleSheetsService,
+        faq_flow: FaqFlow,
     ) -> None:
         self.professional_stage_repository = professional_stage_repository
         self.professional_repository = professional_repository
@@ -70,6 +77,7 @@ class ActionExecutor:
         self.patient_repository = patient_repository
         self.patient_stage_repository = patient_stage_repository
         self.google_sheets_service = google_sheets_service
+        self.faq_flow = faq_flow
 
         self.actions: Final[dict[str, Action]] = {
             "redis_create_professional_stage": (
@@ -178,6 +186,9 @@ class ActionExecutor:
             "redis_get_patient_stage_summary": self.redis_get_patient_stage_summary,
             "sheets_register_patient": self.sheets_register_patient,
             "sheets_register_professional": self.sheets_register_professional,
+            "faq_process_question": self.faq_process_question,
+            "faq_continue_or_satisfy": self.faq_continue_or_satisfy,
+            "faq_continue_or_finish": self.faq_continue_or_finish,
         }
 
     async def run(self, node: Node, message: Message) -> ActionResult:
@@ -351,6 +362,46 @@ class ActionExecutor:
             chat_state=chat_state,
         )
         return ""
+
+    async def faq_process_question(self, message: Message) -> ActionResult:
+        """Answer one FAQ question and route according to its session count."""
+        result = await self.faq_flow.process(message)
+        next_node = (
+            "faq_resposta_com_atendimento"
+            if result.question_count > FAQ_HUMAN_SUPPORT_THRESHOLD
+            else "faq_resposta"
+        )
+        return ActionResult(
+            output=f"{result.content}\n\n",
+            next_node=next_node,
+        )
+
+    async def faq_continue_or_satisfy(self, message: Message) -> ActionResult:
+        """Finish a satisfied FAQ session or process the text as a new question."""
+        if self._normalize_content(message.content) == FAQ_SATISFIED_OPTION:
+            self.faq_flow.finish(
+                message,
+                outcome=FaqSessionOutcome.SATISFIED,
+                answer_status=FaqAnswerStatus.SATISFIED,
+            )
+            return ActionResult()
+
+        return await self.faq_process_question(message)
+
+    async def faq_continue_or_finish(self, message: Message) -> ActionResult:
+        """Handle the extended FAQ options or process another question."""
+        if self._normalize_content(message.content) == FAQ_HUMAN_SUPPORT_OPTION:
+            self.faq_flow.finish(
+                message,
+                outcome=FaqSessionOutcome.ESCALATED,
+            )
+            await self.postgres_set_chat_state(
+                message,
+                chat_state=ChatState.QUESTION,
+            )
+            return ActionResult()
+
+        return await self.faq_continue_or_satisfy(message)
 
     async def postgres_set_professional_support_state(
         self,

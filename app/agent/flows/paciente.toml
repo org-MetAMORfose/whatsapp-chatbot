@@ -7,7 +7,7 @@ description = "Fluxo de paciente buscando atendimento na Rede MetAMORfose."
 description = "Escolhe entre atendimento imediato e cadastro normal."
 actions = ["postgres_route_patient_registration"]
 message = """Você procura atendimento imediato ou atendimento agendado?"""
-buttons = ["Atendimento imediato", "agendar atendimento"]
+buttons = ["Atendimento imediato", "Agendar atendimento"]
 
 [[nodes.paciente_tipo_atendimento.transitions]]
 target = "paciente_imediato"

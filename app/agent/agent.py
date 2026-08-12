@@ -6,12 +6,15 @@ from uuid import uuid4
 
 from app.agent.action_executor import ActionExecutor, ActionResult
 from app.agent.chat_flow import ChatFlow, Node
+from app.agent.faq_flow import FaqFlow
 from app.context import AppContext
 from app.domain.message import Message, MessageButton
 from app.message_queue import MessageQueue
 from app.repository.redis.chat_repository import ChatRepository
 from app.repository.redis.patient_stage_repository import PatientStageRepository
 from app.repository.redis.professional_stage_repository import ProfessionalStageRepository
+from app.repository.sql.faq_knowledge_repository import FaqKnowledgeRepository
+from app.repository.sql.faq_session_repository import FaqSessionRepository
 from app.repository.sql.patient_repository import PatientRepository
 from app.repository.sql.person_repository import PersonRepository
 from app.repository.sql.professional_repository import ProfessionalRepository
@@ -54,12 +57,19 @@ class AgentWorker:
         patient_repository: PatientRepository,
         patient_stage_repository: PatientStageRepository,
         google_sheets_service: GoogleSheetsService,
+        faq_knowledge_repository: FaqKnowledgeRepository,
+        faq_session_repository: FaqSessionRepository,
     ):
         self.ctx = ctx
         self.inbound_queue = inbound
         self.outbound_queue = outbound
         self.flow = ChatFlow.from_file()
         self.chat_repository = chat_repository
+        faq_flow = FaqFlow(
+            person_repository=person_repository,
+            session_repository=faq_session_repository,
+            knowledge_repository=faq_knowledge_repository,
+        )
         self.action_executor = ActionExecutor(
             professional_stage_repository,
             professional_repository,
@@ -67,6 +77,7 @@ class AgentWorker:
             patient_repository,
             patient_stage_repository,
             google_sheets_service,
+            faq_flow,
         )
 
     async def start(

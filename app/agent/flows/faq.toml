@@ -3,13 +3,53 @@ name = "faq"
 description = "Fluxo de perguntas frequentes."
 
 [nodes.faq_inicio]
-description = "FAQ temporário."
-actions = ["postgres_set_question_state"]
-message = """O FAQ ainda está em construção.
-
-Talvez a gente use IA futuramente, mas isso ainda precisa ser planejado."""
-buttons = ["Voltar ao início"]
+description = "Introdução ao FAQ e recebimento da primeira pergunta."
+actions = ["faq_process_question"]
+message = """Olá! Envie sua dúvida sobre a Rede MetAMORfose e eu buscarei uma resposta em nossa base de conhecimento."""
+input = "Texto"
 
 [[nodes.faq_inicio.transitions]]
-target = "start"
-conditions = ["voltar ao inicio"]
+target = "faq_resposta"
+conditions = []
+
+[nodes.faq_resposta]
+description = "Resposta do FAQ antes da oferta de atendimento humano."
+actions = ["faq_continue_or_satisfy"]
+message = """Você pode enviar outra pergunta diretamente por aqui. Se suas dúvidas já foram esclarecidas, clique em "Estou satisfeito" para encerrar."""
+buttons = ["Estou satisfeito"]
+
+[[nodes.faq_resposta.transitions]]
+target = "faq_satisfeito"
+conditions = ["estou satisfeito"]
+
+[[nodes.faq_resposta.transitions]]
+target = "faq_resposta"
+conditions = []
+
+[nodes.faq_resposta_com_atendimento]
+description = "Resposta do FAQ com opção adicional de atendimento humano."
+actions = ["faq_continue_or_finish"]
+message = """Você pode continuar enviando suas perguntas diretamente por aqui. Se suas dúvidas já foram esclarecidas, clique em "Estou satisfeito". Se precisar falar com nossa equipe, clique em "Falar com atendente"."""
+buttons = ["Estou satisfeito", "Falar com atendente"]
+
+[[nodes.faq_resposta_com_atendimento.transitions]]
+target = "faq_satisfeito"
+conditions = ["estou satisfeito"]
+
+[[nodes.faq_resposta_com_atendimento.transitions]]
+target = "faq_escalado"
+conditions = ["falar com atendente"]
+
+[[nodes.faq_resposta_com_atendimento.transitions]]
+target = "faq_resposta_com_atendimento"
+conditions = []
+
+[nodes.faq_satisfeito]
+description = "Encerramento do FAQ após confirmação de satisfação."
+message = "Que bom que conseguimos ajudar! Quando precisar, é só iniciar uma nova conversa."
+end = true
+
+[nodes.faq_escalado]
+description = "Encerramento do FAQ com solicitação de atendimento humano."
+message = "Alguém da nossa equipe de suporte entrará em contato em até 24 horas, considerando apenas dias úteis."
+end = true

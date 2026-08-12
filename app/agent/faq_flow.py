@@ -9,7 +9,9 @@ from time import perf_counter
 import app.config.settings as config
 from app.domain.db.faq_interaction_model import FaqInteractionModel
 from app.domain.db.faq_session_model import FaqSessionModel
+from app.domain.db.person_model import PersonModel
 from app.domain.enum.faq_answer_status import FaqAnswerStatus
+from app.domain.enum.faq_session_outcome import FaqSessionOutcome
 from app.domain.message import Message
 from app.repository.sql.faq_knowledge_repository import (
     FaqKnowledgeCandidate,
@@ -25,7 +27,7 @@ from app.services.openai_service import (
 
 FAQ_NOT_FOUND_MESSAGE = (
     "Não encontrei uma resposta adequada para essa dúvida. "
-    "Você pode reformular a pergunta ou solicitar atendimento humano."
+    "Você pode reformular a pergunta e tentar novamente."
 )
 
 
@@ -35,6 +37,7 @@ class FaqFlowResult:
     session_id: int
     interaction_id: int
     selected_entry_id: int | None
+    question_count: int
 
 
 class FaqFlow:
@@ -92,6 +95,24 @@ class FaqFlow:
             started_at=started_at,
         )
 
+    def finish(
+        self,
+        message: Message,
+        *,
+        outcome: FaqSessionOutcome,
+        answer_status: FaqAnswerStatus | None = None,
+    ) -> FaqSessionModel:
+        """Finish the current FAQ session for the message's person."""
+        person = self._get_person(message)
+        faq_session = self.session_repository.finish_latest_active(
+            person_id=person.id,
+            outcome=outcome,
+            answer_status=answer_status,
+        )
+        if faq_session is None:
+            raise ValueError("The person does not have an active FAQ session.")
+        return faq_session
+
     @staticmethod
     def _validate_message(message: Message) -> tuple[str, int]:
         question = (message.content or "").strip()
@@ -102,16 +123,20 @@ class FaqFlow:
         return question, message.history_id
 
     def _get_session(self, message: Message) -> FaqSessionModel:
+        person = self._get_person(message)
+        return self.session_repository.get_or_create_active(
+            person_id=person.id,
+            now=_utcnow(),
+        )
+
+    def _get_person(self, message: Message) -> PersonModel:
         person = self.person_repository.get_by_phone_number_and_channel(
             message.user_id,
             message.channel,
         )
         if person is None:
             raise ValueError("The message person was not found.")
-        return self.session_repository.get_or_create_active(
-            person_id=person.id,
-            now=_utcnow(),
-        )
+        return person
 
     def _find_candidates(
         self,
@@ -218,6 +243,7 @@ class FaqFlow:
             session_id=interaction.session_id,
             interaction_id=interaction.id,
             selected_entry_id=interaction.selected_entry_id,
+            question_count=interaction.question_number,
         )
 
 

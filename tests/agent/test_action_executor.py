@@ -33,6 +33,7 @@ def make_executor() -> tuple[
     patient_repository = MagicMock()
     patient_stage_repository = MagicMock()
     google_sheets_service = MagicMock()
+    faq_flow = MagicMock()
     executor = ActionExecutor(
         stage_repository,
         professional_repository,
@@ -40,6 +41,7 @@ def make_executor() -> tuple[
         patient_repository,
         patient_stage_repository,
         google_sheets_service,
+        faq_flow,
     )
     return (
         executor,
