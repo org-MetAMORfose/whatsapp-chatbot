@@ -9,4 +9,4 @@ class FaqSessionOutcome(str, Enum):
     ACTIVE = "ACTIVE"
     SATISFIED = "SATISFIED"
     ESCALATED = "ESCALATED"
-    UNKNOWN = "UNKNOWN"
+    ABANDONED = "ABANDONED"

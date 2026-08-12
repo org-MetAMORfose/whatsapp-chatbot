@@ -40,7 +40,7 @@ class MessageReceiverService:
             is_from_user=True,
         )
 
-        self.person_repository.create_message(history_message)
+        history_message = self.person_repository.create_message(history_message)
 
         if person.chat_mode == ChatMode.MANUAL:
             logger.info(
@@ -49,4 +49,6 @@ class MessageReceiverService:
             )
             return
 
-        await self.inbound_queue.publish(message)
+        await self.inbound_queue.publish(
+            message.model_copy(update={"history_id": history_message.id})
+        )

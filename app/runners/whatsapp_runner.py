@@ -6,11 +6,13 @@ from fastapi import FastAPI
 import app.config.settings as config
 from app.channel_adapters.whatsapp import WhatsAppAdapter
 from app.context import AppContext
+from app.controllers.faq_knowledge_controller import FaqKnowledgeController
 from app.controllers.health_controller import HealthController
 from app.controllers.send_message_controller import SendMessageController
 from app.controllers.upload_media_controller import UploadMediaController
 from app.controllers.whatsapp_controller import WhatsAppController
 from app.message_queue.message_queue import MessageQueue
+from app.repository.sql.faq_knowledge_repository import FaqKnowledgeRepository
 from app.repository.sql.person_repository import PersonRepository
 from app.services.dispatcher_service import MessageDispatcherService
 from app.services.receiver_service import MessageReceiverService
@@ -24,6 +26,7 @@ class WhatsAppRunner:
         outbound_queue: MessageQueue,
         message_handler: MessageReceiverService,
         person_repository: PersonRepository,
+        faq_knowledge_repository: FaqKnowledgeRepository,
     ) -> None:
         self.message_handler = message_handler
         self.whatsapp_adapter = WhatsAppAdapter()
@@ -54,9 +57,13 @@ class WhatsAppRunner:
         health_controller = HealthController()
         send_message_controller = SendMessageController(
             dispatcher=self.dispatcher)
+        faq_knowledge_controller = FaqKnowledgeController(
+            faq_knowledge_repository
+        )
         self.app.include_router(controller.router)
         self.app.include_router(health_controller.router)
         self.app.include_router(send_message_controller.router)
+        self.app.include_router(faq_knowledge_controller.router)
 
         if s3_service is not None:
             upload_media_controller = UploadMediaController(s3_service=s3_service)

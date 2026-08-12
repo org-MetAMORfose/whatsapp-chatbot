@@ -59,6 +59,7 @@ async def test_start_calls_dispatcher_and_creates_server_task(
         outbound_queue=outbound_queue,
         message_handler=message_handler,
         person_repository=MagicMock(),
+        faq_knowledge_repository=MagicMock(),
     )
 
     await runner.start()
@@ -109,6 +110,7 @@ async def test_stop_sets_server_exit_awaits_task_and_stops_dispatcher(
         outbound_queue=outbound_queue,
         message_handler=message_handler,
         person_repository=MagicMock(),
+        faq_knowledge_repository=MagicMock(),
     )
 
     mock_server = MagicMock()
