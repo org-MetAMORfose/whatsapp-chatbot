@@ -25,7 +25,12 @@ def _message() -> Message:
     )
 
 
-def _flow_dependencies():
+def _flow_dependencies() -> tuple[
+    FaqFlow,
+    MagicMock,
+    MagicMock,
+    MagicMock,
+]:
     person_repository = MagicMock()
     person_repository.get_by_phone_number_and_channel.return_value = MagicMock(id=1)
     session_repository = MagicMock()
