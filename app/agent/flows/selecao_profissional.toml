@@ -216,7 +216,9 @@ description = "Coleta da ferramenta usada para atendimento online."
 actions = [
   "redis_update_professional_video_tool"
 ]
-message = "Qual ferramenta costuma utilizar para os atendimentos online?"
+message = """Qual ferramenta costuma utilizar para os atendimentos online?
+
+Nossa parceria visa promover seu perfil profissional e garantir a conexão com pacientes que buscam ativamente por atendimento. Nós promovemos seu perfil, e conexões com pacientes - mas não interferimos nos agendamentos, ou quantidade de sessões fechadas. Como garantia, nós repomos pacientes que não respondem em até 15 dias (válido o número de reposições pelo número de conexões do plano - é necessário nos enviar gravação de tela de data recente, sem recortes e sem edição). Pacientes que responderam ou estão na fase de negociação de valores nós não repomos. A intenção com essa garantia é que nossos profissionais tenham retorno, e todos os pacientes cadastrados sejam atendidos."""
 buttons = ["Google Meet", "Zoom", "WhatsApp", "Outra"]
 
 [[nodes.ferramenta_online.transitions]]
