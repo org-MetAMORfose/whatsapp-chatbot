@@ -368,7 +368,7 @@ class ActionExecutor:
         result = await self.faq_flow.process(message)
         next_node = (
             "faq_resposta_com_atendimento"
-            if result.question_count > FAQ_HUMAN_SUPPORT_THRESHOLD
+            if result.question_count >= FAQ_HUMAN_SUPPORT_THRESHOLD
             else "faq_resposta"
         )
         return ActionResult(

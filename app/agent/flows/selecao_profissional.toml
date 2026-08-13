@@ -7,12 +7,14 @@ description = "Fluxo de contratação, coleta de informações e validação de 
 description = "Aviso de privacidade antes da coleta de dados."
 message = """Antes de prosseguirmos, informamos que os dados fornecidos serão utilizados para avaliação do seu cadastro profissional e eventual formalização de parceria com a Rede MetAMORfose.
 
-Ao continuar, você declara estar ciente de nossa Política de Privacidade."""
-buttons = ["Concordo"]
+Ao continuar, você declara estar ciente de nossa Política de Privacidade, e termos de uso
+
+Por favor assine em orgmetamorfose.com.br/termos"""
+buttons = ["Assinei"]
 
 [[nodes.lgpd.transitions]]
 target = "explicacao_rede"
-conditions = ["concordo"]
+conditions = ["assinei"]
 
 
 [nodes.explicacao_rede]
@@ -528,7 +530,10 @@ description = "Correção da ferramenta de atendimento online."
 actions = [
   "redis_update_professional_video_tool"
 ]
-message = "Qual ferramenta correta você costuma utilizar para atendimentos online?"
+message = """Qual ferramenta correta você costuma utilizar para atendimentos online?
+
+Nossa parceria visa promover seu perfil profissional e garantir a conexão com pacientes que buscam ativamente por atendimento. Nós promovemos seu perfil, e conexões com pacientes - mas não interferimos nos agendamentos, ou quantidade de sessões fechadas. Como garantia, nós repomos pacientes que não respondem em até 15 dias (válido o número de reposições pelo número de conexões do plano - é necessário nos enviar gravação de tela de data recente, sem recortes e sem edição). Pacientes que responderam ou estão na fase de negociação de valores nós não repomos. A intenção com essa garantia é que nossos profissionais tenham retorno, e todos os pacientes cadastrados sejam atendidos."""
+
 buttons = ["Google Meet", "Zoom", "WhatsApp", "Outra"]
 
 [[nodes.corrigir_ferramenta.transitions]]
