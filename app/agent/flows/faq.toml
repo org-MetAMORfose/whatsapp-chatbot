@@ -15,7 +15,7 @@ conditions = []
 [nodes.faq_resposta]
 description = "Resposta do FAQ antes da oferta de atendimento humano."
 actions = ["faq_continue_or_satisfy"]
-message = """Você pode enviar outra pergunta diretamente por aqui. Se suas dúvidas já foram esclarecidas, clique em "Estou satisfeito" para encerrar."""
+message = """Você pode enviar outra pergunta diretamente por aqui. Se suas dúvidas já foram esclarecidas, clique em "Estou satisfeito" para escolher se quer ser paciente e receber atendimento, ou se quer resolver questões como profissional de saúde."""
 buttons = ["Estou satisfeito"]
 
 [[nodes.faq_resposta.transitions]]

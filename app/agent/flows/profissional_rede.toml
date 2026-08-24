@@ -54,9 +54,11 @@ end = true
 
 [nodes.solicitar_reposicao]
 description = "Solicitação de comprovantes para reposição."
-message = """Para solicitar uma reposição, envie os comprovantes que demonstrem que o paciente não respondeu dentro de 15 dias.
+message = """Para solicitar uma reposição, envie os comprovantes que demonstrem que o paciente não respondeu dentro de 15 dias. Aceitamos somente *link público* com *GRAVAÇÃO DE TELA*, sem edição e sem recortes, de data recente, que demonstre que o paciente não respondeu.
 
-Aceitamos Print ou gravação de tela sem edição e recorte de data recente que demonstre que o paciente não respondeu"""
+Não envie o vídeo diretamente no nosso chat. Aceitamos apenas o *link público* para que possamos visualizá-lo, como um link do Google Drive, por exemplo.
+
+Após o envio da gravação, perguntaremos ao paciente se houve resposta, para evitar fraudes. Em até 7 dias úteis, te enviaremos uma reposição."""
 input = "Imagem ou documento"
 
 [[nodes.solicitar_reposicao.transitions]]
