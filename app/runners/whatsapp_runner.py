@@ -29,7 +29,16 @@ class WhatsAppRunner:
         faq_knowledge_repository: FaqKnowledgeRepository,
     ) -> None:
         self.message_handler = message_handler
-        self.whatsapp_adapter = WhatsAppAdapter()
+
+        s3_service = S3MediaService(
+            whatsapp_token=config.WHATSAPP_ACCESS_TOKEN,
+            bucket=config.S3_BUCKET_NAME,
+            region=config.AWS_REGION,
+            aws_access_key_id=config.AWS_ACCESS_KEY_ID,
+            aws_secret_access_key=config.AWS_SECRET_ACCESS_KEY,
+        ) if config.S3_BUCKET_NAME else None
+
+        self.whatsapp_adapter = WhatsAppAdapter(s3_service=s3_service)
 
         self.dispatcher = MessageDispatcherService(
             ctx=ctx,
@@ -44,14 +53,6 @@ class WhatsAppRunner:
         self.app = FastAPI()
         self.server: uvicorn.Server | None = None
         self.server_task: asyncio.Task[None] | None = None
-
-        s3_service = S3MediaService(
-            whatsapp_token=config.WHATSAPP_ACCESS_TOKEN,
-            bucket=config.S3_BUCKET_NAME,
-            region=config.AWS_REGION,
-            aws_access_key_id=config.AWS_ACCESS_KEY_ID,
-            aws_secret_access_key=config.AWS_SECRET_ACCESS_KEY,
-        ) if config.S3_BUCKET_NAME else None
 
         controller = WhatsAppController(message_handler=message_handler, s3_service=s3_service)
         health_controller = HealthController()

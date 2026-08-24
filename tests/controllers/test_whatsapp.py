@@ -3,9 +3,10 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-from app.controllers.whatsapp_controller import WhatsAppController
+from app.controllers.whatsapp_controller import WhatsAppController, _ParsedWhatsAppMessage
 from app.domain.enum.channels import Channel
 from app.domain.message import Message
+from app.services.s3_media_service import S3MediaService
 
 
 @pytest.mark.asyncio
@@ -15,7 +16,7 @@ async def test_receive_webhook_forwards_extracted_messages_to_handler() -> None:
 
     controller = WhatsAppController(message_handler=message_handler)
 
-    extracted_messages = [
+    messages = [
         Message(
             message_id=1,
             channel=Channel.WHATSAPP,
@@ -33,6 +34,7 @@ async def test_receive_webhook_forwards_extracted_messages_to_handler() -> None:
             content="world",
         ),
     ]
+    extracted_messages = [_ParsedWhatsAppMessage(message) for message in messages]
 
     request = MagicMock()
     request.json = AsyncMock(return_value={"entry": []})
@@ -47,8 +49,8 @@ async def test_receive_webhook_forwards_extracted_messages_to_handler() -> None:
     request.json.assert_awaited_once()
     mock_extract_messages.assert_called_once_with({"entry": []})
     assert message_handler.handle.await_count == 2
-    message_handler.handle.assert_any_await(extracted_messages[0])
-    message_handler.handle.assert_any_await(extracted_messages[1])
+    message_handler.handle.assert_any_await(messages[0])
+    message_handler.handle.assert_any_await(messages[1])
     assert result == {"status": "ok"}
 
 
@@ -81,7 +83,10 @@ async def test_receive_webhook_discards_messages_older_than_ten_minutes() -> Non
     with patch.object(
         controller,
         "_extract_messages",
-        return_value=[stale_message, recent_message],
+        return_value=[
+            _ParsedWhatsAppMessage(stale_message),
+            _ParsedWhatsAppMessage(recent_message),
+        ],
     ):
         result = await controller.receive_webhook(request)
 
@@ -114,15 +119,15 @@ def test_parse_message_text_returns_expected_message() -> None:
         "text": {"body": "oi tudo bem?"},
     }
 
-    parsed = controller._parse_message(raw_message)
+    result = controller._parse_message(raw_message)
 
-    assert parsed is not None
+    assert result is not None
+    parsed = result.message
     assert parsed.channel == Channel.WHATSAPP
     assert parsed.user_id == "5511999999999"
     assert parsed.chat_id == "5511999999999"
     assert parsed.content == "oi tudo bem?"
-    assert parsed.image is None
-    assert parsed.document is None
+    assert parsed.media is None
     assert parsed.created_at == datetime.fromtimestamp(1710000000, tz=UTC)
     assert isinstance(parsed.message_id, int)
     assert parsed.message_id == controller._to_int_message_id("wamid.abc123")
@@ -139,15 +144,15 @@ def test_parse_message_button_sets_button_text_as_content() -> None:
         "button": {"payload": "btn_1", "text": "Quero continuar"},
     }
 
-    parsed = controller._parse_message(raw_message)
+    result = controller._parse_message(raw_message)
 
-    assert parsed is not None
+    assert result is not None
+    parsed = result.message
     assert parsed.channel == Channel.WHATSAPP
     assert parsed.user_id == "5511999999999"
     assert parsed.chat_id == "5511999999999"
     assert parsed.content == "Quero continuar"
-    assert parsed.image is None
-    assert parsed.document is None
+    assert parsed.media is None
     assert parsed.created_at == datetime.fromtimestamp(1710000001, tz=UTC)
     assert isinstance(parsed.message_id, int)
     assert parsed.message_id == controller._to_int_message_id(
@@ -168,16 +173,66 @@ def test_parse_message_interactive_button_reply_sets_title_as_content() -> None:
         },
     }
 
-    parsed = controller._parse_message(raw_message)
+    result = controller._parse_message(raw_message)
 
-    assert parsed is not None
+    assert result is not None
+    parsed = result.message
     assert parsed.channel == Channel.WHATSAPP
     assert parsed.user_id == "5511999999999"
     assert parsed.chat_id == "5511999999999"
     assert parsed.content == "Falar com humano"
-    assert parsed.image is None
-    assert parsed.document is None
+    assert parsed.media is None
     assert parsed.created_at == datetime.fromtimestamp(1710000002, tz=UTC)
     assert isinstance(parsed.message_id, int)
     assert parsed.message_id == controller._to_int_message_id(
         "wamid.interactive123")
+
+
+@pytest.mark.asyncio
+async def test_parse_and_resolve_image_stores_only_the_s3_path() -> None:
+    s3_service = MagicMock(spec=S3MediaService)
+    s3_service.upload_from_whatsapp = AsyncMock(
+        return_value="media/image/whatsapp-image.jpg"
+    )
+    controller = WhatsAppController(
+        message_handler=MagicMock(),
+        s3_service=s3_service,
+    )
+    raw_message = {
+        "id": "wamid.image123",
+        "from": "5511999999999",
+        "timestamp": "1710000003",
+        "type": "image",
+        "image": {"id": "whatsapp-image"},
+    }
+
+    parsed = controller._parse_message(raw_message)
+
+    assert parsed is not None
+    assert parsed.message.media is None
+    assert parsed.media_id == "whatsapp-image"
+    assert parsed.media_type == "image"
+
+    resolved = await controller._resolve_media(parsed)
+
+    assert resolved.media == "media/image/whatsapp-image.jpg"
+    s3_service.upload_from_whatsapp.assert_awaited_once_with(
+        "whatsapp-image",
+        "image",
+    )
+
+
+def test_parse_media_without_media_id_is_ignored() -> None:
+    controller = WhatsAppController(message_handler=MagicMock())
+
+    parsed = controller._parse_message(
+        {
+            "id": "wamid.invalid-image",
+            "from": "5511999999999",
+            "timestamp": "1710000004",
+            "type": "image",
+            "image": {},
+        }
+    )
+
+    assert parsed is None

@@ -45,8 +45,7 @@ CREATE TABLE IF NOT EXISTS "message_history" (
   "person_id" int NOT NULL,
   "created_at" timestamp NOT NULL,
   "content" text,
-  "image_url" text,
-  "document_url" text,
+  "media_path" text,
   "is_from_user" boolean NOT NULL
 );
 

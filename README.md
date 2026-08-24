@@ -97,6 +97,25 @@ uv run alembic stamp 0001_baseline_schema
 uv run alembic upgrade head
 ```
 
+## Midias no S3
+
+O bucket de midias permanece privado. A aplicacao persiste somente a chave do
+objeto, por exemplo:
+
+```text
+media/image/21842910.png
+media/document/4234234.pdf
+```
+
+O endpoint `POST /upload-media` retorna essa chave no campo `media`, e o
+endpoint `POST /send` recebe a mesma chave no campo `media`. URLs completas ou
+pre-assinadas nao sao persistidas.
+
+Um backend que precise exibir os arquivos deve receber permissao `s3:GetObject`
+restrita ao prefixo `media/*`, preferencialmente por IAM Role. O navegador nao
+deve receber credenciais AWS; o backend do frontend pode transmitir o arquivo
+ou gerar uma URL temporaria somente no momento da leitura.
+
 ## Pre-commit
 
 Instale e habilite o hook:
@@ -112,5 +131,4 @@ uv run pre-commit run --all-files
 ```
 
 > Os hooks de pre-commit executam **ruff**, **mypy** e **pytest** antes de cada commit.
-
 

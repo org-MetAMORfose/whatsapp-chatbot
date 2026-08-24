@@ -151,16 +151,14 @@ def make_message_history(
         *,
         person_id: int,
         content: str | None = None,
-        image_url: str | None = None,
-        document_url: str | None = None,
+        media_path: str | None = None,
         is_from_user: bool = True,
         created_at: datetime | None = None,
     ) -> MessageHistoryModel:
         message = MessageHistoryModel(
             person_id=person_id,
             content=content,
-            image_url=image_url,
-            document_url=document_url,
+            media_path=media_path,
             is_from_user=is_from_user,
             created_at=created_at or datetime.utcnow(),
         )

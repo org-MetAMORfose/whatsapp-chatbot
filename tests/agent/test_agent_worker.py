@@ -100,8 +100,7 @@ def make_worker(
 def make_message(
     content: str | None,
     *,
-    image: str | None = None,
-    document: str | None = None,
+    media: str | None = None,
 ) -> Message:
     return Message(
         message_id=1,
@@ -110,8 +109,7 @@ def make_message(
         user_id="user-1",
         chat_id="chat-1",
         content=content,
-        image=image,
-        document=document,
+        media=media,
     )
 
 
@@ -247,7 +245,7 @@ async def test_media_node_accepts_image() -> None:
     chat_repository = FakeChatRepository(state="upload")
     worker = make_worker(chat_repository, flow=media_flow())
 
-    await worker._process_message(make_message(None, image="image-id"))
+    await worker._process_message(make_message(None, media="media/image/image-id.jpg"))
 
     assert chat_repository.updated_state == "done"
     worker.action_executor.run.assert_awaited_once()
@@ -258,7 +256,9 @@ async def test_media_node_accepts_document() -> None:
     chat_repository = FakeChatRepository(state="upload")
     worker = make_worker(chat_repository, flow=media_flow())
 
-    await worker._process_message(make_message(None, document="document-id"))
+    await worker._process_message(
+        make_message(None, media="media/document/document-id.pdf")
+    )
 
     assert chat_repository.updated_state == "done"
     worker.action_executor.run.assert_awaited_once()

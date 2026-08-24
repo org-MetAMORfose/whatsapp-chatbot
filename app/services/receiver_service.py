@@ -35,8 +35,7 @@ class MessageReceiverService:
             person_id=person.id,
             created_at=message.created_at or datetime.utcnow(),
             content=message.content,
-            image_url=message.image,
-            document_url=message.document,
+            media_path=message.media,
             is_from_user=True,
         )
 

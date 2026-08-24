@@ -27,6 +27,5 @@ class Message(BaseModel):
     pressed: int | None = None
     history_id: int | None = None
 
-    image: str | None = None
-    document: str | None = None
+    media: str | None = None
     buttons: list[MessageButton] | None = None

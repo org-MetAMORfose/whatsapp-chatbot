@@ -9,9 +9,9 @@ from app.services.s3_media_service import S3MediaService
 
 
 @pytest.mark.asyncio
-async def test_upload_media_endpoint_returns_url() -> None:
+async def test_upload_media_endpoint_returns_path() -> None:
     mock_s3_service = MagicMock(spec=S3MediaService)
-    mock_s3_service.upload_file = AsyncMock(return_value="https://bucket.s3.region.amazonaws.com/media/image/test.jpg")
+    mock_s3_service.upload_file = AsyncMock(return_value="media/image/test.jpg")
 
     app = FastAPI()
     controller = UploadMediaController(s3_service=mock_s3_service)
@@ -25,9 +25,7 @@ async def test_upload_media_endpoint_returns_url() -> None:
     )
 
     assert response.status_code == 200
-    assert response.json() == {
-        "url": "https://bucket.s3.region.amazonaws.com/media/image/test.jpg"
-    }
+    assert response.json() == {"media": "media/image/test.jpg"}
     mock_s3_service.upload_file.assert_awaited_once()
 
 
