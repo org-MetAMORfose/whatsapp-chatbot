@@ -60,6 +60,45 @@ def test_send_message_endpoint_returns_200_when_only_phone_number_is_provided() 
     assert response.json() == {"status": "ok"}
 
 
+def test_send_message_endpoint_accepts_media_path() -> None:
+    mock_dispatcher = MagicMock()
+    mock_dispatcher.dispatch = AsyncMock()
+    app = FastAPI()
+    controller = SendMessageController(dispatcher=mock_dispatcher)
+    app.include_router(controller.router)
+
+    response = TestClient(app).post(
+        "/send",
+        json={
+            "phone_number": "5511999999999",
+            "media": "media/document/registration.pdf",
+        },
+    )
+
+    assert response.status_code == 200
+    dispatched = mock_dispatcher.dispatch.call_args.args[0]
+    assert dispatched.media == "media/document/registration.pdf"
+
+
+def test_send_message_endpoint_rejects_media_url() -> None:
+    mock_dispatcher = MagicMock()
+    mock_dispatcher.dispatch = AsyncMock()
+    app = FastAPI()
+    controller = SendMessageController(dispatcher=mock_dispatcher)
+    app.include_router(controller.router)
+
+    response = TestClient(app).post(
+        "/send",
+        json={
+            "phone_number": "5511999999999",
+            "media": "https://bucket.s3.amazonaws.com/media/image/file.jpg",
+        },
+    )
+
+    assert response.status_code == 422
+    mock_dispatcher.dispatch.assert_not_awaited()
+
+
 def test_send_message_endpoint_returns_422_when_phone_number_is_missing() -> None:
     mock_dispatcher = MagicMock()
 

@@ -4,11 +4,12 @@ from datetime import UTC, datetime
 from uuid import uuid4
 
 from fastapi import APIRouter
-from pydantic import BaseModel
+from pydantic import BaseModel, field_validator
 
 from app.domain.enum.channels import Channel
 from app.domain.message import Message
 from app.services.dispatcher_service import MessageDispatcherService
+from app.services.s3_media_service import S3MediaService
 
 logger = logging.getLogger(__name__)
 
@@ -16,8 +17,14 @@ logger = logging.getLogger(__name__)
 class SendMessageRequest(BaseModel):
     phone_number: str
     content: str | None = None
-    image_url: str | None = None
-    document_url: str | None = None
+    media: str | None = None
+
+    @field_validator("media")
+    @classmethod
+    def validate_media(cls, media: str | None) -> str | None:
+        if media is not None:
+            S3MediaService.validate_media_path(media)
+        return media
 
 
 class SendMessageController:
@@ -39,8 +46,7 @@ class SendMessageController:
             user_id=body.phone_number,
             chat_id=body.phone_number,
             content=body.content,
-            image=body.image_url,
-            document=body.document_url,
+            media=body.media,
         )
 
         await self.dispatcher.dispatch(message)

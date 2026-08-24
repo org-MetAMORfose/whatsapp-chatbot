@@ -1,5 +1,6 @@
 import hashlib
 import logging
+from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from typing import Any
 
@@ -9,10 +10,17 @@ import app.config.settings as config
 from app.domain.enum.channels import Channel
 from app.domain.message import Message
 from app.services.receiver_service import MessageReceiverService
-from app.services.s3_media_service import S3MediaService
+from app.services.s3_media_service import MediaType, S3MediaService
 
 logger = logging.getLogger(__name__)
 MAX_MESSAGE_AGE = timedelta(minutes=10)
+
+
+@dataclass(frozen=True)
+class _ParsedWhatsAppMessage:
+    message: Message
+    media_id: str | None = None
+    media_type: MediaType | None = None
 
 
 class WhatsAppController:
@@ -57,9 +65,10 @@ class WhatsAppController:
 
         logger.debug("Received WhatsApp webhook payload: %s", data)
 
-        messages = self._extract_messages(data)
+        parsed_messages = self._extract_messages(data)
 
-        for message in messages:
+        for parsed in parsed_messages:
+            message = parsed.message
             if not self._is_recent_message(message):
                 logger.info(
                     "Discarding stale WhatsApp message %s",
@@ -67,7 +76,7 @@ class WhatsAppController:
                 )
                 continue
 
-            message = await self._resolve_media(message)
+            message = await self._resolve_media(parsed)
             await self.message_handler.handle(message)
 
         return {"status": "ok"}
@@ -80,27 +89,21 @@ class WhatsAppController:
 
         return datetime.now(UTC) - message.created_at <= MAX_MESSAGE_AGE
 
-    async def _resolve_media(self, message: Message) -> Message:
+    async def _resolve_media(self, parsed: _ParsedWhatsAppMessage) -> Message:
+        if parsed.media_id is None or parsed.media_type is None:
+            return parsed.message
+
         if self.s3_service is None:
-            return message
+            raise RuntimeError("S3 media storage is not configured")
 
-        updates: dict[str, str] = {}
-        try:
-            if message.image is not None:
-                updates["image"] = await self.s3_service.upload_from_whatsapp(
-                    message.image, "image"
-                )
-            if message.document is not None:
-                updates["document"] = await self.s3_service.upload_from_whatsapp(
-                    message.document, "document"
-                )
-        except Exception:
-            logger.exception("Failed to upload media to S3 for message %s", message.message_id)
+        media_path = await self.s3_service.upload_from_whatsapp(
+            parsed.media_id,
+            parsed.media_type,
+        )
+        return parsed.message.model_copy(update={"media": media_path})
 
-        return message.model_copy(update=updates) if updates else message
-
-    def _extract_messages(self, data: dict[str, Any]) -> list[Message]:
-        extracted_messages: list[Message] = []
+    def _extract_messages(self, data: dict[str, Any]) -> list[_ParsedWhatsAppMessage]:
+        extracted_messages: list[_ParsedWhatsAppMessage] = []
 
         try:
             entries = data.get("entry", [])
@@ -121,7 +124,7 @@ class WhatsAppController:
 
         return extracted_messages
 
-    def _parse_message(self, msg: dict[str, Any]) -> Message | None:
+    def _parse_message(self, msg: dict[str, Any]) -> _ParsedWhatsAppMessage | None:
         try:
             raw_message_id = msg.get("id")
             user_id = msg.get("from")
@@ -133,8 +136,8 @@ class WhatsAppController:
                 return None
 
             content: str | None = None
-            image: str | None = None
-            document: str | None = None
+            media_id: str | None = None
+            media_type: MediaType | None = None
 
             if message_type == "text":
                 content = msg.get("text", {}).get("body")
@@ -160,29 +163,37 @@ class WhatsAppController:
                     return None
 
             elif message_type == "image":
-                image = msg.get("image", {}).get("id")
+                media_id = msg.get("image", {}).get("id")
+                media_type = "image"
 
             elif message_type == "document":
-                document = msg.get("document", {}).get("id")
+                media_id = msg.get("document", {}).get("id")
+                media_type = "document"
 
             else:
                 logger.info(
                     "Ignoring unsupported WhatsApp message type: %s", message_type)
                 return None
 
+            if media_type is not None and not media_id:
+                logger.warning("WhatsApp media message missing media id: %s", msg)
+                return None
+
             created_at = None
             if timestamp is not None:
                 created_at = datetime.fromtimestamp(int(timestamp), tz=UTC)
 
-            return Message(
-                message_id=self._to_int_message_id(raw_message_id),
-                channel=Channel.WHATSAPP,
-                created_at=created_at,
-                user_id=str(user_id),
-                chat_id=str(user_id),
-                content=content,
-                image=image,
-                document=document,
+            return _ParsedWhatsAppMessage(
+                message=Message(
+                    message_id=self._to_int_message_id(raw_message_id),
+                    channel=Channel.WHATSAPP,
+                    created_at=created_at,
+                    user_id=str(user_id),
+                    chat_id=str(user_id),
+                    content=content,
+                ),
+                media_id=media_id,
+                media_type=media_type,
             )
 
         except Exception as e:

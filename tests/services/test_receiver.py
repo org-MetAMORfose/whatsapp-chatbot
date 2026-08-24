@@ -34,6 +34,7 @@ async def test_handle_queues_the_persisted_message_history_id() -> None:
         chat_id="123",
         user_id="user_1",
         content="Hello",
+        media="media/image/profile.png",
     )
 
     await service.handle(message)
@@ -45,6 +46,7 @@ async def test_handle_queues_the_persisted_message_history_id() -> None:
     persisted_message = person_repository.create_message.call_args.args[0]
     assert persisted_message.person_id == 10
     assert persisted_message.content == "Hello"
+    assert persisted_message.media_path == "media/image/profile.png"
     assert persisted_message.is_from_user is True
 
 

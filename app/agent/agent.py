@@ -144,7 +144,7 @@ class AgentWorker:
 
     async def _process_message(self, message: Message) -> Response:
         """Process a message from the queue."""
-        if not message.content and not message.image and not message.document:
+        if not message.content and not message.media:
             logger.warning(
                 "Received message with no content: %s",
                 message,
@@ -308,7 +308,7 @@ def _requires_media(node: Node) -> bool:
 
 
 def _has_media(message: Message) -> bool:
-    return message.image is not None or message.document is not None
+    return message.media is not None
 
 
 def _allows_text_without_media(node: Node, content: str) -> bool:

@@ -244,7 +244,7 @@ class ActionExecutor:
         message: Message,
     ) -> str:
         """Store professional document media id."""
-        media = message.image or message.document
+        media = message.media
 
         if media is None:
             if message.content and message.content.strip().lower() == "sem registro":

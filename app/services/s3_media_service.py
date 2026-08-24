@@ -1,7 +1,9 @@
 import asyncio
 import logging
 import mimetypes
+from dataclasses import dataclass
 from pathlib import Path
+from typing import Literal
 from uuid import uuid4
 
 import boto3
@@ -10,6 +12,17 @@ import httpx
 logger = logging.getLogger(__name__)
 
 _WHATSAPP_API_BASE = "https://graph.facebook.com/v23.0"
+MediaType = Literal["image", "document"]
+
+
+@dataclass(frozen=True)
+class StoredMedia:
+    """Media bytes and metadata loaded from S3."""
+
+    path: str
+    content: bytes
+    content_type: str
+    filename: str
 
 
 class S3MediaService:
@@ -38,7 +51,7 @@ class S3MediaService:
         media_type: str,
         filename: str | None = None,
     ) -> str:
-        """Upload generic media bytes to S3 and return the public URL."""
+        """Upload generic media bytes to S3 and return its stable object path."""
         if media_type not in {"image", "document"}:
             raise ValueError("media_type must be 'image' or 'document'")
 
@@ -52,8 +65,6 @@ class S3MediaService:
 
         key = f"media/{media_type}/{uuid4().hex}{extension}"
 
-        # Upload object (no ACL) and return a presigned GET URL so external services
-        # (like Facebook/WhatsApp) can fetch the file even if the bucket blocks ACLs.
         await asyncio.to_thread(
             self._s3.put_object,
             Bucket=self._bucket,
@@ -62,17 +73,14 @@ class S3MediaService:
             ContentType=content_type,
         )
 
-        presigned = self._s3.generate_presigned_url(
-            "get_object",
-            Params={"Bucket": self._bucket, "Key": key},
-            ExpiresIn=3600,
-        )
-
-        logger.info("Uploaded file to S3 (key=%s) and generated presigned URL", key)
-        return str(presigned)
+        logger.info("Uploaded file to S3 (key=%s)", key)
+        return key
 
     async def upload_from_whatsapp(self, media_id: str, media_type: str) -> str:
-        """Download a WhatsApp media object and upload it to S3. Returns the S3 URL."""
+        """Download WhatsApp media, store it in S3, and return its object path."""
+        if media_type not in {"image", "document"}:
+            raise ValueError("media_type must be 'image' or 'document'")
+
         headers = {"Authorization": f"Bearer {self._token}"}
 
         async with httpx.AsyncClient() as client:
@@ -101,11 +109,56 @@ class S3MediaService:
             ContentType=mime_type,
         )
 
-        presigned = self._s3.generate_presigned_url(
-            "get_object",
-            Params={"Bucket": self._bucket, "Key": key},
-            ExpiresIn=3600,
+        logger.info("Uploaded WhatsApp media %s to S3 (key=%s)", media_id, key)
+        return key
+
+    async def get_file(self, media_path: str) -> StoredMedia:
+        """Load a stored media object directly from the private S3 bucket."""
+        self.validate_media_path(media_path)
+
+        response = await asyncio.to_thread(
+            self._s3.get_object,
+            Bucket=self._bucket,
+            Key=media_path,
+        )
+        content = await asyncio.to_thread(response["Body"].read)
+        content_type = str(
+            response.get("ContentType")
+            or mimetypes.guess_type(media_path)[0]
+            or "application/octet-stream"
         )
 
-        logger.info("Uploaded WhatsApp media %s and generated presigned URL", media_id)
-        return str(presigned)
+        return StoredMedia(
+            path=media_path,
+            content=content,
+            content_type=content_type,
+            filename=Path(media_path).name,
+        )
+
+    @staticmethod
+    def validate_media_path(media_path: str) -> None:
+        """Reject keys outside the application's media prefixes."""
+        if (
+            not media_path
+            or media_path.startswith("/")
+            or "://" in media_path
+            or "?" in media_path
+            or "#" in media_path
+            or "\\" in media_path
+        ):
+            raise ValueError("media_path must be a relative S3 object path")
+
+        parts = media_path.split("/")
+        if any(part in {"", ".", ".."} for part in parts):
+            raise ValueError("invalid media_path")
+
+        if not media_path.startswith(("media/image/", "media/document/")):
+            raise ValueError("media_path must point to image or document media")
+
+    @classmethod
+    def get_media_type(cls, media_path: str) -> MediaType:
+        """Infer the media category from its validated S3 object path."""
+        cls.validate_media_path(media_path)
+        if media_path.startswith("media/image/"):
+            return "image"
+        return "document"

@@ -276,8 +276,7 @@ def test_create_message(
         person_id=person.id,
         content="hello",
         created_at=datetime.utcnow(),
-        image_url=None,
-        document_url=None,
+        media_path=None,
         is_from_user=True,
     )
 

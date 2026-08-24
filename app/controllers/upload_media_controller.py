@@ -9,7 +9,7 @@ logger = logging.getLogger(__name__)
 
 
 class UploadMediaResponse(BaseModel):
-    url: str
+    media: str
 
 
 class UploadMediaController:
@@ -42,7 +42,7 @@ class UploadMediaController:
         content_type = file.content_type or "application/octet-stream"
 
         try:
-            url = await self.s3_service.upload_file(
+            media_path = await self.s3_service.upload_file(
                 file_bytes=file_bytes,
                 content_type=content_type,
                 media_type=media_type,
@@ -55,4 +55,4 @@ class UploadMediaController:
                 detail="Failed to upload media to S3",
             ) from exc
 
-        return UploadMediaResponse(url=url)
+        return UploadMediaResponse(media=media_path)

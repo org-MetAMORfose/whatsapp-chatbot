@@ -83,7 +83,7 @@ async def test_dispatch_sends_message_to_registered_channel_adapter(
         chat_id="123",
         user_id="user_1",
         content="Hello",
-    )
+    ).model_copy(update={"media": "media/document/registration.pdf"})
 
     await dispatcher.dispatch(message)
 
@@ -97,8 +97,7 @@ async def test_dispatch_sends_message_to_registered_channel_adapter(
     created_message = person_repository.create_message.call_args.args[0]
     assert created_message.person_id == 1
     assert created_message.content == "Hello"
-    assert created_message.image_url is None
-    assert created_message.document_url is None
+    assert created_message.media_path == "media/document/registration.pdf"
     assert created_message.is_from_user is False
     assert created_message.created_at == message.created_at
 
