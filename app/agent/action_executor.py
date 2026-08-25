@@ -650,8 +650,7 @@ class ActionExecutor:
         except ValueError:
             return ActionResult(
                 output=(
-                    "Data de nascimento inválida. Envie no formato DD/MM/AAAA "
-                    "(zeros à esquerda opcionais), por exemplo: 15/08/1990.\n\n"
+                    "Data de nascimento inválida.\n\n"
                 ),
                 next_node="paciente_data_nascimento",
             )
