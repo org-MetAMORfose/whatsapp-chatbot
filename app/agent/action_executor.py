@@ -441,8 +441,8 @@ class ActionExecutor:
         message: Message,
     ) -> str:
         """Flag requests made through the professional support option."""
-        content = (message.content or "").strip().lower()
-        if content == "outros assuntos":
+        content = self._normalize_content(message.content)
+        if content in {"outros assuntos", "reposicao paciente"}:
             await self.postgres_set_chat_state(
                 message,
                 chat_state=ChatState.PROFESSIONAL_SUPPORT,
