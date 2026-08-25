@@ -33,6 +33,17 @@ message = "Olá, tudo bem? Para começarmos, qual é o seu nome?"
 input = "Texto"
 
 [[nodes.paciente_nome.transitions]]
+target = "paciente_data_nascimento"
+conditions = []
+
+
+[nodes.paciente_data_nascimento]
+description = "Coleta e valida a data de nascimento do paciente."
+actions = ["redis_update_patient_birth_date"]
+message = "Qual é a sua data de nascimento? Envie no formato DD/MM/AAAA. Exemplo: 15/08/1990."
+input = "Texto"
+
+[[nodes.paciente_data_nascimento.transitions]]
 target = "paciente_inicio"
 conditions = []
 

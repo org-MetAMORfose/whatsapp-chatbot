@@ -1,9 +1,9 @@
 """Person ORM model."""
 
-from datetime import datetime
+from datetime import date, datetime
 from typing import TYPE_CHECKING
 
-from sqlalchemy import DateTime, Enum, Integer, String, UniqueConstraint
+from sqlalchemy import Date, DateTime, Enum, Integer, String, UniqueConstraint
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.domain.db.base import Base
@@ -30,6 +30,7 @@ class PersonModel(Base):
     phone_number: Mapped[str] = mapped_column(String, nullable=False)
     channel: Mapped[Channel | None] = mapped_column(Enum(Channel), nullable=True)
     name: Mapped[str | None] = mapped_column(String, nullable=True)
+    birth_date: Mapped[date | None] = mapped_column(Date, nullable=True)
     cpf: Mapped[str | None] = mapped_column(String, unique=True, nullable=True)
     chat_mode: Mapped[str] = mapped_column(Enum(ChatMode), nullable=False, default=ChatMode.AUTOMATIC)
     chat_state: Mapped[ChatState] = mapped_column(

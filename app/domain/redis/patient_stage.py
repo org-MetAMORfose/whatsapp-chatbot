@@ -1,6 +1,6 @@
 """Temporary patient registration context stored in Redis."""
 
-from datetime import datetime
+from datetime import date, datetime
 
 from pydantic import BaseModel, Field
 
@@ -15,6 +15,7 @@ class PatientStageContext(BaseModel):
     channel: Channel
 
     name: str | None = None
+    birth_date: date | None = None
     area: str | None = None
     psychotherapy_approach: str | None = None
     professional_profile: str | None = None

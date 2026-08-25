@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from collections.abc import Callable
-from datetime import datetime, timedelta
+from datetime import date, datetime, timedelta
 
 import pytest
 from sqlalchemy.orm import Session, sessionmaker
@@ -26,6 +26,7 @@ def test_create(
     person = PersonModel(
         phone_number="11111111111",
         name="Arthur",
+        birth_date=date(2000, 1, 1),
         cpf="12345678900",
         chat_state=None,
         created_at=datetime.utcnow(),
@@ -35,6 +36,24 @@ def test_create(
 
     assert created.id is not None
     assert created.phone_number == "11111111111"
+    assert created.birth_date == date(2000, 1, 1)
+
+
+def test_create_without_birth_date_keeps_null(
+    person_repository: PersonRepository,
+) -> None:
+    person = PersonModel(
+        phone_number="11111111112",
+        name="Sem data",
+        chat_state=None,
+        created_at=datetime.utcnow(),
+    )
+
+    created = person_repository.create(person)
+    found = person_repository.get_by_id(created.id)
+
+    assert found is not None
+    assert found.birth_date is None
 
 
 def test_get_by_id(
