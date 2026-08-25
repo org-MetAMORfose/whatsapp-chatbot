@@ -190,25 +190,13 @@ buttons = [
 ]
 
 [[nodes.identificacao.transitions]]
-target = "qualificacao"
+target = "ferramenta_online"
 conditions = [
   "negro",
   "negro lgbt",
   "lgbt",
   "prefiro nao informar"
 ]
-
-[nodes.qualificacao]
-description = "Coleta de formação, especializações, abordagem e currículo."
-actions = ["redis_update_professional_qualification"]
-message = """Conte um pouco sobre sua formação, experiência profissional, especializações, cursos complementares ou currículo.
-
-Grave um vídeo de até um minuto sobre sua graduação, pós-graduação, certificados, abordagem teórica, experiência clínica ou outras informações relevantes para avaliação do cadastro - e no final do vídeo responder porque a proposta da MetAMORfose se alinha com sua experiência. Após a gravação do seu vídeo com rosto - precisamos garantir que é você - envie o link do seu vídeo aqui (você pode colocar em seu Google Drive, YouTube, Instagram ou outros, mas precisa estar público para visualizarmos)"""
-input = "Texto"
-
-[[nodes.qualificacao.transitions]]
-target = "ferramenta_online"
-conditions = []
 
 
 [nodes.ferramenta_online]
@@ -312,7 +300,6 @@ buttons = [
   "Abordagem",
   "Gênero",
   "Identificação",
-  "Qualificação",
   "Ferramenta",
   "Comprovante"
 ]
@@ -340,10 +327,6 @@ conditions = ["genero"]
 [[nodes.escolha_correcao.transitions]]
 target = "corrigir_identificacao"
 conditions = ["identificacao"]
-
-[[nodes.escolha_correcao.transitions]]
-target = "corrigir_qualificacao"
-conditions = ["qualificacao"]
 
 [[nodes.escolha_correcao.transitions]]
 target = "corrigir_ferramenta"
@@ -513,20 +496,6 @@ conditions = [
   "prefiro nao informar"
 ]
 
-[nodes.corrigir_qualificacao]
-description = "Correção da formação, especializações ou currículo."
-actions = [
-  "redis_update_professional_qualification",
-  "redis_get_professional_stage_summary"
-]
-message = "Digite a formação, experiência, especializações ou currículo correto."
-input = "Texto"
-
-[[nodes.corrigir_qualificacao.transitions]]
-target = "resumo_dados"
-conditions = []
-
-
 [nodes.corrigir_ferramenta]
 description = "Correção da ferramenta de atendimento online."
 actions = [
@@ -582,7 +551,7 @@ conditions = []
 
 
 [nodes.selecao_profissional_pagamento]
-description = "Encerramento do fluxo de seleção profissional."
+description = "Coleta do comprovante de pagamento."
 actions = [
   "postgres_register_professional_application",
   "sheets_register_professional",
@@ -604,6 +573,25 @@ Por favor, envie o comprovante do Pix como imagem ou documento para finalizarmos
 input = "Imagem ou documento"
 
 [[nodes.selecao_profissional_pagamento.transitions]]
+target = "video_pos_pagamento"
+conditions = []
+
+[nodes.video_pos_pagamento]
+description = "Coleta do vídeo de qualificação após o pagamento."
+actions = ["postgres_update_professional_qualification"]
+message = """Quer ganhar mais 2 conexões com pacientes neste mês? Grave um vídeo de até um minuto sobre sua graduação, pós-graduação, certificados, abordagem teórica, experiência clínica ou outras informações relevantes para avaliação do cadastro - e, no final do vídeo, diga por que a MetAMORfose se alinha com sua experiência.
+
+Após a gravação com o rosto visível - precisamos garantir que é você -, envie o seu vídeo diretamente aqui pelo WhatsApp.
+
+Ao nos enviar o vídeo, você declara que todas as informações são verdadeiras e firma cessão de direitos, de forma expressa, gratuita, irrevogável e irretratável, de sua imagem, voz e vídeo, para veiculação pelo prazo de 180 dias (redes sociais da empresa, portfólio interno e campanhas publicitárias), em conformidade com a LGPD (Lei nº 13.709/2018)."""
+buttons = ["Não tenho interesse"]
+input = "Vídeo"
+
+[[nodes.video_pos_pagamento.transitions]]
+target = "selecao_profissional_end"
+conditions = ["nao tenho interesse"]
+
+[[nodes.video_pos_pagamento.transitions]]
 target = "selecao_profissional_end"
 conditions = []
 

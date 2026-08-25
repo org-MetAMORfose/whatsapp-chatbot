@@ -12,7 +12,8 @@ import httpx
 logger = logging.getLogger(__name__)
 
 _WHATSAPP_API_BASE = "https://graph.facebook.com/v23.0"
-MediaType = Literal["image", "document"]
+MediaType = Literal["image", "document", "video"]
+MEDIA_TYPES = frozenset({"image", "document", "video"})
 
 
 @dataclass(frozen=True)
@@ -52,8 +53,8 @@ class S3MediaService:
         filename: str | None = None,
     ) -> str:
         """Upload generic media bytes to S3 and return its stable object path."""
-        if media_type not in {"image", "document"}:
-            raise ValueError("media_type must be 'image' or 'document'")
+        if media_type not in MEDIA_TYPES:
+            raise ValueError("media_type must be 'image', 'document' or 'video'")
 
         extension = ""
         if filename:
@@ -78,12 +79,12 @@ class S3MediaService:
 
     async def upload_from_whatsapp(self, media_id: str, media_type: str) -> str:
         """Download WhatsApp media, store it in S3, and return its object path."""
-        if media_type not in {"image", "document"}:
-            raise ValueError("media_type must be 'image' or 'document'")
+        if media_type not in MEDIA_TYPES:
+            raise ValueError("media_type must be 'image', 'document' or 'video'")
 
         headers = {"Authorization": f"Bearer {self._token}"}
 
-        async with httpx.AsyncClient() as client:
+        async with httpx.AsyncClient(timeout=60.0) as client:
             meta_resp = await client.get(
                 f"{_WHATSAPP_API_BASE}/{media_id}",
                 headers=headers,
@@ -152,8 +153,12 @@ class S3MediaService:
         if any(part in {"", ".", ".."} for part in parts):
             raise ValueError("invalid media_path")
 
-        if not media_path.startswith(("media/image/", "media/document/")):
-            raise ValueError("media_path must point to image or document media")
+        if not media_path.startswith(
+            ("media/image/", "media/document/", "media/video/")
+        ):
+            raise ValueError(
+                "media_path must point to image, document or video media"
+            )
 
     @classmethod
     def get_media_type(cls, media_path: str) -> MediaType:
@@ -161,4 +166,6 @@ class S3MediaService:
         cls.validate_media_path(media_path)
         if media_path.startswith("media/image/"):
             return "image"
-        return "document"
+        if media_path.startswith("media/document/"):
+            return "document"
+        return "video"

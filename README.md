@@ -105,6 +105,7 @@ objeto, por exemplo:
 ```text
 media/image/21842910.png
 media/document/4234234.pdf
+media/video/9876543.mp4
 ```
 
 O endpoint `POST /upload-media` retorna essa chave no campo `media`, e o
@@ -131,4 +132,3 @@ uv run pre-commit run --all-files
 ```
 
 > Os hooks de pre-commit executam **ruff**, **mypy** e **pytest** antes de cada commit.
-

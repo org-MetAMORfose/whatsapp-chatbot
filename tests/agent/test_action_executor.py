@@ -13,7 +13,11 @@ from app.domain.redis.professional_stage import ProfessionalStageContext
 from app.services.google_sheets_service import GoogleSheetsServiceError
 
 
-def make_message(content: str | None = None) -> Message:
+def make_message(
+    content: str | None = None,
+    *,
+    media: str | None = None,
+) -> Message:
     return Message(
         message_id=1,
         channel=Channel.WHATSAPP,
@@ -21,6 +25,7 @@ def make_message(content: str | None = None) -> Message:
         user_id="5511999999999",
         chat_id="chat-1",
         content=content,
+        media=media,
     )
 
 
@@ -167,7 +172,6 @@ async def test_register_professional_application_from_stage() -> None:
             name="Maria",
             email="maria@example.com",
             area="Psicoterapia",
-            qualification="Formação",
             video_tool="Meet",
             approach="TCC",
         )
@@ -185,11 +189,36 @@ async def test_register_professional_application_from_stage() -> None:
         professional_register="PENDING-42",
         register_type="PENDING_REVIEW",
         approach="TCC",
-        background="Formação",
+        background=None,
         video_platform="Meet",
         email="maria@example.com",
         created_at=message.created_at,
     )
+
+
+@pytest.mark.asyncio
+async def test_postgres_update_professional_qualification_stores_video_path() -> None:
+    executor, _, professional_repository, person_repository, _, _ = make_executor()
+    message = make_message(media="media/video/qualification.mp4")
+    person = MagicMock(id=42)
+    professional = MagicMock(background=None)
+    person_repository.get_by_phone_number_and_channel.return_value = person
+    professional_repository.get_by_person_id.return_value = professional
+
+    await executor.postgres_update_professional_qualification(message)
+
+    assert professional.background == "media/video/qualification.mp4"
+    professional_repository.update.assert_called_once_with(professional)
+
+
+@pytest.mark.asyncio
+async def test_postgres_update_professional_qualification_skips_without_video() -> None:
+    executor, _, professional_repository, person_repository, _, _ = make_executor()
+
+    await executor.postgres_update_professional_qualification(make_message())
+
+    person_repository.get_by_phone_number_and_channel.assert_not_called()
+    professional_repository.update.assert_not_called()
 
 
 @pytest.mark.asyncio

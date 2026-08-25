@@ -109,10 +109,6 @@ class ActionExecutor:
                 self.redis_update_professional,
                 field="minority_group",
             ),
-            "redis_update_professional_qualification": partial(
-                self.redis_update_professional,
-                field="qualification",
-            ),
             "redis_update_professional_video_tool": partial(
                 self.redis_update_professional,
                 field="video_tool",
@@ -129,6 +125,9 @@ class ActionExecutor:
             ),
             "postgres_register_professional_application": (
                 self.postgres_register_professional_application
+            ),
+            "postgres_update_professional_qualification": (
+                self.postgres_update_professional_qualification
             ),
             "postgres_set_professional_registration_state": partial(
                 self.postgres_set_chat_state,
@@ -306,8 +305,6 @@ class ActionExecutor:
             f"- Abordagem: {format_value(context.approach, 50)}\n"
             f"- Gênero: {format_value(context.gender, 30)}\n"
             f"- Identificação: {format_value(context.minority_group, 50)}\n"
-            f"- Qualificação/currículo: "
-            f"{format_value(context.qualification, 200)}\n"
             f"- Ferramenta online: {format_value(context.video_tool, 50)}\n"
             f"- Registro profissional: "
             f"{format_value(context.council_registration, 50)}\n"
@@ -347,11 +344,42 @@ class ActionExecutor:
             professional_register=f"PENDING-{person.id}",
             register_type="PENDING_REVIEW",
             approach=context.approach,
-            background=context.qualification,
+            background=None,
             video_platform=context.video_tool,
             email=context.email,
             created_at=message.created_at,
         )
+        return ""
+
+    async def postgres_update_professional_qualification(
+        self,
+        message: Message,
+    ) -> str:
+        """Persist the qualification video path on the professional record."""
+        if message.media is None:
+            return ""
+
+        person = self.person_repository.get_by_phone_number_and_channel(
+            message.user_id,
+            message.channel,
+        )
+        if person is None:
+            logger.error(
+                "Person not found while saving qualification video for user_id %s",
+                message.user_id,
+            )
+            return ""
+
+        professional = self.professional_repository.get_by_person_id(person.id)
+        if professional is None:
+            logger.error(
+                "Professional not found while saving qualification video for person_id %s",
+                person.id,
+            )
+            return ""
+
+        professional.background = message.media
+        self.professional_repository.update(professional)
         return ""
 
     async def postgres_set_chat_state(

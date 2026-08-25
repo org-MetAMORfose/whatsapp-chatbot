@@ -222,6 +222,43 @@ async def test_parse_and_resolve_image_stores_only_the_s3_path() -> None:
     )
 
 
+@pytest.mark.asyncio
+async def test_parse_and_resolve_video_stores_only_the_s3_path() -> None:
+    s3_service = MagicMock(spec=S3MediaService)
+    s3_service.upload_from_whatsapp = AsyncMock(
+        return_value="media/video/whatsapp-video.mp4"
+    )
+    controller = WhatsAppController(
+        message_handler=MagicMock(),
+        s3_service=s3_service,
+    )
+    raw_message = {
+        "id": "wamid.video123",
+        "from": "5511999999999",
+        "timestamp": "1710000004",
+        "type": "video",
+        "video": {
+            "id": "whatsapp-video",
+            "caption": "Vídeo de qualificação",
+        },
+    }
+
+    parsed = controller._parse_message(raw_message)
+
+    assert parsed is not None
+    assert parsed.message.content == "Vídeo de qualificação"
+    assert parsed.media_id == "whatsapp-video"
+    assert parsed.media_type == "video"
+
+    resolved = await controller._resolve_media(parsed)
+
+    assert resolved.media == "media/video/whatsapp-video.mp4"
+    s3_service.upload_from_whatsapp.assert_awaited_once_with(
+        "whatsapp-video",
+        "video",
+    )
+
+
 def test_parse_media_without_media_id_is_ignored() -> None:
     controller = WhatsAppController(message_handler=MagicMock())
 

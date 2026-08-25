@@ -19,6 +19,7 @@ from app.repository.sql.patient_repository import PatientRepository
 from app.repository.sql.person_repository import PersonRepository
 from app.repository.sql.professional_repository import ProfessionalRepository
 from app.services.google_sheets_service import GoogleSheetsService
+from app.services.s3_media_service import MediaType, S3MediaService
 
 logger = logging.getLogger(__name__)
 
@@ -226,13 +227,19 @@ class AgentWorker:
             )
             return Response(content=str(node.message))
 
-        if _requires_media(node) and not _has_media(message):
+        required_media_types = _required_media_types(node)
+        if required_media_types and not _has_expected_media(
+            message,
+            required_media_types,
+        ):
             if not _allows_text_without_media(node, content):
+                requirement = (
+                    "um vídeo"
+                    if required_media_types == frozenset({"video"})
+                    else "o comprovante como imagem ou documento"
+                )
                 return Response(
-                    content=(
-                        "Você deve enviar o comprovante como imagem ou "
-                        "documento."
-                    ),
+                    content=f"Você deve enviar {requirement}.",
                     buttons=node.buttons,
                 )
 
@@ -303,12 +310,25 @@ def normalize_text(text: str) -> str:
     return remove_accents(text.strip().lower())
 
 
-def _requires_media(node: Node) -> bool:
-    return node.input == "Imagem ou documento"
+def _required_media_types(node: Node) -> frozenset[MediaType]:
+    if node.input == "Imagem ou documento":
+        return frozenset({"image", "document"})
+    if node.input == "Vídeo":
+        return frozenset({"video"})
+    return frozenset()
 
 
-def _has_media(message: Message) -> bool:
-    return message.media is not None
+def _has_expected_media(
+    message: Message,
+    expected_types: frozenset[MediaType],
+) -> bool:
+    if message.media is None:
+        return False
+
+    try:
+        return S3MediaService.get_media_type(message.media) in expected_types
+    except ValueError:
+        return False
 
 
 def _allows_text_without_media(node: Node, content: str) -> bool:

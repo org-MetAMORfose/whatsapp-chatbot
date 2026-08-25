@@ -5,7 +5,7 @@ import pytest
 
 from app.agent.action_executor import ActionResult
 from app.agent.agent import AgentWorker
-from app.agent.chat_flow import ChatFlow
+from app.agent.chat_flow import ChatFlow, Transition
 from app.domain.enum.channels import Channel
 from app.domain.message import Message
 from app.domain.redis.chat import ChatContext
@@ -159,6 +159,17 @@ def media_flow() -> ChatFlow:
     )
 
 
+def video_flow() -> ChatFlow:
+    flow = media_flow()
+    upload = flow.get("upload")
+    assert upload is not None
+    upload.input = "Vídeo"
+    upload.buttons = None
+    upload.transitions[0].conditions = []
+    upload.transitions = upload.transitions[:1]
+    return flow
+
+
 @pytest.mark.asyncio
 async def test_first_message_creates_context_and_returns_start() -> None:
     chat_repository = FakeChatRepository()
@@ -262,6 +273,66 @@ async def test_media_node_accepts_document() -> None:
 
     assert chat_repository.updated_state == "done"
     worker.action_executor.run.assert_awaited_once()
+
+
+@pytest.mark.asyncio
+async def test_video_node_accepts_video() -> None:
+    chat_repository = FakeChatRepository(state="upload")
+    worker = make_worker(chat_repository, flow=video_flow())
+
+    await worker._process_message(
+        make_message(None, media="media/video/qualification.mp4")
+    )
+
+    assert chat_repository.updated_state == "done"
+    worker.action_executor.run.assert_awaited_once()
+
+
+@pytest.mark.asyncio
+async def test_video_node_blocks_free_text_without_video() -> None:
+    chat_repository = FakeChatRepository(state="upload")
+    worker = make_worker(chat_repository, flow=video_flow())
+
+    response = await worker._process_message(make_message("texto livre"))
+
+    assert response.content == "Você deve enviar um vídeo."
+    assert chat_repository.updated_state is None
+    worker.action_executor.run.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_video_node_allows_explicit_button_without_video() -> None:
+    chat_repository = FakeChatRepository(state="upload")
+    flow = video_flow()
+    upload = flow.get("upload")
+    assert upload is not None
+    upload.buttons = ["Não tenho interesse"]
+    upload.transitions = [
+        Transition(target="done", conditions=["nao tenho interesse"]),
+        Transition(target="done", conditions=[]),
+    ]
+    worker = make_worker(chat_repository, flow=flow)
+
+    await worker._process_message(make_message("Não tenho interesse"))
+
+    assert chat_repository.updated_state == "done"
+    worker.action_executor.run.assert_awaited_once()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "media",
+    ["media/image/profile.jpg", "media/document/curriculum.pdf"],
+)
+async def test_video_node_rejects_other_media_types(media: str) -> None:
+    chat_repository = FakeChatRepository(state="upload")
+    worker = make_worker(chat_repository, flow=video_flow())
+
+    response = await worker._process_message(make_message(None, media=media))
+
+    assert response.content == "Você deve enviar um vídeo."
+    assert chat_repository.updated_state is None
+    worker.action_executor.run.assert_not_awaited()
 
 
 @pytest.mark.asyncio

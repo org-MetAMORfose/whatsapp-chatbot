@@ -127,6 +127,21 @@ def _document_message(
     return payload
 
 
+def _video_message(to: str, caption: str, media_id: str) -> dict[str, Any]:
+    video: dict[str, Any] = {"id": media_id}
+    payload: dict[str, Any] = {
+        "messaging_product": "whatsapp",
+        "to": to,
+        "type": "video",
+        "video": video,
+    }
+
+    if caption:
+        video["caption"] = caption
+
+    return payload
+
+
 class WhatsAppAdapter(BotAdapter):
     version: str = "v25.0"
     channel: Channel = Channel.WHATSAPP
@@ -247,6 +262,9 @@ class WhatsAppAdapter(BotAdapter):
             media_id = await self._upload_media_to_whatsapp(msg.media)
             if media_type == "image":
                 return _image_message(msg.chat_id, msg.content or "", media_id)
+
+            if media_type == "video":
+                return _video_message(msg.chat_id, msg.content or "", media_id)
 
             return _document_message(
                 msg.chat_id,
