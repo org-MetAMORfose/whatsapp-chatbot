@@ -1,4 +1,4 @@
-from datetime import datetime
+from datetime import date, datetime
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
@@ -129,6 +129,7 @@ async def test_register_new_patient_request_persists_preferences_and_sets_state(
             chat_id=message.chat_id,
             channel=message.channel,
             name="Maria",
+            birth_date=date(2000, 1, 1),
             area="Psicoterapia",
             psychotherapy_approach="TCC",
             professional_profile="Mulher",
@@ -144,6 +145,7 @@ async def test_register_new_patient_request_persists_preferences_and_sets_state(
     assert created_patient.person_id == 42
     assert created_patient.area == "Psicoterapia"
     assert created_patient.psychotherapy_approach == "TCC"
+    assert person.birth_date == date(2000, 1, 1)
     person_repository.update_chat_state_by_contact.assert_called_once_with(
         phone_number=message.user_id,
         channel=message.channel,
@@ -202,6 +204,50 @@ async def test_redis_update_patient_stores_field() -> None:
         message,
         {"name": "Maria"},
     )
+
+
+@pytest.mark.parametrize("content", ["1/1/2000", "01/01/2000"])
+@pytest.mark.asyncio
+async def test_patient_birth_date_accepts_one_or_two_digit_day_and_month(
+    content: str,
+) -> None:
+    executor, _, _, _, patient_stage_repository, _ = make_executor()
+    patient_stage_repository.update_context = AsyncMock()
+    message = make_message(content)
+
+    result = await executor.redis_update_patient_birth_date(message)
+
+    patient_stage_repository.update_context.assert_awaited_once_with(
+        message,
+        {"birth_date": date(2000, 1, 1)},
+    )
+    assert result.next_node is None
+    assert result.output == ""
+
+
+@pytest.mark.parametrize(
+    "content",
+    [
+        "31/02/2000",
+        "2000-01-01",
+        "1/1/00",
+        "01/01/9999",
+        "",
+        None,
+    ],
+)
+@pytest.mark.asyncio
+async def test_patient_birth_date_rejects_invalid_values(
+    content: str | None,
+) -> None:
+    executor, _, _, _, patient_stage_repository, _ = make_executor()
+    patient_stage_repository.update_context = AsyncMock()
+
+    result = await executor.redis_update_patient_birth_date(make_message(content))
+
+    patient_stage_repository.update_context.assert_not_awaited()
+    assert result.next_node == "paciente_data_nascimento"
+    assert "Data de nascimento inválida" in result.output
 
 
 @pytest.mark.asyncio

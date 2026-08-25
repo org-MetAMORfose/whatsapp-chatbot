@@ -2,10 +2,11 @@
 
 import asyncio
 import logging
+import re
 import unicodedata
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import date, datetime
 from functools import partial
 from typing import Final
 
@@ -53,6 +54,7 @@ PATIENT_PRICE_RANGES: Final[frozenset[str]] = frozenset(
         "ate r$600",
     }
 )
+PATIENT_BIRTH_DATE_PATTERN: Final = re.compile(r"^\d{1,2}/\d{1,2}/\d{4}$")
 FAQ_SATISFIED_OPTION: Final = "estou satisfeito"
 FAQ_HUMAN_SUPPORT_OPTION: Final = "falar com atendente"
 FAQ_HUMAN_SUPPORT_THRESHOLD: Final = 3
@@ -166,6 +168,9 @@ class ActionExecutor:
             "redis_update_patient_name": partial(
                 self.redis_update_patient,
                 field="name",
+            ),
+            "redis_update_patient_birth_date": (
+                self.redis_update_patient_birth_date
             ),
             "redis_update_patient_area": partial(
                 self.redis_update_patient,
@@ -476,6 +481,7 @@ class ActionExecutor:
             message,
             {
                 "name": person.name,
+                "birth_date": person.birth_date,
                 "area": latest_patient.area,
                 "psychotherapy_approach": latest_patient.psychotherapy_approach,
                 "professional_profile": latest_patient.professional_profile,
@@ -562,8 +568,16 @@ class ActionExecutor:
             )
             return
 
+        person_changed = False
         if context.name and context.name != person.name:
             person.name = context.name
+            person_changed = True
+
+        if context.birth_date is not None and context.birth_date != person.birth_date:
+            person.birth_date = context.birth_date
+            person_changed = True
+
+        if person_changed:
             self.person_repository.update(person)
 
         self.patient_repository.create(
@@ -598,6 +612,28 @@ class ActionExecutor:
         await self.patient_stage_repository.update_context(message, data)
         return ""
 
+    async def redis_update_patient_birth_date(
+        self,
+        message: Message,
+    ) -> ActionResult:
+        """Validate and store the patient's birth date."""
+        try:
+            birth_date = self._parse_patient_birth_date(message.content)
+        except ValueError:
+            return ActionResult(
+                output=(
+                    "Data de nascimento inválida. Envie no formato DD/MM/AAAA "
+                    "(zeros à esquerda opcionais), por exemplo: 15/08/1990.\n\n"
+                ),
+                next_node="paciente_data_nascimento",
+            )
+
+        await self.patient_stage_repository.update_context(
+            message,
+            {"birth_date": birth_date},
+        )
+        return ActionResult()
+
     async def redis_get_patient_stage_summary(
         self,
         message: Message,
@@ -618,9 +654,16 @@ class ActionExecutor:
                 return "Não informado"
             return value.strip()
 
+        formatted_birth_date = (
+            context.birth_date.strftime("%d/%m/%Y")
+            if context.birth_date is not None
+            else "Não informado"
+        )
+
         summary = (
             "Resumo dos seus dados atuais:\n"
             f"- Nome: {format_value(context.name)}\n"
+            f"- Data de nascimento: {formatted_birth_date}\n"
             f"- Telefone: {phone_number}\n"
             f"- Área: {format_value(context.area)}\n"
         )
@@ -646,6 +689,22 @@ class ActionExecutor:
             for character in content
             if not unicodedata.combining(character)
         )
+
+    @staticmethod
+    def _parse_patient_birth_date(value: str | None) -> date:
+        content = (value or "").strip()
+        if PATIENT_BIRTH_DATE_PATTERN.fullmatch(content) is None:
+            raise ValueError("Invalid birth date format")
+
+        try:
+            parsed_date = datetime.strptime(content, "%d/%m/%Y").date()
+        except ValueError as error:
+            raise ValueError("Invalid birth date") from error
+
+        if parsed_date > date.today():
+            raise ValueError("Birth date cannot be in the future")
+
+        return parsed_date
 
     @classmethod
     def _is_patient_price_range(cls, message: Message) -> bool:
