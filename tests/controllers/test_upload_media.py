@@ -40,9 +40,37 @@ def test_upload_media_endpoint_returns_400_for_invalid_media_type() -> None:
     client = TestClient(app)
     response = client.post(
         "/upload-media",
-        data={"media_type": "video"},
-        files={"file": ("test.mp4", b"file-bytes", "video/mp4")},
+        data={"media_type": "audio"},
+        files={"file": ("test.mp3", b"file-bytes", "audio/mpeg")},
     )
 
     assert response.status_code == 400
-    assert response.json()["detail"] == "media_type must be 'image' or 'document'"
+    assert (
+        response.json()["detail"]
+        == "media_type must be 'image', 'document' or 'video'"
+    )
+
+
+def test_upload_media_endpoint_accepts_video() -> None:
+    mock_s3_service = MagicMock(spec=S3MediaService)
+    mock_s3_service.upload_file = AsyncMock(return_value="media/video/test.mp4")
+
+    app = FastAPI()
+    controller = UploadMediaController(s3_service=mock_s3_service)
+    app.include_router(controller.router)
+
+    client = TestClient(app)
+    response = client.post(
+        "/upload-media",
+        data={"media_type": "video"},
+        files={"file": ("test.mp4", b"video-bytes", "video/mp4")},
+    )
+
+    assert response.status_code == 200
+    assert response.json() == {"media": "media/video/test.mp4"}
+    mock_s3_service.upload_file.assert_awaited_once_with(
+        file_bytes=b"video-bytes",
+        content_type="video/mp4",
+        media_type="video",
+        filename="test.mp4",
+    )

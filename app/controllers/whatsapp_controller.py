@@ -170,6 +170,12 @@ class WhatsAppController:
                 media_id = msg.get("document", {}).get("id")
                 media_type = "document"
 
+            elif message_type == "video":
+                video = msg.get("video", {})
+                media_id = video.get("id")
+                media_type = "video"
+                content = video.get("caption")
+
             else:
                 logger.info(
                     "Ignoring unsupported WhatsApp message type: %s", message_type)

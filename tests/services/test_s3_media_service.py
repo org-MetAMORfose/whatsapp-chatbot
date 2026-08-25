@@ -43,6 +43,24 @@ async def test_upload_file_returns_path_instead_of_url() -> None:
 
 
 @pytest.mark.asyncio
+async def test_upload_file_accepts_video() -> None:
+    s3_client = MagicMock()
+    service = _make_service(s3_client)
+    fake_uuid = MagicMock(hex="video123")
+
+    with patch("app.services.s3_media_service.uuid4", return_value=fake_uuid):
+        media_path = await service.upload_file(
+            file_bytes=b"video-bytes",
+            content_type="video/mp4",
+            media_type="video",
+            filename="qualification.mp4",
+        )
+
+    assert media_path == "media/video/video123.mp4"
+    assert S3MediaService.get_media_type(media_path) == "video"
+
+
+@pytest.mark.asyncio
 async def test_get_file_reads_private_s3_object_by_path() -> None:
     body = MagicMock()
     body.read.return_value = b"document-bytes"
@@ -71,7 +89,7 @@ async def test_get_file_reads_private_s3_object_by_path() -> None:
         "/media/image/file.png",
         "https://bucket/media/image/file.png",
         "media/image/../secret.txt",
-        "media/video/file.mp4",
+        "media/audio/file.mp3",
         "media/image/file.png?signature=secret",
     ],
 )

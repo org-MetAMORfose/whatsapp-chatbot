@@ -170,6 +170,39 @@ async def test_send_document_message(mock_async_client_cls: MagicMock) -> None:
 
 @pytest.mark.asyncio
 @patch("app.channel_adapters.whatsapp.httpx.AsyncClient")
+async def test_send_video_message(mock_async_client_cls: MagicMock) -> None:
+    media_path = "media/video/qualification.mp4"
+    s3_service = _make_s3_service(media_path, "video/mp4")
+    adapter = WhatsAppAdapter(
+        access_token="fake-token",
+        phone_number_id="123456",
+        s3_service=s3_service,
+    )
+    mock_client, _, mock_async_client = _make_mock_client()
+    mock_async_client_cls.return_value = mock_async_client
+
+    message = Message(
+        message_id=4,
+        channel=Channel.WHATSAPP,
+        created_at=datetime.now(UTC),
+        user_id="user",
+        chat_id="5511999999999",
+        content="Vídeo de qualificação",
+        media=media_path,
+    )
+
+    await adapter.send_message(message)
+
+    _, kwargs = mock_client.post.call_args
+    payload = kwargs["json"]
+    assert payload["type"] == "video"
+    assert payload["video"]["id"] == "whatsapp-media-id"
+    assert payload["video"]["caption"] == "Vídeo de qualificação"
+    s3_service.get_file.assert_awaited_once_with(media_path)
+
+
+@pytest.mark.asyncio
+@patch("app.channel_adapters.whatsapp.httpx.AsyncClient")
 async def test_send_image_with_caption(mock_async_client_cls: MagicMock) -> None:
     media_path = "media/image/abc.jpg"
     adapter = WhatsAppAdapter(
