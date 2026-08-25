@@ -76,7 +76,7 @@ async def test_set_chat_state_delegates_priority_check_to_repository() -> None:
 
 
 @pytest.mark.asyncio
-async def test_professional_support_only_marks_other_subjects() -> None:
+async def test_professional_support_marks_other_subjects_and_patient_replacement() -> None:
     executor, _, _, person_repository, _, _ = make_executor()
 
     await executor.postgres_set_professional_support_state(
@@ -87,7 +87,10 @@ async def test_professional_support_only_marks_other_subjects() -> None:
     await executor.postgres_set_professional_support_state(
         make_message("Outros assuntos"),
     )
-    person_repository.update_chat_state_by_contact.assert_called_once()
+    await executor.postgres_set_professional_support_state(
+        make_message("Reposição paciente"),
+    )
+    assert person_repository.update_chat_state_by_contact.call_count == 2
 
 
 @pytest.mark.asyncio
