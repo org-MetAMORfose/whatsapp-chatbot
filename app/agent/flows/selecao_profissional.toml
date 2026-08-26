@@ -255,7 +255,9 @@ message = """Agora envie uma foto, imagem ou documento que comprove seu registro
 
 Pode ser carteira do conselho, certificado, declaração, diploma ou outro documento relacionado à sua atuação.
 
-Caso não tenha registro profissional, toque em "Sem registro" para continuar."""
+Caso não possua registro em conselho profissional, toque em "Sem registro" para continuar.
+
+*Atenção:* se você atua como médico, nutricionista ou psicólogo, é obrigatório possuir registro ativo no respectivo conselho profissional. Caso selecione "Sem registro", seu cadastro será recusado."""
 buttons = ["Sem registro"]
 input = "Imagem ou documento"
 
@@ -537,7 +539,9 @@ actions = [
 ]
 message = """Envie novamente a foto, imagem ou documento correto.
 
-Caso não tenha registro profissional, toque em "Sem registro" para continuar."""
+Caso não tenha registro profissional, toque em "Sem registro" para continuar.
+
+*Atenção:* se você atua como médico, nutricionista ou psicólogo, é obrigatório possuir registro ativo no respectivo conselho profissional. Caso selecione "Sem registro", seu cadastro será recusado."""
 buttons = ["Sem registro"]
 input = "Imagem ou documento"
 
