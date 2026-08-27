@@ -47,7 +47,7 @@ conditions = ["prosseguir"]
 
 [nodes.nome_completo]
 description = "Coleta do nome completo."
-actions = ["redis_update_professional_name"]
+actions = ["redis_update_professional_name", "postgres_update_person_name"]
 message = "Qual é o seu nome completo?"
 input = "Texto"
 
@@ -343,6 +343,7 @@ conditions = ["comprovante"]
 description = "Correção do nome completo."
 actions = [
   "redis_update_professional_name",
+  "postgres_update_person_name",
   "redis_get_professional_stage_summary"
 ]
 message = "Digite o nome completo correto."

@@ -14,7 +14,7 @@ Caso tenha preenchido alguma informação incorretamente ou queira recomeçar o 
 buttons = ["Quero ser paciente", "Sou profissional", "Dúvidas"]
 
 [[nodes.start.transitions]]
-target = "paciente_tipo_atendimento"
+target = "paciente_nome"
 conditions = ["quero ser paciente"]
 
 [[nodes.start.transitions]]

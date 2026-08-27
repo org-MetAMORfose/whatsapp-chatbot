@@ -14,7 +14,7 @@ target = "paciente_imediato"
 conditions = ["atendimento imediato"]
 
 [[nodes.paciente_tipo_atendimento.transitions]]
-target = "paciente_nome"
+target = "paciente_inicio"
 conditions = ["agendar atendimento"]
 
 
@@ -28,23 +28,12 @@ end = true
 
 [nodes.paciente_nome]
 description = "Coleta do nome para o primeiro cadastro do paciente."
-actions = ["redis_update_patient_name"]
+actions = ["redis_update_patient_name", "postgres_update_person_name"]
 message = "Olá, tudo bem? Para começarmos, qual é o seu nome?"
 input = "Texto"
 
 [[nodes.paciente_nome.transitions]]
-target = "paciente_data_nascimento"
-conditions = []
-
-
-[nodes.paciente_data_nascimento]
-description = "Coleta e valida a data de nascimento do paciente."
-actions = ["redis_update_patient_birth_date"]
-message = "Qual é a sua data de nascimento? Envie no formato DD/MM/AAAA. Exemplo: 15/08/1990."
-input = "Texto"
-
-[[nodes.paciente_data_nascimento.transitions]]
-target = "paciente_inicio"
+target = "paciente_tipo_atendimento"
 conditions = []
 
 
@@ -61,7 +50,7 @@ target = "paciente_psico_abordagem"
 conditions = ["psicoterapia"]
 
 [[nodes.paciente_inicio.transitions]]
-target = "paciente_faixa_valor"
+target = "paciente_data_nascimento"
 conditions = ["psiquiatria", "nutricao", "clinico geral"]
 
 
@@ -72,8 +61,19 @@ message = "Você procura alguma abordagem específica para a psicoterapia?"
 buttons = ["TCC", "Psicanálise", "Sem preferência"]
 
 [[nodes.paciente_psico_abordagem.transitions]]
-target = "paciente_psico_perfil"
+target = "paciente_data_nascimento"
 conditions = ["tcc", "psicanalise", "sem preferencia"]
+
+
+[nodes.paciente_data_nascimento]
+description = "Coleta e valida a data de nascimento do paciente."
+actions = ["redis_update_patient_birth_date"]
+message = "Qual é a sua data de nascimento? Envie no formato DD/MM/AAAA. Exemplo: 15/08/1990."
+input = "Texto"
+
+[[nodes.paciente_data_nascimento.transitions]]
+target = "paciente_faixa_valor"
+conditions = []
 
 
 [nodes.paciente_psico_perfil]
@@ -185,8 +185,12 @@ conditions = ["faixa de valor"]
 
 
 [nodes.paciente_corrigir_nome]
-description = "Atualiza o nome persistido em person ao concluir o cadastro."
-actions = ["redis_update_patient_name", "redis_get_patient_stage_summary"]
+description = "Atualiza o nome no cadastro temporário e em person."
+actions = [
+  "redis_update_patient_name",
+  "postgres_update_person_name",
+  "redis_get_patient_stage_summary"
+]
 message = "Qual é o nome correto?"
 input = "Texto"
 
