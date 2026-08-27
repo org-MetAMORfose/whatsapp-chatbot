@@ -152,6 +152,7 @@ class ActionExecutor:
             "postgres_set_returning_patient_state": (
                 self.postgres_set_returning_patient_state
             ),
+            "postgres_update_person_name": self.postgres_update_person_name,
             "postgres_route_patient_registration": (
                 self.postgres_route_patient_registration
             ),
@@ -473,12 +474,32 @@ class ActionExecutor:
         )
         return ""
 
+    async def postgres_update_person_name(
+        self,
+        message: Message,
+    ) -> str:
+        """Persist a collected patient or professional name immediately."""
+        person = self.person_repository.get_by_phone_number_and_channel(
+            message.user_id,
+            message.channel,
+        )
+        if person is None:
+            logger.error(
+                "Person not found while saving name for user_id %s",
+                message.user_id,
+            )
+            return ""
+
+        person.name = message.content
+        self.person_repository.update(person)
+        return ""
+
     async def postgres_route_patient_registration(
         self,
         message: Message,
     ) -> ActionResult:
-        """Route a normal appointment to the first-time or returning flow."""
-        if (message.content or "").strip().lower() != "atendimento normal":
+        """Route a scheduled appointment to the first-time or returning flow."""
+        if self._normalize_content(message.content) != "agendar atendimento":
             return ActionResult()
 
         person = self.person_repository.get_by_phone_number_and_channel(
@@ -493,8 +514,8 @@ class ActionExecutor:
             return ActionResult()
 
         if not self.patient_repository.exists_by_person_id(person.id):
-            await self.patient_stage_repository.create_context(message)
-            return ActionResult(next_node="paciente_nome")
+            await self.patient_stage_repository.get_or_create_context(message)
+            return ActionResult()
 
         latest_patient = self.patient_repository.get_latest_by_person_id(person.id)
         if latest_patient is None:
@@ -502,9 +523,8 @@ class ActionExecutor:
                 "Patient request disappeared while routing person_id %s",
                 person.id,
             )
-            return ActionResult(next_node="paciente_nome")
+            return ActionResult()
 
-        await self.patient_stage_repository.create_context(message)
         context = await self.patient_stage_repository.update_context(
             message,
             {
@@ -655,11 +675,16 @@ class ActionExecutor:
                 next_node="paciente_data_nascimento",
             )
 
-        await self.patient_stage_repository.update_context(
+        context = await self.patient_stage_repository.update_context(
             message,
             {"birth_date": birth_date},
         )
-        return ActionResult()
+        next_node = (
+            "paciente_psico_perfil"
+            if self._normalize_content(context.area) == "psicoterapia"
+            else "paciente_faixa_valor"
+        )
+        return ActionResult(next_node=next_node)
 
     async def redis_get_patient_stage_summary(
         self,

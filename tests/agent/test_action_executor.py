@@ -238,14 +238,30 @@ async def test_redis_update_patient_stores_field() -> None:
     )
 
 
-@pytest.mark.parametrize("content", ["1/1/2000", "01/01/2000"])
+@pytest.mark.parametrize(
+    ("content", "area", "expected_next_node"),
+    [
+        ("1/1/2000", "Psiquiatria", "paciente_faixa_valor"),
+        ("01/01/2000", "Psicoterapia", "paciente_psico_perfil"),
+    ],
+)
 @pytest.mark.asyncio
 async def test_patient_birth_date_accepts_one_or_two_digit_day_and_month(
     content: str,
+    area: str,
+    expected_next_node: str,
 ) -> None:
     executor, _, _, _, patient_stage_repository, _ = make_executor()
-    patient_stage_repository.update_context = AsyncMock()
     message = make_message(content)
+    patient_stage_repository.update_context = AsyncMock(
+        return_value=PatientStageContext(
+            user_id=message.user_id,
+            chat_id=message.chat_id,
+            channel=message.channel,
+            area=area,
+            birth_date=date(2000, 1, 1),
+        )
+    )
 
     result = await executor.redis_update_patient_birth_date(message)
 
@@ -253,7 +269,7 @@ async def test_patient_birth_date_accepts_one_or_two_digit_day_and_month(
         message,
         {"birth_date": date(2000, 1, 1)},
     )
-    assert result.next_node is None
+    assert result.next_node == expected_next_node
     assert result.output == ""
 
 
