@@ -46,10 +46,24 @@ Retornaremos assim que a renovação for confirmada."""
 end = true
 
 [nodes.falar_atendente]
-description = "Encaminhamento para atendimento humano."
-message = """Entendido.
-Sua solicitação foi encaminhada para nossa equipe.
-Aguarde que um atendente entrará em contato em breve."""
+description = "Coleta de contexto antes do atendimento humano."
+actions = ["postgres_set_manual_chat_mode"]
+message = """Conte para a gente o contexto da sua solicitação.
+
+Assim que você enviar, a conversa será encaminhada para nossa equipe.
+
+*Importante:* nosso atendimento funciona apenas em dias úteis.
+
+Caso queira voltar ao início antes de enviar o contexto, digite RESET."""
+
+[[nodes.falar_atendente.transitions]]
+target = "falar_atendente_recebido"
+conditions = []
+
+[nodes.falar_atendente_recebido]
+description = "Confirmação do encaminhamento para atendimento humano."
+message = """Obrigado pelas informações.
+Sua conversa foi encaminhada para nossa equipe. Um atendente responderá assim que possível."""
 end = true
 
 [nodes.solicitar_reposicao]
@@ -58,11 +72,43 @@ message = """Para solicitar uma reposição, envie uma *GRAVAÇÃO DE TELA*, sem
 
 Envie o vídeo diretamente aqui pelo WhatsApp.
 
-Após o envio da gravação, perguntaremos ao paciente se houve resposta, para evitar fraudes. Em até 7 dias úteis, te enviaremos uma reposição."""
+Após o envio da gravação, perguntaremos ao paciente se houve resposta, para evitar fraudes. Em até 7 dias úteis, te enviaremos uma reposição.
+
+*Importante:* nosso atendimento funciona apenas em dias úteis."""
 input = "Vídeo"
 
 [[nodes.solicitar_reposicao.transitions]]
+target = "reposicao_contexto"
+conditions = []
+
+[nodes.reposicao_contexto]
+description = "Coleta de informações adicionais para a reposição."
+message = """Recebemos o vídeo. Se houver alguma informação que possa ajudar na análise, envie agora.
+
+Quando concluir, clique em "Enviei tudo"."""
+buttons = ["Enviei tudo"]
+
+[[nodes.reposicao_contexto.transitions]]
 target = "reposicao_recebida"
+conditions = ["enviei tudo"]
+
+[[nodes.reposicao_contexto.transitions]]
+target = "reposicao_contexto_adicional"
+conditions = []
+
+[nodes.reposicao_contexto_adicional]
+description = "Continuação da coleta de informações para a reposição."
+message = """Informação adicionada. Se quiser, envie outro complemento em texto, imagem, documento ou vídeo.
+
+Quando não precisar acrescentar mais nada, clique em "Enviei tudo"."""
+buttons = ["Enviei tudo"]
+
+[[nodes.reposicao_contexto_adicional.transitions]]
+target = "reposicao_recebida"
+conditions = ["enviei tudo"]
+
+[[nodes.reposicao_contexto_adicional.transitions]]
+target = "reposicao_contexto_adicional"
 conditions = []
 
 [nodes.reposicao_recebida]
