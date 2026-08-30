@@ -15,6 +15,7 @@ from pydantic import ValidationError
 from app.agent.chat_flow import Node
 from app.agent.faq_flow import FaqFlow
 from app.domain.db.patient_model import PatientModel
+from app.domain.enum.chat_mode import ChatMode
 from app.domain.enum.chat_state import ChatState
 from app.domain.enum.faq_answer_status import FaqAnswerStatus
 from app.domain.enum.faq_session_outcome import FaqSessionOutcome
@@ -148,6 +149,7 @@ class ActionExecutor:
             "postgres_set_professional_support_state": (
                 self.postgres_set_professional_support_state
             ),
+            "postgres_set_manual_chat_mode": self.postgres_set_manual_chat_mode,
             "postgres_set_new_patient_state": self.postgres_set_new_patient_state,
             "postgres_set_returning_patient_state": (
                 self.postgres_set_returning_patient_state
@@ -448,6 +450,26 @@ class ActionExecutor:
                 message,
                 chat_state=ChatState.PROFESSIONAL_SUPPORT,
             )
+        return ""
+
+    async def postgres_set_manual_chat_mode(
+        self,
+        message: Message,
+    ) -> str:
+        """Hand the conversation over to human support."""
+        person = self.person_repository.get_by_phone_number_and_channel(
+            message.user_id,
+            message.channel,
+        )
+        if person is None:
+            logger.error(
+                "Person not found while enabling manual mode for user_id %s",
+                message.user_id,
+            )
+            return ""
+
+        person.chat_mode = ChatMode.MANUAL
+        self.person_repository.update(person)
         return ""
 
     async def postgres_set_new_patient_state(
