@@ -311,6 +311,7 @@ async def test_sheets_register_patient_writes_stage_data() -> None:
             channel=message.channel,
             name="Maria",
             area="Psicoterapia",
+            birth_date=date(2000, 1, 1),
         )
     )
 
@@ -321,6 +322,7 @@ async def test_sheets_register_patient_writes_stage_data() -> None:
     assert patient_sheet.name == "Maria"
     assert patient_sheet.phone == message.user_id
     assert patient_sheet.area == "Psicoterapia"
+    assert patient_sheet.birth_date == "01/01/2000"
 
 
 @pytest.mark.asyncio
@@ -358,6 +360,7 @@ async def test_sheets_register_professional_defaults_to_inactive() -> None:
             channel=message.channel,
             name="Maria",
             area="Psicoterapia",
+            email="maria@example.com",
         )
     )
 
@@ -368,6 +371,7 @@ async def test_sheets_register_professional_defaults_to_inactive() -> None:
     assert professional_sheet.name == "Maria"
     assert professional_sheet.area == "Psicoterapia"
     assert professional_sheet.phone == message.user_id
+    assert professional_sheet.email == "maria@example.com"
     assert professional_sheet.active is False
 
 

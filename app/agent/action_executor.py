@@ -808,6 +808,11 @@ class ActionExecutor:
                 name=context.name or "",
                 phone=message.user_id,
                 area=context.area or "",
+                birth_date=(
+                    context.birth_date.strftime("%d/%m/%Y")
+                    if context.birth_date is not None
+                    else ""
+                ),
             )
             await asyncio.to_thread(
                 self.google_sheets_service.register_patient, patient
@@ -838,6 +843,7 @@ class ActionExecutor:
                 name=context.name or "",
                 area=context.area or "",
                 phone=message.user_id,
+                email=context.email or "",
                 active=False,
             )
             await asyncio.to_thread(

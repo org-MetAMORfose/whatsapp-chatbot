@@ -74,10 +74,10 @@ class GoogleSheetsService:
         )
 
     def register_patient(self, patient: PatientSheet) -> None:
-        row_number = self._next_row_number(self._patients, "A:E")
+        row_number = self._next_row_number(self._patients, "A:F")
         self._update_values(
             self._patients,
-            f"A{row_number}:E{row_number}",
+            f"A{row_number}:F{row_number}",
             [patient.to_sheet_row()],
         )
 
@@ -151,7 +151,7 @@ class GoogleSheetsService:
             .values()
             .get(
                 spreadsheetId=self._patients.spreadsheet_id,
-                range=self._range(self._patients, "A:E"),
+                range=self._range(self._patients, "A:F"),
             ),
             "Failed to list patients from Google Sheets.",
         )
