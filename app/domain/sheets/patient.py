@@ -18,8 +18,9 @@ class PatientSheet(BaseModel):
     name: str
     phone: str
     area: str
+    birth_date: str
 
-    @field_validator("name", "phone", "area", mode="before")
+    @field_validator("name", "phone", "area", "birth_date", mode="before")
     @classmethod
     def trim_text(cls, value: object) -> str:
         return "" if value is None else str(value).strip()
@@ -36,7 +37,8 @@ class PatientSheet(BaseModel):
             name=_string_at(row, 1),
             phone=_string_at(row, 3),
             area=_string_at(row, 4),
+            birth_date=_string_at(row, 5),
         )
 
     def to_sheet_row(self) -> list[str]:
-        return ["", self.name, "", self.phone, self.area]
+        return ["", self.name, "", self.phone, self.area, self.birth_date]
