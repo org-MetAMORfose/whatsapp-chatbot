@@ -35,8 +35,9 @@ class ProfessionalSheet(BaseModel):
     phone: str
     email: str
     active: bool
+    birth_date: str = ""
 
-    @field_validator("name", "area", "email", mode="before")
+    @field_validator("name", "area", "email", "birth_date", mode="before")
     @classmethod
     def trim_text(cls, value: object) -> str:
         return "" if value is None else str(value).strip()
@@ -74,6 +75,7 @@ class ProfessionalSheet(BaseModel):
             phone=_string_at(row, 10),
             email=_string_at(row, 11),
             active=cls.parse_active(_string_at(row, 12)),
+            birth_date=_string_at(row, 13),
         )
 
     def to_sheet_row(self) -> list[str]:
@@ -91,6 +93,7 @@ class ProfessionalSheet(BaseModel):
             format_whatsapp_link(self.phone),
             self.email,
             "1" if self.active else "0",
+            self.birth_date,
         ]
 
     def whatsapp_link(self) -> str:

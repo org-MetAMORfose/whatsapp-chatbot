@@ -66,10 +66,10 @@ class GoogleSheetsService:
         )
 
     def register_professional(self, professional: ProfessionalSheet) -> None:
-        row_number = self._next_row_number(self._professionals, "A:M")
+        row_number = self._next_row_number(self._professionals, "A:N")
         self._update_values(
             self._professionals,
-            f"A{row_number}:M{row_number}",
+            f"A{row_number}:N{row_number}",
             [professional.to_sheet_row()],
         )
 
@@ -126,7 +126,7 @@ class GoogleSheetsService:
             .values()
             .get(
                 spreadsheetId=self._professionals.spreadsheet_id,
-                range=self._range(self._professionals, "A:M"),
+                range=self._range(self._professionals, "A:N"),
             ),
             "Failed to list professionals from Google Sheets.",
         )

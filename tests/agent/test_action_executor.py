@@ -162,7 +162,8 @@ async def test_register_new_patient_request_persists_preferences_and_sets_state(
 
 
 @pytest.mark.asyncio
-async def test_register_professional_application_from_stage() -> None:
+@pytest.mark.parametrize("name", ["Maria", None])
+async def test_register_professional_application_from_stage(name: str | None) -> None:
     executor, stage_repository, professional_repository, person_repository, _, _ = (
         make_executor()
     )
@@ -172,11 +173,12 @@ async def test_register_professional_application_from_stage() -> None:
             user_id=message.user_id,
             chat_id=message.chat_id,
             channel=message.channel,
-            name="Maria",
+            name=name,
             email="maria@example.com",
             area="Psicoterapia",
             video_tool="Meet",
             approach="TCC",
+            birth_date=date(2000, 1, 1),
         )
     )
     person = MagicMock(id=42, name=None)
@@ -184,7 +186,9 @@ async def test_register_professional_application_from_stage() -> None:
 
     await executor.postgres_register_professional_application(message)
 
-    assert person.name == "Maria"
+    if name is not None:
+        assert person.name == name
+    assert person.birth_date == date(2000, 1, 1)
     person_repository.update.assert_called_once_with(person)
     professional_repository.create_application.assert_called_once_with(
         person_id=42,
@@ -349,8 +353,9 @@ async def test_sheets_register_patient_swallows_service_errors() -> None:
     assert result == ""
 
 
+@pytest.mark.parametrize("birth_date", [date(2000, 1, 1), None])
 @pytest.mark.asyncio
-async def test_sheets_register_professional_defaults_to_inactive() -> None:
+async def test_sheets_register_professional_defaults_to_inactive(birth_date: date | None) -> None:
     executor, stage_repository, _, _, _, google_sheets_service = make_executor()
     message = make_message()
     stage_repository.get_context = AsyncMock(
@@ -361,6 +366,7 @@ async def test_sheets_register_professional_defaults_to_inactive() -> None:
             name="Maria",
             area="Psicoterapia",
             email="maria@example.com",
+            birth_date=birth_date,
         )
     )
 
@@ -373,6 +379,8 @@ async def test_sheets_register_professional_defaults_to_inactive() -> None:
     assert professional_sheet.phone == message.user_id
     assert professional_sheet.email == "maria@example.com"
     assert professional_sheet.active is False
+    assert professional_sheet.birth_date == ("01/01/2000" if birth_date else "")
+    assert professional_sheet.to_sheet_row()[13] == professional_sheet.birth_date
 
 
 @pytest.mark.asyncio

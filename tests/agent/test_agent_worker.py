@@ -1,3 +1,4 @@
+from datetime import date
 from typing import Any, cast
 from unittest.mock import AsyncMock, MagicMock
 
@@ -9,6 +10,7 @@ from app.agent.chat_flow import ChatFlow, Transition
 from app.domain.enum.channels import Channel
 from app.domain.message import Message
 from app.domain.redis.chat import ChatContext
+from app.repository.redis.professional_stage_repository import ProfessionalStageRepository
 
 
 class FakeChatRepository:
@@ -76,6 +78,7 @@ def make_worker(
     chat_repository: FakeChatRepository,
     *,
     flow: ChatFlow | None = None,
+    mock_actions: bool = True,
 ) -> AgentWorker:
     worker = AgentWorker(
         ctx=MagicMock(),
@@ -93,7 +96,8 @@ def make_worker(
     )
     if flow is not None:
         worker.flow = flow
-    cast(Any, worker.action_executor).run = AsyncMock(return_value="")
+    if mock_actions:
+        cast(Any, worker.action_executor).run = AsyncMock(return_value="")
     return worker
 
 
