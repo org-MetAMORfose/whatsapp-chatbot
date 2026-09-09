@@ -55,7 +55,7 @@ PATIENT_PRICE_RANGES: Final[frozenset[str]] = frozenset(
         "ate r$600",
     }
 )
-PATIENT_BIRTH_DATE_PATTERN: Final = re.compile(r"^\d{1,2}/\d{1,2}/\d{4}$")
+BIRTH_DATE_PATTERN: Final = re.compile(r"^\d{1,2}/\d{1,2}/\d{4}$")
 FAQ_SATISFIED_OPTION: Final = "estou satisfeito"
 FAQ_HUMAN_SUPPORT_OPTION: Final = "falar com atendente"
 FAQ_HUMAN_SUPPORT_THRESHOLD: Final = 3
@@ -120,6 +120,13 @@ class ActionExecutor:
             ),
             "redis_update_professional_council_registration_document": (
                 self.redis_update_professional_council_registration_document
+            ),
+            "redis_update_professional_birth_date": (
+                self.redis_update_professional_birth_date
+            ),
+            "redis_correct_professional_birth_date": partial(
+                self.redis_update_professional_birth_date,
+                retry_node="corrigir_data_nascimento",
             ),
             "redis_get_professional_stage_summary": (
                 self.redis_get_professional_stage_summary
@@ -274,6 +281,29 @@ class ActionExecutor:
 
         return ""
 
+    async def redis_update_professional_birth_date(
+        self,
+        message: Message,
+        *,
+        retry_node: str = "profissional_data_nascimento",
+    ) -> ActionResult:
+        """Validate and store the professional's birth date before review."""
+        try:
+            birth_date = self._parse_birth_date(message.content)
+        except ValueError:
+            return ActionResult(
+                output="Data de nascimento inválida.\n\n",
+                next_node=retry_node,
+            )
+
+        await self.professional_stage_repository.update_context(
+            message,
+            {"birth_date": birth_date},
+        )
+        return ActionResult(
+            output=await self.redis_get_professional_stage_summary(message),
+        )
+
     async def redis_get_professional_stage_summary(
         self,
         message: Message,
@@ -300,6 +330,12 @@ class ActionExecutor:
 
             return value
 
+        formatted_birth_date = (
+            context.birth_date.strftime("%d/%m/%Y")
+            if context.birth_date is not None
+            else "Não informado"
+        )
+
         return (
             "Resumo dos dados informados:\n"
             f"- Nome: {format_value(context.name, 50)}\n"
@@ -311,6 +347,7 @@ class ActionExecutor:
             f"- Ferramenta online: {format_value(context.video_tool, 50)}\n"
             f"- Registro profissional: "
             f"{format_value(context.council_registration, 50)}\n"
+            f"- Data de nascimento: {formatted_birth_date}\n"
         )
 
     async def postgres_register_professional_application(
@@ -337,8 +374,16 @@ class ActionExecutor:
             )
             return ""
 
-        if context.name:
+        person_changed = False
+        if context.name and context.name != person.name:
             person.name = context.name
+            person_changed = True
+
+        if context.birth_date is not None and context.birth_date != person.birth_date:
+            person.birth_date = context.birth_date
+            person_changed = True
+
+        if person_changed:
             self.person_repository.update(person)
 
         self.professional_repository.create_application(
@@ -688,7 +733,7 @@ class ActionExecutor:
     ) -> ActionResult:
         """Validate and store the patient's birth date."""
         try:
-            birth_date = self._parse_patient_birth_date(message.content)
+            birth_date = self._parse_birth_date(message.content)
         except ValueError:
             return ActionResult(
                 output=(
@@ -765,9 +810,9 @@ class ActionExecutor:
         )
 
     @staticmethod
-    def _parse_patient_birth_date(value: str | None) -> date:
+    def _parse_birth_date(value: str | None) -> date:
         content = (value or "").strip()
-        if PATIENT_BIRTH_DATE_PATTERN.fullmatch(content) is None:
+        if BIRTH_DATE_PATTERN.fullmatch(content) is None:
             raise ValueError("Invalid birth date format")
 
         try:
@@ -845,6 +890,11 @@ class ActionExecutor:
                 phone=message.user_id,
                 email=context.email or "",
                 active=False,
+                birth_date=(
+                    context.birth_date.strftime("%d/%m/%Y")
+                    if context.birth_date is not None
+                    else ""
+                ),
             )
             await asyncio.to_thread(
                 self.google_sheets_service.register_professional, professional

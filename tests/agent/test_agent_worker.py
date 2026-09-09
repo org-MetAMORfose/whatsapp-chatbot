@@ -76,6 +76,7 @@ def make_worker(
     chat_repository: FakeChatRepository,
     *,
     flow: ChatFlow | None = None,
+    mock_actions: bool = True,
 ) -> AgentWorker:
     worker = AgentWorker(
         ctx=MagicMock(),
@@ -93,7 +94,8 @@ def make_worker(
     )
     if flow is not None:
         worker.flow = flow
-    cast(Any, worker.action_executor).run = AsyncMock(return_value="")
+    if mock_actions:
+        cast(Any, worker.action_executor).run = AsyncMock(return_value="")
     return worker
 
 

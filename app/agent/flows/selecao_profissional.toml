@@ -248,8 +248,7 @@ conditions = ["corrigir"]
 [nodes.comprovante_registro]
 description = "Solicitação de comprovante do registro, formação ou certificação."
 actions = [
-  "redis_update_professional_council_registration_document",
-  "redis_get_professional_stage_summary"
+  "redis_update_professional_council_registration_document"
 ]
 message = """Agora envie uma foto, imagem ou documento que comprove seu registro, formação ou certificação profissional.
 
@@ -262,10 +261,21 @@ buttons = ["Sem registro"]
 input = "Imagem ou documento"
 
 [[nodes.comprovante_registro.transitions]]
-target = "resumo_dados"
+target = "profissional_data_nascimento"
 conditions = ["sem registro"]
 
 [[nodes.comprovante_registro.transitions]]
+target = "profissional_data_nascimento"
+conditions = []
+
+
+[nodes.profissional_data_nascimento]
+description = "Coleta e valida a data de nascimento do profissional."
+actions = ["redis_update_professional_birth_date"]
+message = "Qual é a sua data de nascimento? Envie no formato DD/MM/AAAA. Exemplo: 15/08/1990."
+input = "Texto"
+
+[[nodes.profissional_data_nascimento.transitions]]
 target = "resumo_dados"
 conditions = []
 
@@ -303,7 +313,8 @@ buttons = [
   "Gênero",
   "Identificação",
   "Ferramenta",
-  "Comprovante"
+  "Comprovante",
+  "Data de nascimento"
 ]
 
 [[nodes.escolha_correcao.transitions]]
@@ -337,6 +348,22 @@ conditions = ["ferramenta"]
 [[nodes.escolha_correcao.transitions]]
 target = "corrigir_comprovante"
 conditions = ["comprovante"]
+
+
+[[nodes.escolha_correcao.transitions]]
+target = "corrigir_data_nascimento"
+conditions = ["data de nascimento"]
+
+
+[nodes.corrigir_data_nascimento]
+description = "Correção da data de nascimento do profissional."
+actions = ["redis_correct_professional_birth_date"]
+message = "Digite a data de nascimento correta no formato DD/MM/AAAA. Exemplo: 15/08/1990."
+input = "Texto"
+
+[[nodes.corrigir_data_nascimento.transitions]]
+target = "resumo_dados"
+conditions = []
 
 
 [nodes.corrigir_nome]

@@ -1,6 +1,6 @@
 """Temporary professional registration context stored in Redis."""
 
-from datetime import datetime
+from datetime import date, datetime
 
 from pydantic import BaseModel, Field
 
@@ -19,6 +19,7 @@ class ProfessionalStageContext(BaseModel):
     area: str | None = None
     video_tool: str | None = None
     council_registration: str | None = None
+    birth_date: date | None = None
     gender: str | None = None
     minority_group: str | None = None
     approach: str | None = None
