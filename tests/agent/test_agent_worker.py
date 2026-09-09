@@ -1,4 +1,3 @@
-from datetime import date
 from typing import Any, cast
 from unittest.mock import AsyncMock, MagicMock
 
@@ -10,7 +9,6 @@ from app.agent.chat_flow import ChatFlow, Transition
 from app.domain.enum.channels import Channel
 from app.domain.message import Message
 from app.domain.redis.chat import ChatContext
-from app.repository.redis.professional_stage_repository import ProfessionalStageRepository
 
 
 class FakeChatRepository:
