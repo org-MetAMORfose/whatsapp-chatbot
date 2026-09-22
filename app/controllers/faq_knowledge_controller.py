@@ -6,7 +6,6 @@ from datetime import datetime
 from typing import Annotated
 
 from fastapi import APIRouter, Header, HTTPException, status
-from openai import OpenAIError
 from pydantic import BaseModel, Field
 
 import app.config.settings as config
@@ -54,6 +53,8 @@ class FaqKnowledgeController:
             Header(alias="X-Chatbot-Api-Key"),
         ] = None,
     ) -> CreateFaqKnowledgeEntryResponse:
+        from openai import OpenAIError
+
         self._authenticate(chatbot_api_key)
         try:
             entry = await self.service.create_entry(

@@ -2,23 +2,22 @@ import asyncio
 import logging
 import unicodedata
 from dataclasses import dataclass
-from uuid import uuid4
 
 from app.agent.action_executor import ActionExecutor, ActionResult
 from app.agent.chat_flow import ChatFlow, Node
 from app.agent.faq_flow import FaqFlow
 from app.context import AppContext
-from app.domain.message import Message, MessageButton
+from app.domain.message import Message
 from app.message_queue import MessageQueue
 from app.repository.redis.chat_repository import ChatRepository
 from app.repository.redis.patient_stage_repository import PatientStageRepository
 from app.repository.redis.professional_stage_repository import ProfessionalStageRepository
 from app.repository.sql.faq_knowledge_repository import FaqKnowledgeRepository
 from app.repository.sql.faq_session_repository import FaqSessionRepository
+from app.repository.sql.outbox_repository import OutboxRepository
 from app.repository.sql.patient_repository import PatientRepository
 from app.repository.sql.person_repository import PersonRepository
 from app.repository.sql.professional_repository import ProfessionalRepository
-from app.services.google_sheets_service import GoogleSheetsService
 from app.services.s3_media_service import MediaType, S3MediaService
 
 logger = logging.getLogger(__name__)
@@ -57,7 +56,7 @@ class AgentWorker:
         person_repository: PersonRepository,
         patient_repository: PatientRepository,
         patient_stage_repository: PatientStageRepository,
-        google_sheets_service: GoogleSheetsService,
+        outbox_repository: OutboxRepository,
         faq_knowledge_repository: FaqKnowledgeRepository,
         faq_session_repository: FaqSessionRepository,
     ):
@@ -77,71 +76,9 @@ class AgentWorker:
             person_repository,
             patient_repository,
             patient_stage_repository,
-            google_sheets_service,
+            outbox_repository,
             faq_flow,
         )
-
-    async def start(
-        self,
-    ) -> None:
-        """Start the agent worker and wait for messages in the queue.
-
-        Args:
-            timeout_seconds: How long to wait for a message before checking again.
-            Defaults to 30 seconds.
-        """
-        self._task = asyncio.create_task(self._run())
-        logger.info("Agent worker started, waiting for messages...")
-
-    async def _run(self) -> None:
-        while not self.ctx.is_shutting_down():
-            try:
-                # Wait for the next message in the queue
-                message = await self.inbound_queue.claim_next()
-
-                if message is None:
-                    # No message available within timeout, continue waiting
-                    logger.debug("No message available, continuing to wait...")
-                    continue
-
-                # Process the message here
-                response = await self._process_message(message)
-
-                buttons = None
-                if response.buttons:
-                    buttons = [MessageButton({"id": str(uuid4()), "title": btn})
-                               for btn in response.buttons]
-
-                response_message = Message(
-                    channel=message.channel,
-                    chat_id=message.chat_id,
-                    content=response.content,
-                    buttons=buttons,
-                    user_id=message.user_id,
-                    created_at=None,
-                    message_id=0,
-                )
-
-                logger.info(
-                    "Message %s processed successfully", message.message_id)
-
-                await self.outbound_queue.publish(message=response_message)
-
-            except asyncio.CancelledError:
-                break
-            except Exception as e:
-                logger.error("Error processing message: %s", e, exc_info=True)
-        logger.info("Agent worker shutting down...")
-
-    async def stop(self) -> None:
-        """Stop the agent worker gracefully."""
-        if self._task:
-            self._task.cancel()
-            try:
-                await self._task
-            except asyncio.CancelledError:
-                pass
-            logger.info("Agent worker stopped gracefully.")
 
     async def _process_message(self, message: Message) -> Response:
         """Process a message from the queue."""

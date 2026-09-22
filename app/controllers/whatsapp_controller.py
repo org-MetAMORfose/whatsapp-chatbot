@@ -1,7 +1,7 @@
 import hashlib
 import logging
 from dataclasses import dataclass
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, datetime
 from typing import Any
 
 from fastapi import APIRouter, HTTPException, Query, Request
@@ -13,7 +13,6 @@ from app.services.receiver_service import MessageReceiverService
 from app.services.s3_media_service import MediaType, S3MediaService
 
 logger = logging.getLogger(__name__)
-MAX_MESSAGE_AGE = timedelta(minutes=10)
 
 
 @dataclass(frozen=True)
@@ -69,38 +68,12 @@ class WhatsAppController:
 
         for parsed in parsed_messages:
             message = parsed.message
-            if not self._is_recent_message(message):
-                logger.info(
-                    "Discarding stale WhatsApp message %s",
-                    message.message_id,
-                )
-                continue
-
-            message = await self._resolve_media(parsed)
+            message = message.model_copy(update={
+                "media_id": parsed.media_id, "media_type": parsed.media_type,
+            })
             await self.message_handler.handle(message)
 
         return {"status": "ok"}
-
-    @staticmethod
-    def _is_recent_message(message: Message) -> bool:
-        """Accept only messages received within the last ten minutes."""
-        if message.created_at is None:
-            return False
-
-        return datetime.now(UTC) - message.created_at <= MAX_MESSAGE_AGE
-
-    async def _resolve_media(self, parsed: _ParsedWhatsAppMessage) -> Message:
-        if parsed.media_id is None or parsed.media_type is None:
-            return parsed.message
-
-        if self.s3_service is None:
-            raise RuntimeError("S3 media storage is not configured")
-
-        media_path = await self.s3_service.upload_from_whatsapp(
-            parsed.media_id,
-            parsed.media_type,
-        )
-        return parsed.message.model_copy(update={"media": media_path})
 
     def _extract_messages(self, data: dict[str, Any]) -> list[_ParsedWhatsAppMessage]:
         extracted_messages: list[_ParsedWhatsAppMessage] = []
@@ -191,6 +164,7 @@ class WhatsAppController:
 
             return _ParsedWhatsAppMessage(
                 message=Message(
+                    event_id=f"whatsapp:{raw_message_id}",
                     message_id=self._to_int_message_id(raw_message_id),
                     channel=Channel.WHATSAPP,
                     created_at=created_at,

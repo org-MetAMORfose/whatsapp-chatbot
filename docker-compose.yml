@@ -1,80 +1,92 @@
-version: "3.9"
-
 services:
   redis:
     image: redis:7-alpine
     container_name: chatbot-redis
+    ports: ["6379:6379"]
     restart: unless-stopped
-    ports:
-      - "6379:6379"
     environment:
       REDIS_PASSWORD: ${REDIS_PASSWORD:?REDIS_PASSWORD is required}
     volumes:
       - redis_data:/data
-    command:
-      [
-        "redis-server",
-        "--appendonly",
-        "yes",
-        "--requirepass",
-        "${REDIS_PASSWORD:?REDIS_PASSWORD is required}",
-      ]
+    command: [redis-server, --appendonly, 'yes', --appendfsync, everysec, --maxmemory-policy, noeviction, --requirepass, '${REDIS_PASSWORD:?REDIS_PASSWORD is required}']
     healthcheck:
-      test:
-        [
-          "CMD",
-          "redis-cli",
-          "-a",
-          "${REDIS_PASSWORD:?REDIS_PASSWORD is required}",
-          "ping",
-        ]
+      test: [CMD-SHELL, 'redis-cli -a "$$REDIS_PASSWORD" ping | grep -q PONG']
       interval: 10s
       timeout: 5s
       retries: 5
-    networks:
-      - chatbot_net
+    networks: [chatbot_net]
 
   postgres:
     image: pgvector/pgvector:0.8.6-pg16
     container_name: chatbot-postgres
+    ports: ["5433:5432"]
     restart: unless-stopped
     environment:
       POSTGRES_DB: chatbot
       POSTGRES_USER: ${POSTGRES_USER:?POSTGRES_USER is required}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required}
-    ports:
-      - "5433:5432"
     volumes:
       - postgres_data:/var/lib/postgresql/data
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U chatbot -d chatbot"]
+      test: [CMD-SHELL, 'pg_isready -U "$$POSTGRES_USER" -d chatbot']
       interval: 10s
       timeout: 5s
       retries: 5
-    networks:
-      - chatbot_net
+    networks: [chatbot_net]
 
-  chatbot:
+  migrate:
+    &app_base
+    image: chatbot-app:local
     build: .
-    container_name: whatsapp-chatbot
-    restart: unless-stopped
+    command: [alembic, upgrade, head]
     env_file: .env
     depends_on:
-      redis:
-        condition: service_healthy
       postgres:
         condition: service_healthy
-    ports:
-      - "8000:8000"
-    volumes:
-      - ./secrets:/app/secrets:ro
-    networks:
-      - chatbot_net
+    networks: [chatbot_net]
+    logging:
+      driver: json-file
+      options: {max-size: 5m, max-file: '2'}
+
+  api:
+    <<: *app_base
+    command: [app]
+    restart: unless-stopped
+    init: true
+    ports: ['8000:8000']
+    volumes: ['./secrets:/app/secrets:ro']
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+      redis:
+        condition: service_healthy
+    healthcheck:
+      test: [CMD, python, -c, 'import urllib.request; urllib.request.urlopen("http://localhost:8000/health", timeout=3)']
+      interval: 30s
+      timeout: 5s
+      retries: 3
+
+  worker:
+    <<: *app_base
+    command: [app-worker]
+    restart: unless-stopped
+    init: true
+    stop_grace_period: 150s
+    volumes: ['./secrets:/app/secrets:ro']
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+      redis:
+        condition: service_healthy
+    healthcheck:
+      test: [CMD, python, -m, app.worker_health]
+      interval: 30s
+      timeout: 5s
+      retries: 3
 
 volumes:
   redis_data:
   postgres_data:
-
 networks:
   chatbot_net:
     driver: bridge

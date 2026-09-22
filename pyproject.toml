@@ -12,8 +12,7 @@ authors = [
 readme = "README.md"
 requires-python = ">=3.11"
 dependencies = [
-  "google-api-python-client>=2.0,<3.0",
-  "google-auth>=2.0,<3.0",
+  "google-auth[requests]>=2.0,<3.0",
   "sqlalchemy",
   "fastapi",
   "uvicorn[standard]",
@@ -22,7 +21,6 @@ dependencies = [
   "sqlalchemy",
   "httpx",
   "redis>=7.3.0",
-  "python-telegram-bot>=22.7",
   "dotenv>=0.9.9",
   "python-multipart",
   "types-redis>=4.6.0.20241004",
@@ -39,9 +37,13 @@ dependencies = [
 
 [project.scripts]
 app = "app.__main__:main"
+app-worker = "app.worker:main"
 
 [tool.setuptools.packages.find]
-include = ["app"]
+include = ["app", "app.*"]
+
+[tool.setuptools.package-data]
+"app.agent" = ["flows/*.toml"]
 
 [dependency-groups]
 dev = ["pytest", "pytest-asyncio", "ruff", "mypy", "pre-commit", "autopep8>=2.3.2", "build"]

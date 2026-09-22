@@ -18,6 +18,9 @@ class MessageButton(TypedDict):
 class Message(BaseModel):
     """Represents a message in the chat."""
 
+    event_id: str | None = None
+    media_id: str | None = None
+    media_type: str | None = None
     message_id: int
     channel: Channel
     created_at: datetime | None

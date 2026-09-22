@@ -5,8 +5,10 @@ from __future__ import annotations
 import json
 from dataclasses import dataclass
 from time import perf_counter
+from typing import TYPE_CHECKING
 
-from openai import AsyncOpenAI
+if TYPE_CHECKING:
+    from openai import AsyncOpenAI
 from pydantic import BaseModel, Field
 
 import app.config.settings as config
@@ -145,6 +147,8 @@ class OpenAIService:
         )
 
     def _get_client(self) -> AsyncOpenAI:
+        from openai import AsyncOpenAI
+
         if self._client is None:
             self._require_setting(self._api_key, "OPENAI_API_KEY")
             self._client = AsyncOpenAI(

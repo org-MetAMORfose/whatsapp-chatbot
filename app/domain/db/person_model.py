@@ -7,7 +7,6 @@ from sqlalchemy import Date, DateTime, Enum, Integer, String, UniqueConstraint
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.domain.db.base import Base
-from app.domain.enum.channels import Channel
 from app.domain.enum.chat_mode import ChatMode
 from app.domain.enum.chat_state import ChatState
 
@@ -28,7 +27,7 @@ class PersonModel(Base):
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
     phone_number: Mapped[str] = mapped_column(String, nullable=False)
-    channel: Mapped[Channel | None] = mapped_column(Enum(Channel), nullable=True)
+    channel: Mapped[str | None] = mapped_column(String, nullable=True)
     name: Mapped[str | None] = mapped_column(String, nullable=True)
     birth_date: Mapped[date | None] = mapped_column(Date, nullable=True)
     cpf: Mapped[str | None] = mapped_column(String, unique=True, nullable=True)

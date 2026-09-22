@@ -3,12 +3,13 @@
 import json
 import logging
 from datetime import datetime
-from typing import Any, cast
+from typing import Any
 
 import redis.asyncio as redis
 
 from app.domain.message import Message
 from app.domain.redis.professional_stage import ProfessionalStageContext
+from app.repository.redis.staged_state import StagedState
 
 logger = logging.getLogger(__name__)
 
@@ -16,12 +17,12 @@ logger = logging.getLogger(__name__)
 class ProfessionalStageRepository:
     """Encapsulates Redis operations for professional registration drafts."""
 
-    redis_client: redis.Redis  # type: ignore[type-arg]
+    redis_client: StagedState
 
     TTL_SECONDS = 90 * 60
 
     def __init__(self, redis_client: redis.Redis) -> None:  # type: ignore[type-arg]
-        self.redis_client = redis_client
+        self.redis_client = StagedState(redis_client)
 
     def _draft_key(self, message: Message) -> str:
         return f"professional_stage:{message.channel}:{message.user_id}"
@@ -31,7 +32,7 @@ class ProfessionalStageRepository:
         message: Message,
     ) -> ProfessionalStageContext | None:
         result = await self.redis_client.get(self._draft_key(message))
-        context_json = cast(str | None, result)
+        context_json = result
 
         if not context_json:
             return None

@@ -1,0 +1,37 @@
+services:
+  redis:
+    image: redis:7-alpine
+    command: [redis-server, --appendonly, 'yes']
+    ports: ['127.0.0.1:16389:6379']
+  postgres:
+    image: pgvector/pgvector:0.8.6-pg16
+    environment:
+      POSTGRES_DB: chatbot
+      POSTGRES_USER: chatbot
+      POSTGRES_PASSWORD: test-only-password
+    ports: ['127.0.0.1:15489:5432']
+  api:
+    image: chatbot-event-test:local
+    build: .
+    command: [app]
+    environment: &env
+      PYTHON_DOTENV_DISABLED: '1'
+      REDIS_HOST: redis
+      DATABASE_URL: postgresql+psycopg://chatbot:test-only-password@postgres:5432/chatbot
+      LOG_LEVEL: WARNING
+      LOKI_ENABLED: 'false'
+      OPENAI_API_KEY: ''
+      S3_BUCKET_NAME: 'test-only'
+      AWS_ACCESS_KEY_ID: 'test-only'
+      AWS_SECRET_ACCESS_KEY: 'test-only'
+      AWS_REGION: us-east-1
+      GOOGLE_SERVICE_ACCOUNT_CREDENTIALS: ''
+    ports: ['127.0.0.1:18089:8000']
+  worker:
+    image: chatbot-event-test:local
+    command: [python, /validation/runtime_worker.py]
+    volumes:
+      - ./tests:/validation:ro
+    environment:
+      <<: *env
+      DELIVERY_RUNTIME_TEST: '1'

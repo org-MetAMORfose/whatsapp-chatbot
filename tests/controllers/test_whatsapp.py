@@ -55,7 +55,7 @@ async def test_receive_webhook_forwards_extracted_messages_to_handler() -> None:
 
 
 @pytest.mark.asyncio
-async def test_receive_webhook_discards_messages_older_than_ten_minutes() -> None:
+async def test_receive_webhook_keeps_delayed_messages_for_recovery() -> None:
     message_handler = MagicMock()
     message_handler.handle = AsyncMock()
     controller = WhatsAppController(message_handler=message_handler)
@@ -90,22 +90,9 @@ async def test_receive_webhook_discards_messages_older_than_ten_minutes() -> Non
     ):
         result = await controller.receive_webhook(request)
 
-    message_handler.handle.assert_awaited_once_with(recent_message)
+    message_handler.handle.assert_any_await(stale_message)
+    message_handler.handle.assert_any_await(recent_message)
     assert result == {"status": "ok"}
-
-
-def test_is_recent_message_discards_messages_without_timestamp() -> None:
-    controller = WhatsAppController(message_handler=MagicMock())
-    message = Message(
-        message_id=1,
-        channel=Channel.WHATSAPP,
-        created_at=None,
-        user_id="111",
-        chat_id="111",
-        content="unknown age",
-    )
-
-    assert controller._is_recent_message(message) is False
 
 
 def test_parse_message_text_returns_expected_message() -> None:
@@ -213,13 +200,7 @@ async def test_parse_and_resolve_image_stores_only_the_s3_path() -> None:
     assert parsed.media_id == "whatsapp-image"
     assert parsed.media_type == "image"
 
-    resolved = await controller._resolve_media(parsed)
-
-    assert resolved.media == "media/image/whatsapp-image.jpg"
-    s3_service.upload_from_whatsapp.assert_awaited_once_with(
-        "whatsapp-image",
-        "image",
-    )
+    s3_service.upload_from_whatsapp.assert_not_awaited()
 
 
 @pytest.mark.asyncio
@@ -250,13 +231,7 @@ async def test_parse_and_resolve_video_stores_only_the_s3_path() -> None:
     assert parsed.media_id == "whatsapp-video"
     assert parsed.media_type == "video"
 
-    resolved = await controller._resolve_media(parsed)
-
-    assert resolved.media == "media/video/whatsapp-video.mp4"
-    s3_service.upload_from_whatsapp.assert_awaited_once_with(
-        "whatsapp-video",
-        "video",
-    )
+    s3_service.upload_from_whatsapp.assert_not_awaited()
 
 
 def test_parse_media_without_media_id_is_ignored() -> None:

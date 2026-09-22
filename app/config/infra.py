@@ -31,8 +31,8 @@ def create_redis() -> Redis[str]:
     return redis
 
 
-def create_db_engine() -> Engine:
-    db = create_engine(config.DATABASE_URL)
+def create_db_engine(pool_size: int = 2) -> Engine:
+    db = create_engine(config.DATABASE_URL, pool_size=pool_size, max_overflow=0, pool_timeout=10, pool_pre_ping=True)
 
     safe_url = make_url(config.DATABASE_URL).render_as_string(
         hide_password=True)

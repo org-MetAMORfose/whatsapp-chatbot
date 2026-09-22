@@ -36,14 +36,17 @@ cp .env.example .env
 ## Executar localmente
 
 ```bash
+uv run alembic upgrade head
 uv run app
+
+# Em outro terminal:
+uv run app-worker
 ```
 
 ## Executar com Docker
 
 ```bash
-docker build -t app .
-docker run -p 8000:8000 app
+docker compose up -d --build
 ```
 
 ## Testes
@@ -132,3 +135,12 @@ uv run pre-commit run --all-files
 ```
 
 > Os hooks de pre-commit executam **ruff**, **mypy** e **pytest** antes de cada commit.
+
+## Processamento de eventos
+
+A API recebe webhooks e publica no Redis; `app-worker` processa as mensagens,
+envia respostas e entrega a outbox do PostgreSQL. O único canal ativo é WhatsApp.
+O endpoint `POST /send` retorna `202 {"status":"accepted"}` após enfileirar.
+
+Consulte [arquitetura, migração e operação](docs/event-driven.md) e
+[verificação de memória](docs/memory-validation.md).
