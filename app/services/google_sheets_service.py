@@ -1,43 +1,44 @@
-"""Google Sheets integration service."""
-
+"""Small authenticated REST client for Sheets; no discovery resource graphs."""
 from dataclasses import dataclass
+from hashlib import sha256
 from typing import Any
-from urllib.parse import parse_qs, urlparse
+from urllib.parse import parse_qs, quote, urlparse
 
+import requests
+from google.auth.exceptions import GoogleAuthError
+from google.auth.transport.requests import AuthorizedSession
 from google.oauth2.service_account import Credentials
-from googleapiclient.discovery import build
-from googleapiclient.errors import HttpError
-from pydantic import ValidationError
 
-import app.config.settings as config
+from app.config import settings
 from app.domain.sheets import PatientSheet, ProfessionalSheet
 from app.domain.sheets.professional import normalize_phone
 
 SHEETS_SCOPE = "https://www.googleapis.com/auth/spreadsheets"
+BASE_URL = "https://sheets.googleapis.com/v4/spreadsheets"
 
 
 class GoogleSheetsServiceError(Exception):
-    """Base exception for Google Sheets service errors."""
+    """Base integration error."""
 
 
 class InvalidSpreadsheetUrlError(GoogleSheetsServiceError):
-    """Raised when a spreadsheet URL cannot be parsed."""
+    pass
 
 
 class SheetTabNotFoundError(GoogleSheetsServiceError):
-    """Raised when a gid does not match any sheet tab."""
+    pass
 
 
 class GoogleSheetsCredentialsError(GoogleSheetsServiceError):
-    """Raised when Google credentials are missing or invalid."""
+    pass
 
 
 class ProfessionalNotFoundError(GoogleSheetsServiceError):
-    """Raised when a professional cannot be found in the sheet."""
+    pass
 
 
 class GoogleSheetsAPIError(GoogleSheetsServiceError):
-    """Raised when the Google Sheets API returns an error."""
+    pass
 
 
 @dataclass(frozen=True)
@@ -48,179 +49,113 @@ class SpreadsheetRef:
 
 
 class GoogleSheetsService:
-    """Encapsulates access to the patients and professionals spreadsheets."""
+    def __init__(self, client: Any | None = None, credentials_info: dict[str, Any] | None = None,
+                 patients_spreadsheet_url: str | None = None, professionals_spreadsheet_url: str | None = None) -> None:
+        self._client = client if client is not None else self._build_client(credentials_info)
+        self._patients = self._resolve_spreadsheet(patients_spreadsheet_url or settings.GOOGLE_PATIENTS_SPREADSHEET_URL)
+        self._professionals = self._resolve_spreadsheet(professionals_spreadsheet_url or settings.GOOGLE_PROFESSIONALS_SPREADSHEET_URL)
 
-    def __init__(
-        self,
-        client: Any | None = None,
-        credentials_info: dict[str, Any] | None = None,
-        patients_spreadsheet_url: str | None = None,
-        professionals_spreadsheet_url: str | None = None,
-    ) -> None:
-        self._client = client or self._build_client(credentials_info)
-        self._patients = self._resolve_spreadsheet(
-            patients_spreadsheet_url or config.GOOGLE_PATIENTS_SPREADSHEET_URL
-        )
-        self._professionals = self._resolve_spreadsheet(
-            professionals_spreadsheet_url or config.GOOGLE_PROFESSIONALS_SPREADSHEET_URL
-        )
-
-    def register_professional(self, professional: ProfessionalSheet) -> None:
-        row_number = self._next_row_number(self._professionals, "A:N")
-        self._update_values(
-            self._professionals,
-            f"A{row_number}:N{row_number}",
-            [professional.to_sheet_row()],
-        )
-
-    def register_patient(self, patient: PatientSheet) -> None:
-        row_number = self._next_row_number(self._patients, "A:F")
-        self._update_values(
-            self._patients,
-            f"A{row_number}:F{row_number}",
-            [patient.to_sheet_row()],
-        )
-
-    def update_professional_status(self, phone: str, active: bool) -> None:
-        normalized_phone = normalize_phone(phone)
-        if not normalized_phone:
-            raise ProfessionalNotFoundError("Professional was not found by phone.")
-
-        result = self._execute(
-            self._client.spreadsheets()
-            .values()
-            .get(
-                spreadsheetId=self._professionals.spreadsheet_id,
-                range=self._range(self._professionals, "K:K"),
-            ),
-            "Failed to read professionals from Google Sheets.",
-        )
-        values = result.get("values", [])
-
-        for row_index, row in enumerate(values, start=1):
-            if row_index == 1:
-                continue
-            if not row:
-                continue
-
-            sheet_phone = normalize_phone(str(row[0]))
-            if sheet_phone == normalized_phone:
-                self._execute(
-                    self._client.spreadsheets()
-                    .values()
-                    .update(
-                        spreadsheetId=self._professionals.spreadsheet_id,
-                        range=self._range(self._professionals, f"M{row_index}"),
-                        valueInputOption="RAW",
-                        body={"values": [["1" if active else "0"]]},
-                    ),
-                    "Failed to update professional status in Google Sheets.",
-                )
-                return
-
-        raise ProfessionalNotFoundError("Professional was not found by phone.")
-
-    def list_professionals(self) -> list[ProfessionalSheet]:
-        result = self._execute(
-            self._client.spreadsheets()
-            .values()
-            .get(
-                spreadsheetId=self._professionals.spreadsheet_id,
-                range=self._range(self._professionals, "A:N"),
-            ),
-            "Failed to list professionals from Google Sheets.",
-        )
-        rows = result.get("values", [])
-
-        professionals: list[ProfessionalSheet] = []
-        for row in rows[1:]:
-            if self._is_empty_row(row):
-                continue
-            try:
-                professionals.append(ProfessionalSheet.from_sheet_row(row))
-            except ValidationError as exc:
-                raise GoogleSheetsServiceError(
-                    "A professional row from Google Sheets is invalid."
-                ) from exc
-
-        return professionals
-
-    def list_patients(self) -> list[PatientSheet]:
-        result = self._execute(
-            self._client.spreadsheets()
-            .values()
-            .get(
-                spreadsheetId=self._patients.spreadsheet_id,
-                range=self._range(self._patients, "A:F"),
-            ),
-            "Failed to list patients from Google Sheets.",
-        )
-        rows = result.get("values", [])
-
-        patients: list[PatientSheet] = []
-        for row in rows:
-            if self._is_empty_row(row):
-                continue
-            try:
-                patients.append(PatientSheet.from_sheet_row(row))
-            except ValidationError as exc:
-                raise GoogleSheetsServiceError(
-                    "A patient row from Google Sheets is invalid."
-                ) from exc
-
-        return patients
-
-    def _build_client(self, credentials_info: dict[str, Any] | None) -> Any:
-        info = credentials_info or config.GOOGLE_SERVICE_ACCOUNT_CREDENTIALS
-        if not info:
-            raise GoogleSheetsCredentialsError(
-                "Google service account credentials are not configured."
-            )
-
+    def _build_client(self, info: dict[str, Any] | None) -> Any:
         try:
-            credentials = Credentials.from_service_account_info(
-                info,
-                scopes=[SHEETS_SCOPE],
-            )  # type: ignore[no-untyped-call]
+            credentials = Credentials.from_service_account_info(  # type: ignore[no-untyped-call]
+                info or settings.load_google_service_account_credentials(), scopes=[SHEETS_SCOPE],
+            )
         except (KeyError, TypeError, ValueError) as exc:
-            raise GoogleSheetsCredentialsError(
-                "Google service account credentials are invalid."
-            ) from exc
+            raise GoogleSheetsCredentialsError("Invalid Google credentials") from exc
+        return AuthorizedSession(credentials, refresh_timeout=30)  # type: ignore[no-untyped-call]
 
-        return build(
-            "sheets",
-            "v4",
-            credentials=credentials,
-            cache_discovery=False,
-        )
+    def _request(self, method: str, path: str, *, params: dict[str, str] | None = None,
+                 body: dict[str, Any] | None = None) -> dict[str, Any]:
+        try:
+            response = self._client.request(method, f"{BASE_URL}/{path}", params=params, json=body, timeout=30)
+            response.raise_for_status()
+            result: object = response.json()
+        except (requests.RequestException, GoogleAuthError, ValueError) as exc:
+            raise GoogleSheetsAPIError("Google Sheets request failed") from exc
+        if not isinstance(result, dict):
+            raise GoogleSheetsAPIError("Invalid Google Sheets response")
+        return result
 
-    def _resolve_spreadsheet(self, spreadsheet_url: str) -> SpreadsheetRef:
-        spreadsheet_id, gid = self._parse_spreadsheet_url(spreadsheet_url)
-        metadata = self._execute(
-            self._client.spreadsheets()
-            .get(
-                spreadsheetId=spreadsheet_id,
-                fields="sheets.properties(sheetId,title)",
-            ),
-            "Failed to read spreadsheet metadata from Google Sheets.",
-        )
-
+    def _resolve_spreadsheet(self, url: str) -> SpreadsheetRef:
+        spreadsheet_id, gid = self._parse_spreadsheet_url(url)
+        metadata = self._request("GET", spreadsheet_id, params={"fields": "sheets.properties(sheetId,title)"})
         for sheet in metadata.get("sheets", []):
             properties = sheet.get("properties", {})
-            if properties.get("sheetId") == gid:
-                title = properties.get("title")
-                if not title:
-                    break
-                return SpreadsheetRef(
-                    spreadsheet_id=spreadsheet_id,
-                    gid=gid,
-                    sheet_title=str(title),
-                )
+            if properties.get("sheetId") == gid and properties.get("title"):
+                return SpreadsheetRef(spreadsheet_id, gid, str(properties["title"]))
+        raise SheetTabNotFoundError("No spreadsheet tab matches the configured gid")
 
-        raise SheetTabNotFoundError(
-            "No spreadsheet tab was found for the configured gid."
-        )
+    @staticmethod
+    def _path(sheet: SpreadsheetRef, coordinates: str) -> str:
+        title = sheet.sheet_title.replace("'", "''")
+        cell_range = f"'{title}'!{coordinates}"
+        return f"{sheet.spreadsheet_id}/values/{quote(cell_range, safe='')}"
 
+    def _read(self, sheet: SpreadsheetRef, coordinates: str) -> list[list[str]]:
+        values = self._request("GET", self._path(sheet, coordinates)).get("values", [])
+        if not isinstance(values, list) or any(not isinstance(row, list) for row in values):
+            raise GoogleSheetsAPIError("Invalid Google Sheets values")
+        return [[str(cell) for cell in row] for row in values]
+
+    def _write(self, sheet: SpreadsheetRef, coordinates: str, rows: list[list[str]]) -> None:
+        self._request("PUT", self._path(sheet, coordinates), params={"valueInputOption": "RAW"}, body={"values": rows})
+
+    def deliver(self, operation_id: str, kind: str, payload: dict[str, Any]) -> None:
+        if kind == "sheets.patient.upsert.v1":
+            sheet, end = self._patients, "F"
+            row = PatientSheet.model_validate(payload).to_sheet_row()
+        elif kind == "sheets.professional.upsert.v1":
+            sheet, end = self._professionals, "N"
+            row = ProfessionalSheet.model_validate(payload).to_sheet_row()
+        else:
+            raise ValueError(f"Unsupported delivery kind: {kind}")
+        metadata_key = f"outbox:{sheet.gid}"
+        metadata_value = sha256(operation_id.encode()).hexdigest()
+        found = self._request("POST", f"{sheet.spreadsheet_id}/developerMetadata:search", body={
+            "dataFilters": [{"developerMetadataLookup": {
+                "metadataKey": metadata_key, "metadataValue": metadata_value, "visibility": "DOCUMENT",
+            }}],
+        })
+        if found.get("matchedDeveloperMetadata"):
+            return
+        row_index = max(1, len(self._read(sheet, f"A:{end}")))
+        location = {"sheetId": sheet.gid, "dimension": "ROWS", "startIndex": row_index, "endIndex": row_index + 1}
+        # Metadata and visible values commit in one Google batch. No technical G/O columns.
+        self._request("POST", f"{sheet.spreadsheet_id}:batchUpdate", body={"requests": [
+            {"insertDimension": {"range": location, "inheritFromBefore": True}},
+            {"updateCells": {
+                "start": {"sheetId": sheet.gid, "rowIndex": row_index, "columnIndex": 0},
+                "rows": [{"values": [{"userEnteredValue": {"stringValue": cell}} for cell in row]}],
+                "fields": "userEnteredValue",
+            }},
+            {"createDeveloperMetadata": {"developerMetadata": {
+                "metadataKey": metadata_key, "metadataValue": metadata_value, "visibility": "DOCUMENT",
+                "location": {"dimensionRange": location},
+            }}},
+        ]})
+
+    def register_patient(self, patient: PatientSheet) -> None:
+        row = max(2, len(self._read(self._patients, "A:F")) + 1)
+        self._write(self._patients, f"A{row}:F{row}", [patient.to_sheet_row()])
+
+    def register_professional(self, professional: ProfessionalSheet) -> None:
+        row = max(2, len(self._read(self._professionals, "A:N")) + 1)
+        self._write(self._professionals, f"A{row}:N{row}", [professional.to_sheet_row()])
+
+    def list_patients(self) -> list[PatientSheet]:
+        return [PatientSheet.from_sheet_row(row) for row in self._read(self._patients, "A:F") if any(row)]
+
+    def list_professionals(self) -> list[ProfessionalSheet]:
+        return [ProfessionalSheet.from_sheet_row(row) for row in self._read(self._professionals, "A:N")[1:] if any(row)]
+
+    def update_professional_status(self, phone: str, active: bool) -> None:
+        normalized = normalize_phone(phone)
+        if normalized:
+            for index, row in enumerate(self._read(self._professionals, "K:K"), 1):
+                if index > 1 and row and normalize_phone(row[0]) == normalized:
+                    self._write(self._professionals, f"M{index}", [["1" if active else "0"]])
+                    return
+        raise ProfessionalNotFoundError("Professional was not found by phone")
     def _parse_spreadsheet_url(self, spreadsheet_url: str) -> tuple[str, int]:
         parsed = urlparse(spreadsheet_url.strip())
         if parsed.scheme not in {"http", "https"} or not parsed.netloc:
@@ -251,58 +186,3 @@ class GoogleSheetsService:
             raise InvalidSpreadsheetUrlError("Spreadsheet URL gid is invalid.") from exc
 
         return spreadsheet_id, gid
-
-    def _next_row_number(self, spreadsheet: SpreadsheetRef, columns: str) -> int:
-        result = self._execute(
-            self._client.spreadsheets()
-            .values()
-            .get(
-                spreadsheetId=spreadsheet.spreadsheet_id,
-                range=self._range(spreadsheet, columns),
-            ),
-            "Failed to locate the next available row in Google Sheets.",
-        )
-        values = result.get("values", [])
-        if not isinstance(values, list):
-            raise GoogleSheetsAPIError(
-                "Failed to locate the next available row in Google Sheets."
-            )
-        return len(values) + 1
-
-    def _update_values(
-        self,
-        spreadsheet: SpreadsheetRef,
-        coordinates: str,
-        values: list[list[str]],
-    ) -> None:
-        self._execute(
-            self._client.spreadsheets()
-            .values()
-            .update(
-                spreadsheetId=spreadsheet.spreadsheet_id,
-                range=self._range(spreadsheet, coordinates),
-                valueInputOption="RAW",
-                body={"values": values},
-            ),
-            "Failed to write data to Google Sheets.",
-        )
-
-    def _range(self, spreadsheet: SpreadsheetRef, coordinates: str) -> str:
-        return f"'{self._escape_sheet_title(spreadsheet.sheet_title)}'!{coordinates}"
-
-    def _execute(self, request: Any, error_message: str) -> dict[str, Any]:
-        try:
-            result: object = request.execute()
-        except HttpError as exc:
-            raise GoogleSheetsAPIError(error_message) from exc
-
-        if not isinstance(result, dict):
-            raise GoogleSheetsAPIError(error_message)
-
-        return result
-
-    def _is_empty_row(self, row: list[Any]) -> bool:
-        return not any(str(value).strip() for value in row)
-
-    def _escape_sheet_title(self, title: str) -> str:
-        return title.replace("'", "''")

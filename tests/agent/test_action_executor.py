@@ -10,7 +10,7 @@ from app.domain.enum.chat_state import ChatState
 from app.domain.message import Message
 from app.domain.redis.patient_stage import PatientStageContext
 from app.domain.redis.professional_stage import ProfessionalStageContext
-from app.services.google_sheets_service import GoogleSheetsServiceError
+from app.domain.sheets import PatientSheet, ProfessionalSheet
 
 
 def make_message(
@@ -37,7 +37,7 @@ def make_executor() -> tuple[
     person_repository = MagicMock()
     patient_repository = MagicMock()
     patient_stage_repository = MagicMock()
-    google_sheets_service = MagicMock()
+    outbox_repository = MagicMock()
     faq_flow = MagicMock()
     executor = ActionExecutor(
         stage_repository,
@@ -45,7 +45,7 @@ def make_executor() -> tuple[
         person_repository,
         patient_repository,
         patient_stage_repository,
-        google_sheets_service,
+        outbox_repository,
         faq_flow,
     )
     return (
@@ -54,7 +54,7 @@ def make_executor() -> tuple[
         professional_repository,
         person_repository,
         patient_stage_repository,
-        google_sheets_service,
+        outbox_repository,
     )
 
 
@@ -304,7 +304,7 @@ async def test_patient_birth_date_rejects_invalid_values(
 
 @pytest.mark.asyncio
 async def test_sheets_register_patient_writes_stage_data() -> None:
-    executor, _, _, _, patient_stage_repository, google_sheets_service = (
+    executor, _, _, _, patient_stage_repository, outbox_repository = (
         make_executor()
     )
     message = make_message("Até R$300")
@@ -321,8 +321,8 @@ async def test_sheets_register_patient_writes_stage_data() -> None:
 
     await executor.sheets_register_patient(message)
 
-    google_sheets_service.register_patient.assert_called_once()
-    patient_sheet = google_sheets_service.register_patient.call_args.args[0]
+    outbox_repository.enqueue.assert_called_once()
+    patient_sheet = PatientSheet.model_validate(outbox_repository.enqueue.call_args.args[2])
     assert patient_sheet.name == "Maria"
     assert patient_sheet.phone == message.user_id
     assert patient_sheet.area == "Psicoterapia"
@@ -330,8 +330,8 @@ async def test_sheets_register_patient_writes_stage_data() -> None:
 
 
 @pytest.mark.asyncio
-async def test_sheets_register_patient_swallows_service_errors() -> None:
-    executor, _, _, _, patient_stage_repository, google_sheets_service = (
+async def test_sheets_register_patient_propagates_outbox_errors() -> None:
+    executor, _, _, _, patient_stage_repository, outbox_repository = (
         make_executor()
     )
     message = make_message("Até R$300")
@@ -344,19 +344,18 @@ async def test_sheets_register_patient_swallows_service_errors() -> None:
             area="Psicoterapia",
         )
     )
-    google_sheets_service.register_patient.side_effect = GoogleSheetsServiceError(
+    outbox_repository.enqueue.side_effect = RuntimeError(
         "boom"
     )
 
-    result = await executor.sheets_register_patient(message)
-
-    assert result == ""
+    with pytest.raises(RuntimeError):
+        await executor.sheets_register_patient(message)
 
 
 @pytest.mark.parametrize("birth_date", [date(2000, 1, 1), None])
 @pytest.mark.asyncio
 async def test_sheets_register_professional_defaults_to_inactive(birth_date: date | None) -> None:
-    executor, stage_repository, _, _, _, google_sheets_service = make_executor()
+    executor, stage_repository, _, _, _, outbox_repository = make_executor()
     message = make_message()
     stage_repository.get_context = AsyncMock(
         return_value=ProfessionalStageContext(
@@ -372,8 +371,8 @@ async def test_sheets_register_professional_defaults_to_inactive(birth_date: dat
 
     await executor.sheets_register_professional(message)
 
-    google_sheets_service.register_professional.assert_called_once()
-    professional_sheet = google_sheets_service.register_professional.call_args.args[0]
+    outbox_repository.enqueue.assert_called_once()
+    professional_sheet = ProfessionalSheet.model_validate(outbox_repository.enqueue.call_args.args[2])
     assert professional_sheet.name == "Maria"
     assert professional_sheet.area == "Psicoterapia"
     assert professional_sheet.phone == message.user_id
@@ -384,8 +383,8 @@ async def test_sheets_register_professional_defaults_to_inactive(birth_date: dat
 
 
 @pytest.mark.asyncio
-async def test_sheets_register_professional_swallows_service_errors() -> None:
-    executor, stage_repository, _, _, _, google_sheets_service = make_executor()
+async def test_sheets_register_professional_propagates_outbox_errors() -> None:
+    executor, stage_repository, _, _, _, outbox_repository = make_executor()
     message = make_message()
     stage_repository.get_context = AsyncMock(
         return_value=ProfessionalStageContext(
@@ -396,10 +395,9 @@ async def test_sheets_register_professional_swallows_service_errors() -> None:
             area="Psicoterapia",
         )
     )
-    google_sheets_service.register_professional.side_effect = (
-        GoogleSheetsServiceError("boom")
+    outbox_repository.enqueue.side_effect = (
+        RuntimeError("boom")
     )
 
-    result = await executor.sheets_register_professional(message)
-
-    assert result == ""
+    with pytest.raises(RuntimeError):
+        await executor.sheets_register_professional(message)

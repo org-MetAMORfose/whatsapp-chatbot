@@ -8,7 +8,7 @@ from pydantic import BaseModel, field_validator
 
 from app.domain.enum.channels import Channel
 from app.domain.message import Message
-from app.services.dispatcher_service import MessageDispatcherService
+from app.infra.message_queue import MessageQueue
 from app.services.s3_media_service import S3MediaService
 
 logger = logging.getLogger(__name__)
@@ -28,18 +28,20 @@ class SendMessageRequest(BaseModel):
 
 
 class SendMessageController:
-    def __init__(self, dispatcher: MessageDispatcherService) -> None:
-        self.dispatcher = dispatcher
+    def __init__(self, outbound_queue: MessageQueue) -> None:
+        self.outbound_queue = outbound_queue
         self.router = APIRouter()
 
         self.router.add_api_route(
             "/send",
             self.send_message,
             methods=["POST"],
+            status_code=202,
         )
 
     async def send_message(self, body: SendMessageRequest) -> dict[str, str]:
         message = Message(
+            event_id=f"manual:{uuid4()}",
             message_id=self._generate_message_id(),
             channel=Channel.WHATSAPP,
             created_at=datetime.now(UTC),
@@ -49,9 +51,9 @@ class SendMessageController:
             media=body.media,
         )
 
-        await self.dispatcher.dispatch(message)
+        await self.outbound_queue.publish(message)
 
-        return {"status": "ok"}
+        return {"status": "accepted"}
 
     @staticmethod
     def _generate_message_id() -> int:

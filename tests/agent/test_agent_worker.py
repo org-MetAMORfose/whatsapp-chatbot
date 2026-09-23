@@ -88,7 +88,7 @@ def make_worker(
         person_repository=MagicMock(),
         patient_repository=MagicMock(),
         patient_stage_repository=MagicMock(),
-        google_sheets_service=MagicMock(),
+        outbox_repository=MagicMock(),
         faq_knowledge_repository=MagicMock(),
         faq_session_repository=MagicMock(),
     )

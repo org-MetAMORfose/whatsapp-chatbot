@@ -10,6 +10,7 @@ from pydantic import ValidationError
 from app.domain.enum.channels import Channel
 from app.domain.message import Message
 from app.domain.redis.chat import ChatContext
+from app.repository.redis.staged_state import StagedState
 
 logger = logging.getLogger(__name__)
 
@@ -17,7 +18,7 @@ logger = logging.getLogger(__name__)
 class ChatRepository:
     """Encapsulates Redis operations for loading and saving chat context."""
 
-    redis_client: redis.Redis  # type: ignore[type-arg]
+    redis_client: StagedState
     context_ttl_seconds: int
 
     def __init__(
@@ -25,7 +26,7 @@ class ChatRepository:
         redis_client: redis.Redis,  # type: ignore[type-arg]
         context_ttl_seconds: int = 60 * 60,
     ):
-        self.redis_client = redis_client
+        self.redis_client = StagedState(redis_client)
         self.context_ttl_seconds = context_ttl_seconds
 
     def _context_key(self, user_id: str, channel: Channel) -> str:

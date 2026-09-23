@@ -10,6 +10,7 @@ from app.domain.db.message_history_model import MessageHistoryModel
 from app.domain.db.person_model import PersonModel
 from app.domain.enum.channels import Channel
 from app.domain.enum.chat_state import CHAT_STATE_PRIORITY, ChatState
+from app.repository.sql.transaction import commit, session_scope
 
 
 class PersonRepository:
@@ -20,15 +21,15 @@ class PersonRepository:
 
     def create(self, person: PersonModel) -> PersonModel:
         """Persist a new person in the current transaction."""
-        with self._session_factory() as session:
+        with session_scope(self._session_factory) as session:
             session.add(person)
             session.flush()
-            session.commit()
+            commit(session)
             return person
 
     def get_by_id(self, person_id: int) -> PersonModel | None:
         """Return a person by id."""
-        with self._session_factory() as session:
+        with session_scope(self._session_factory) as session:
             return session.get(PersonModel, person_id)
 
     def get_by_phone_number_and_channel(
@@ -42,7 +43,7 @@ class PersonRepository:
             PersonModel.channel == channel,
         )
 
-        with self._session_factory() as session:
+        with session_scope(self._session_factory) as session:
             return session.scalar(stmt)
 
     def get_or_create_person(
@@ -52,7 +53,7 @@ class PersonRepository:
         name: str | None = None,
     ) -> PersonModel:
         """Return an existing person or create a new one using phone number and channel."""
-        with self._session_factory() as session:
+        with session_scope(self._session_factory) as session:
             stmt = select(PersonModel).where(
                 PersonModel.phone_number == phone_number,
                 PersonModel.channel == channel,
@@ -71,22 +72,22 @@ class PersonRepository:
             )
             session.add(person)
             session.flush()
-            session.commit()
+            commit(session)
             return person
 
     def get_by_cpf(self, cpf: str) -> PersonModel | None:
         """Return a person by CPF."""
         stmt = select(PersonModel).where(PersonModel.cpf == cpf)
 
-        with self._session_factory() as session:
+        with session_scope(self._session_factory) as session:
             return session.scalar(stmt)
 
     def update(self, person: PersonModel) -> PersonModel:
         """Merge and return the managed person instance."""
-        with self._session_factory() as session:
+        with session_scope(self._session_factory) as session:
             merged_person = session.merge(person)
             session.flush()
-            session.commit()
+            commit(session)
             return merged_person
 
     def exists_by_phone_number_and_channel(
@@ -104,7 +105,7 @@ class PersonRepository:
             .limit(1)
         )
 
-        with self._session_factory() as session:
+        with session_scope(self._session_factory) as session:
             return session.scalar(stmt) is not None
 
     def update_chat_state(
@@ -113,7 +114,7 @@ class PersonRepository:
         chat_state: ChatState,
     ) -> bool:
         """Update chat state when the new reason has equal or higher priority."""
-        with self._session_factory() as session:
+        with session_scope(self._session_factory) as session:
             person = session.get(PersonModel, person_id)
             if person is None:
                 return False
@@ -128,7 +129,7 @@ class PersonRepository:
 
             person.chat_state = chat_state
             session.flush()
-            session.commit()
+            commit(session)
             return True
 
     def update_chat_state_by_contact(
@@ -152,7 +153,7 @@ class PersonRepository:
             .where(PersonModel.id == person_id)
         )
 
-        with self._session_factory() as session:
+        with session_scope(self._session_factory) as session:
             return session.scalar(stmt)
 
     def get_full_profile(self, person_id: int) -> PersonModel | None:
@@ -167,7 +168,7 @@ class PersonRepository:
             .where(PersonModel.id == person_id)
         )
 
-        with self._session_factory() as session:
+        with session_scope(self._session_factory) as session:
             return session.scalar(stmt)
 
     def get_messages_by_person_id(self, person_id: int) -> list[MessageHistoryModel]:
@@ -178,13 +179,13 @@ class PersonRepository:
             .order_by(MessageHistoryModel.created_at, MessageHistoryModel.id)
         )
 
-        with self._session_factory() as session:
+        with session_scope(self._session_factory) as session:
             return list(session.scalars(stmt).all())
 
     def create_message(self, message: MessageHistoryModel) -> MessageHistoryModel:
         """Persist a new message in the current transaction."""
-        with self._session_factory() as session:
+        with session_scope(self._session_factory) as session:
             session.add(message)
             session.flush()
-            session.commit()
+            commit(session)
             return message
