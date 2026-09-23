@@ -1,0 +1,46 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Transform: AWS::Serverless-2016-10-31
+Description: MetAMORfose matching (independent release)
+Parameters:
+  DatabaseSecretArn:
+    Type: String
+    Description: Secrets Manager JSON containing url (PostgreSQL SQLAlchemy URL with TLS)
+  SubnetIds:
+    Type: List<AWS::EC2::Subnet::Id>
+  SecurityGroupIds:
+    Type: List<AWS::EC2::SecurityGroup::Id>
+Resources:
+  MatchingFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      CodeUri: ../../matching/
+      Handler: matching.handler.handler
+      Runtime: python3.13
+      Architectures: [x86_64]
+      MemorySize: 256
+      Timeout: 120
+      ReservedConcurrentExecutions: 2
+      AutoPublishAlias: live
+      VpcConfig:
+        SubnetIds: !Ref SubnetIds
+        SecurityGroupIds: !Ref SecurityGroupIds
+      Environment:
+        Variables:
+          DATABASE_SECRET_ARN: !Ref DatabaseSecretArn
+      Policies:
+        - AWSLambdaVPCAccessExecutionRole
+        - AWSSecretsManagerGetSecretValuePolicy:
+            SecretArn: !Ref DatabaseSecretArn
+      Events:
+        PendingPatients:
+          Type: Schedule
+          Properties:
+            Schedule: rate(1 hour)
+      EventInvokeConfig:
+        MaximumEventAgeInSeconds: 300
+        MaximumRetryAttempts: 2
+    Metadata:
+      BuildMethod: makefile
+Outputs:
+  MatchingAliasArn:
+    Value: !Ref MatchingFunction.Alias

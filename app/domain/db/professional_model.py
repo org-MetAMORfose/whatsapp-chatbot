@@ -9,9 +9,7 @@ from sqlalchemy.orm import Mapped, mapped_column, relationship
 from app.domain.db.base import Base
 
 if TYPE_CHECKING:
-    from app.domain.db.patient_model import PatientModel
     from app.domain.db.person_model import PersonModel
-    from app.domain.db.professional_patient_model import ProfessionalPatientModel
 
 
 class ProfessionalModel(Base):
@@ -36,6 +34,8 @@ class ProfessionalModel(Base):
     professional_register: Mapped[str] = mapped_column(String, nullable=False)
     register_type: Mapped[str] = mapped_column(String, nullable=False)
     approach: Mapped[str | None] = mapped_column(Text, nullable=True)
+    gender: Mapped[str | None] = mapped_column(String, nullable=True)
+    minority_group: Mapped[str | None] = mapped_column(String, nullable=True)
     background: Mapped[str | None] = mapped_column(Text, nullable=True)
     video_platform: Mapped[str | None] = mapped_column(String, nullable=True)
     email: Mapped[str | None] = mapped_column(String, nullable=True)
@@ -44,17 +44,4 @@ class ProfessionalModel(Base):
     person: Mapped["PersonModel"] = relationship(
         "PersonModel",
         back_populates="professional",
-    )
-
-    professional_patients: Mapped[list["ProfessionalPatientModel"]] = relationship(
-        "ProfessionalPatientModel",
-        back_populates="professional",
-        cascade="all, delete-orphan",
-    )
-
-    patients: Mapped[list["PatientModel"]] = relationship(
-        "PatientModel",
-        secondary="professional_patient",
-        back_populates="professionals",
-        viewonly=True,
     )
