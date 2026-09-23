@@ -21,14 +21,20 @@ class OutboxRepository:
                                     available_at=available_at or datetime.now(UTC)))
             session.flush()
 
-    def claim(self) -> OutboxModel | None:
+    def claim(self, *, matching: bool = False) -> OutboxModel | None:
         now = datetime.now(UTC)
         with self.factory() as session, session.begin():
-            item = session.scalar(select(OutboxModel).where(or_(
+            item = session.scalar(select(OutboxModel).where(
+                OutboxModel.kind == "matching.requested" if matching else OutboxModel.kind != "matching.requested", or_(
                 and_(OutboxModel.status == "pending", OutboxModel.available_at <= now),
                 and_(OutboxModel.status == "processing", OutboxModel.locked_until <= now),
             )).order_by(OutboxModel.available_at, OutboxModel.id).limit(1).with_for_update(skip_locked=True))
             if item is None:
+                return None
+            if matching and item.attempts >= 5:
+                item.status = "failed"
+                item.locked_until = None
+                item.last_error = "Matching delivery attempts exhausted"
                 return None
             item.status = "processing"
             item.attempts += 1

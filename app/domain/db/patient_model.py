@@ -8,8 +8,6 @@ from app.domain.db.base import Base
 
 if TYPE_CHECKING:
     from app.domain.db.person_model import PersonModel
-    from app.domain.db.professional_model import ProfessionalModel
-    from app.domain.db.professional_patient_model import ProfessionalPatientModel
 
 
 class PatientModel(Base):
@@ -32,17 +30,4 @@ class PatientModel(Base):
         "PersonModel",
         back_populates="patients",
         lazy="joined",
-    )
-
-    professional_patients: Mapped[list["ProfessionalPatientModel"]] = relationship(
-        "ProfessionalPatientModel",
-        back_populates="patient",
-        cascade="all, delete-orphan",
-    )
-
-    professionals: Mapped[list["ProfessionalModel"]] = relationship(
-        "ProfessionalModel",
-        secondary="professional_patient",
-        back_populates="patients",
-        viewonly=True,
     )

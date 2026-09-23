@@ -192,6 +192,7 @@ class ActionExecutor:
                 field="price_range",
             ),
             "redis_get_patient_stage_summary": self.redis_get_patient_stage_summary,
+            "request_matching": self.request_matching,
             "sheets_register_patient": self.sheets_register_patient,
             "sheets_register_professional": self.sheets_register_professional,
             "faq_process_question": self.faq_process_question,
@@ -389,6 +390,8 @@ class ActionExecutor:
             background=None,
             video_platform=context.video_tool,
             email=context.email,
+            gender=context.gender,
+            minority_group=context.minority_group,
             created_at=message.created_at,
         )
         return ""
@@ -645,6 +648,16 @@ class ActionExecutor:
         )
         return ActionResult(next_node=next_node)
 
+    async def request_matching(self, message: Message, *, patient_id: int | None = None) -> str:
+        """Publish only a newly committed registration, within its SQL transaction."""
+        if patient_id is None:
+            raise ValueError("Matching requires the newly created patient_id")
+        self.outbox_repository.enqueue(
+            f"matching:patient:{patient_id}", "matching.requested",
+            {"patient_id": patient_id, "source": "chatbot"},
+        )
+        return ""
+
     async def _register_patient_request(
         self,
         message: Message,
@@ -689,7 +702,7 @@ class ActionExecutor:
         if person_changed:
             self.person_repository.update(person)
 
-        self.patient_repository.create(
+        patient = self.patient_repository.create(
             PatientModel(
                 person_id=person.id,
                 area=context.area,
@@ -699,6 +712,7 @@ class ActionExecutor:
                 created_at=message.created_at or datetime.utcnow(),
             )
         )
+        await self.request_matching(message, patient_id=patient.id)
         await self.postgres_set_chat_state(
             message,
             chat_state=(

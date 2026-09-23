@@ -130,6 +130,7 @@ async def test_register_new_patient_request_persists_preferences_and_sets_state(
     executor, _, _, person_repository, patient_stage_repository, _ = make_executor()
     message = make_message("Até R$300")
     person = MagicMock(id=42, name=None)
+    executor.patient_repository.create.return_value = MagicMock(id=123)
     person_repository.get_by_phone_number_and_channel.return_value = person
     patient_stage_repository.get_context = AsyncMock(
         return_value=PatientStageContext(
@@ -150,6 +151,9 @@ async def test_register_new_patient_request_persists_preferences_and_sets_state(
     person_repository.update.assert_called_once_with(person)
     created_patient = executor.patient_repository.create.call_args.args[0]
     assert isinstance(created_patient, PatientModel)
+    executor.outbox_repository.enqueue.assert_called_once_with(
+        "matching:patient:123", "matching.requested", {"patient_id": 123, "source": "chatbot"},
+    )
     assert created_patient.person_id == 42
     assert created_patient.area == "Psicoterapia"
     assert created_patient.psychotherapy_approach == "TCC"
@@ -199,6 +203,8 @@ async def test_register_professional_application_from_stage(name: str | None) ->
         background=None,
         video_platform="Meet",
         email="maria@example.com",
+        gender=None,
+        minority_group=None,
         created_at=message.created_at,
     )
 

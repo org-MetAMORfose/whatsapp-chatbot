@@ -1,7 +1,5 @@
 from __future__ import annotations
 
-from datetime import datetime
-
 import pytest
 from sqlalchemy.orm import Session, sessionmaker
 
@@ -127,80 +125,3 @@ def test_update(
     found = professional_repository.get_by_id(professional.id)
     assert found is not None
     assert found.email == "after@test.com"
-
-
-def test_get_with_patients(
-    professional_repository: ProfessionalRepository,
-    make_professional,
-    make_patient,
-    make_person,
-    make_professional_patient_link,
-) -> None:
-    professional = make_professional(
-        person=make_person(phone_number="11930000005"),
-        professional_register="10005",
-        email="withpatients@test.com",
-    )
-    patient_1 = make_patient(person=make_person(phone_number="11930000051"))
-    patient_2 = make_patient(person=make_person(phone_number="11930000052"))
-    make_professional_patient_link(
-        professional_id=professional.id,
-        patient_id=patient_1.id,
-    )
-    make_professional_patient_link(
-        professional_id=professional.id,
-        patient_id=patient_2.id,
-    )
-
-    found = professional_repository.get_with_patients(professional.id)
-
-    assert found is not None
-    assert found.person.id == professional.person_id
-    assert {patient.id for patient in found.patients} == {patient_1.id, patient_2.id}
-
-
-def test_get_with_patients_returns_none_when_not_found(
-    professional_repository: ProfessionalRepository,
-) -> None:
-    assert professional_repository.get_with_patients(999999) is None
-
-
-def test_get_patients_returns_empty_list(
-    professional_repository: ProfessionalRepository,
-    make_professional,
-    make_person,
-) -> None:
-    professional = make_professional(
-        person=make_person(phone_number="11930000008"),
-        professional_register="10008",
-    )
-
-    assert professional_repository.get_patients(professional.id) == []
-    assert professional_repository.get_patients(999999) == []
-
-
-def test_get_patients(
-    professional_repository: ProfessionalRepository,
-    make_professional,
-    make_patient,
-    make_person,
-    make_professional_patient_link,
-) -> None:
-    professional = make_professional(
-        person=make_person(phone_number="11930000009"),
-        professional_register="10009",
-    )
-    patients = [
-        make_patient(person=make_person(phone_number="11930000091")),
-        make_patient(person=make_person(phone_number="11930000092")),
-    ]
-    for patient in patients:
-        make_professional_patient_link(
-            professional_id=professional.id,
-            patient_id=patient.id,
-            created_at=datetime.utcnow(),
-        )
-
-    found_patients = professional_repository.get_patients(professional.id)
-
-    assert {patient.id for patient in found_patients} == {patient.id for patient in patients}

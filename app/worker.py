@@ -75,6 +75,46 @@ async def relay(repository: OutboxRepository, ctx: AppContext) -> None:
                 await asyncio.sleep(1)
 
 
+async def matching_relay(repository: OutboxRepository, ctx: AppContext) -> None:
+    """Invoke asynchronously; only Lambda commits successful completion."""
+    import json
+    import os
+
+    import boto3
+    from botocore.config import Config
+
+    name = os.environ.get("MATCHING_LAMBDA_NAME")
+    if not name:
+        logger.warning("MATCHING_LAMBDA_NAME unset; matching events remain pending")
+        await ctx.wait_for_shutdown()
+        return
+    client = boto3.client("lambda",
+        region_name=os.environ.get("AWS_REGION") or os.environ.get("AWS_DEFAULT_REGION", "us-east-1"),
+        config=Config(connect_timeout=5, read_timeout=10, retries={"max_attempts": 2}))
+
+    def deliver() -> bool:
+        item = repository.claim(matching=True)
+        if item is None:
+            return False
+        try:
+            response = client.invoke(FunctionName=name, InvocationType="Event",
+                Payload=json.dumps({"operation_id": item.id, "attempt": item.attempts}).encode())
+            if response["StatusCode"] != 202:
+                raise RuntimeError("Lambda did not accept matching event")
+            # Leave processing until Lambda commits, or the lease expires.
+        except Exception as exc:
+            repository.finish(item, exc)
+            logger.exception("Matching invocation failed: id=%s", item.id)
+        return True
+
+    loop = asyncio.get_running_loop()
+    with ThreadPoolExecutor(max_workers=1, thread_name_prefix="matching") as executor:
+        while not ctx.is_shutting_down():
+            if not await loop.run_in_executor(executor, deliver):
+                await asyncio.sleep(0.2)
+    client.close()
+
+
 async def run() -> None:
     from app.agent.agent import AgentWorker
     from app.channel_adapters.whatsapp import WhatsAppAdapter
@@ -143,7 +183,8 @@ async def run() -> None:
 
             tasks = [asyncio.create_task(consume(inbound, processor.process, ctx)),
                      asyncio.create_task(consume(outbound, send, ctx)),
-                     asyncio.create_task(relay(outbox, ctx)), asyncio.create_task(heartbeat())]
+                     asyncio.create_task(relay(outbox, ctx)), asyncio.create_task(matching_relay(outbox, ctx)),
+                     asyncio.create_task(heartbeat())]
             stopping = asyncio.create_task(ctx.wait_for_shutdown())
             done, _ = await asyncio.wait([*tasks, stopping], return_when=asyncio.FIRST_COMPLETED)
             ctx.request_shutdown()

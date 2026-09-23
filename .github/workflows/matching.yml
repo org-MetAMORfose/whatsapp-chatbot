@@ -1,0 +1,71 @@
+name: Matching Lambda
+on:
+  push:
+    branches: [main]
+    paths: ['matching/**', 'deploy/matching/**', 'migrations/**', 'tests/matching/**', '.github/workflows/matching.yml']
+  pull_request:
+    paths: ['matching/**', 'deploy/matching/**', 'migrations/**', 'tests/matching/**', '.github/workflows/matching.yml']
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: matching-${{ github.ref }}
+  cancel-in-progress: false
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: pgvector/pgvector:0.8.6-pg16
+        env:
+          POSTGRES_PASSWORD: matching-test
+          POSTGRES_DB: matching_test
+        ports: ['15439:5432']
+        options: >-
+          --health-cmd 'pg_isready -U postgres -d matching_test'
+          --health-interval 5s --health-timeout 5s --health-retries 10
+    env:
+      PYTHON_DOTENV_DISABLED: '1'
+      MATCHING_TEST_DATABASE_URL: postgresql+psycopg://postgres:matching-test@localhost:15439/matching_test
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v6
+        with:
+          python-version: '3.13'
+      - run: uv sync --frozen --dev
+      - run: uv run ruff check matching tests/matching
+      - run: uv run pytest tests/matching -q
+      - uses: aws-actions/setup-sam@v2
+      - run: sam validate --lint --template deploy/matching/template.yaml
+      - run: sam build --use-container --template-file deploy/matching/template.yaml
+  deploy:
+    needs: test
+    if: github.ref == 'refs/heads/main' && github.event_name != 'pull_request'
+    runs-on: ubuntu-latest
+    environment: matching-production
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ vars.MATCHING_DEPLOY_ROLE_ARN }}
+          aws-region: ${{ vars.AWS_REGION }}
+      - uses: aws-actions/setup-sam@v2
+      # Schema migrations are owned by the application's existing migrator.
+      # Configure this environment only after 0010_matching is applied.
+      - name: Require compatible schema release
+        env:
+          SCHEMA_REVISION: ${{ vars.MATCHING_SCHEMA_REVISION }}
+        run: test "$SCHEMA_REVISION" = '0010_matching'
+      - run: sam build --use-container --template-file deploy/matching/template.yaml
+      - name: Deploy
+        env:
+          SECRET_ARN: ${{ vars.MATCHING_DATABASE_SECRET_ARN }}
+          SUBNETS: ${{ vars.MATCHING_SUBNET_IDS }}
+          GROUPS: ${{ vars.MATCHING_SECURITY_GROUP_IDS }}
+        run: >-
+          sam deploy --stack-name metamorfose-matching --resolve-s3
+          --capabilities CAPABILITY_IAM --no-confirm-changeset --no-fail-on-empty-changeset
+          --parameter-overrides "DatabaseSecretArn=$SECRET_ARN" "SubnetIds=$SUBNETS" "SecurityGroupIds=$GROUPS"
