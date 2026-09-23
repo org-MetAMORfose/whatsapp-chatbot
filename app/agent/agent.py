@@ -8,7 +8,7 @@ from app.agent.chat_flow import ChatFlow, Node
 from app.agent.faq_flow import FaqFlow
 from app.context import AppContext
 from app.domain.message import Message
-from app.message_queue import MessageQueue
+from app.infra.message_queue import MessageQueue
 from app.repository.redis.chat_repository import ChatRepository
 from app.repository.redis.patient_stage_repository import PatientStageRepository
 from app.repository.redis.professional_stage_repository import ProfessionalStageRepository

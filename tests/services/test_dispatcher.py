@@ -1,3 +1,4 @@
+from datetime import UTC, datetime
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
@@ -10,7 +11,7 @@ from app.services.dispatcher_service import MessageDispatcherService
 
 def message() -> Message:
     return Message(message_id=1, event_id="reply:abc", channel=Channel.WHATSAPP,
-                   chat_id="123", user_id="123", content="hello", created_at=None)
+                   chat_id="123", user_id="123", content="hello", created_at=datetime.now(UTC))
 
 
 @pytest.mark.asyncio

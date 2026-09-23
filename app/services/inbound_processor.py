@@ -7,15 +7,17 @@ from uuid import uuid4
 from sqlalchemy.orm import Session
 
 from app.agent.agent import AgentWorker
+from app.config import settings
 from app.domain.db.delivery_model import InboxModel
 from app.domain.db.message_history_model import MessageHistoryModel
 from app.domain.enum.chat_mode import ChatMode
 from app.domain.message import Message, MessageButton
-from app.message_queue.message_queue import Delivery, MessageQueue
+from app.infra.message_queue import Delivery, MessageQueue
 from app.repository.redis.staged_state import stage_state
 from app.repository.sql.person_repository import PersonRepository
 from app.repository.sql.transaction import transaction
 from app.services.s3_media_service import S3MediaService
+from app.services.whatsapp_media_service import WhatsAppMediaService
 
 
 class InboundProcessor:
@@ -26,6 +28,9 @@ class InboundProcessor:
 
     async def process(self, delivery: Delivery) -> None:
         message = delivery.message
+        if not message.is_recent():
+            await self.inbound.ack(delivery)
+            return
         event_id = message.event_id or f"{message.channel.value}:{message.message_id}"
         with self.factory() as session:
             receipt = session.get(InboxModel, event_id)
@@ -40,8 +45,13 @@ class InboundProcessor:
         if message.media_id is not None and message.media is None:
             if self.media is None or message.media_type is None:
                 raise RuntimeError("S3 media storage is not configured")
-            path = await self.media.upload_from_whatsapp(message.media_id, message.media_type)
+            downloaded = await WhatsAppMediaService(settings.WHATSAPP_ACCESS_TOKEN).download(message.media_id)
+            path = await self.media.upload_file(downloaded.content, downloaded.content_type, message.media_type)
             message = message.model_copy(update={"media": path})
+
+        if not message.is_recent():
+            await self.inbound.ack(delivery)
+            return
 
         with stage_state() as state, transaction(self.factory) as session:
             person = self.people.get_or_create_person(message.user_id, message.channel)
@@ -51,6 +61,10 @@ class InboundProcessor:
                     content=message.content, media_path=message.media, is_from_user=True,
                 ))
                 message = message.model_copy(update={"history_id": history.id})
+            if message.media is not None and message.history_id is not None:
+                history_row = session.get(MessageHistoryModel, message.history_id)
+                if history_row is not None:
+                    history_row.media_path = message.media
             response: Message | None = None
             if person.chat_mode != ChatMode.MANUAL:
                 answer = await self.agent._process_message(message)
@@ -58,7 +72,7 @@ class InboundProcessor:
                     [MessageButton(id=str(uuid4()), title=title) for title in answer.buttons] if answer.buttons else None
                 )
                 response = Message(
-                    event_id=f"reply:{event_id}", message_id=message.message_id, created_at=None,
+                    event_id=f"reply:{event_id}", message_id=message.message_id, created_at=message.created_at,
                     channel=message.channel, user_id=message.user_id, chat_id=message.chat_id,
                     content=answer.content, buttons=buttons,
                 )

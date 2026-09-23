@@ -1,6 +1,6 @@
 """Defines the Message class representing a message in the chat."""
 
-from datetime import datetime
+from datetime import UTC, datetime
 from typing import TypedDict
 
 from pydantic import BaseModel
@@ -32,3 +32,10 @@ class Message(BaseModel):
 
     media: str | None = None
     buttons: list[MessageButton] | None = None
+
+    def is_recent(self, now: datetime | None = None) -> bool:
+        if self.created_at is None:
+            return False
+        timestamp = self.created_at.replace(tzinfo=UTC) if self.created_at.tzinfo is None else self.created_at
+        age = ((now or datetime.now(UTC)) - timestamp).total_seconds()
+        return 0 <= age <= 300

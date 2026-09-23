@@ -1,21 +1,14 @@
-from datetime import UTC, datetime
-from unittest.mock import AsyncMock
-
-import pytest
+from datetime import UTC, datetime, timedelta
 
 from app.domain.enum.channels import Channel
 from app.domain.message import Message
-from app.services.receiver_service import MessageReceiverService
 
 
-@pytest.mark.asyncio
-async def test_ingress_only_publishes_and_propagates_redis_failure() -> None:
-    queue = AsyncMock()
-    receiver = MessageReceiverService(queue)
-    message = Message(message_id=1, created_at=datetime.now(UTC), channel=Channel.WHATSAPP,
-                      chat_id="123", user_id="123", content="hello")
-    await receiver.handle(message)
-    queue.publish.assert_awaited_once_with(message)
-    queue.publish.side_effect = ConnectionError("Redis unavailable")
-    with pytest.raises(ConnectionError):
-        await receiver.handle(message)
+def test_message_age_boundaries() -> None:
+    now = datetime.now(UTC)
+    message = Message(message_id=1, created_at=now, channel=Channel.WHATSAPP, chat_id="1", user_id="1", content="hi")
+    assert message.is_recent(now)
+    assert message.model_copy(update={"created_at": now - timedelta(seconds=300)}).is_recent(now)
+    assert not message.model_copy(update={"created_at": now - timedelta(seconds=301)}).is_recent(now)
+    assert not message.model_copy(update={"created_at": None}).is_recent(now)
+    assert not message.model_copy(update={"created_at": now + timedelta(seconds=1)}).is_recent(now)

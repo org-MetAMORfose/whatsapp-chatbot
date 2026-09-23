@@ -7,11 +7,9 @@ from typing import Literal
 from uuid import uuid4
 
 import boto3
-import httpx
 
 logger = logging.getLogger(__name__)
 
-_WHATSAPP_API_BASE = "https://graph.facebook.com/v23.0"
 MediaType = Literal["image", "document", "video"]
 MEDIA_TYPES = frozenset({"image", "document", "video"})
 
@@ -29,13 +27,11 @@ class StoredMedia:
 class S3MediaService:
     def __init__(
         self,
-        whatsapp_token: str,
         bucket: str,
         region: str,
         aws_access_key_id: str,
         aws_secret_access_key: str,
     ) -> None:
-        self._token = whatsapp_token
         self._bucket = bucket
         self._region = region
         self._s3 = boto3.client(
@@ -75,42 +71,6 @@ class S3MediaService:
         )
 
         logger.info("Uploaded file to S3 (key=%s)", key)
-        return key
-
-    async def upload_from_whatsapp(self, media_id: str, media_type: str) -> str:
-        """Download WhatsApp media, store it in S3, and return its object path."""
-        if media_type not in MEDIA_TYPES:
-            raise ValueError("media_type must be 'image', 'document' or 'video'")
-
-        headers = {"Authorization": f"Bearer {self._token}"}
-
-        async with httpx.AsyncClient(timeout=60.0) as client:
-            meta_resp = await client.get(
-                f"{_WHATSAPP_API_BASE}/{media_id}",
-                headers=headers,
-            )
-            meta_resp.raise_for_status()
-            meta = meta_resp.json()
-
-            download_url: str = meta["url"]
-            mime_type: str = meta.get("mime_type", "application/octet-stream")
-
-            file_resp = await client.get(download_url, headers=headers)
-            file_resp.raise_for_status()
-            file_bytes = file_resp.content
-
-        ext = mimetypes.guess_extension(mime_type.split(";")[0].strip()) or ""
-        key = f"media/{media_type}/{media_id}{ext}"
-
-        await asyncio.to_thread(
-            self._s3.put_object,
-            Bucket=self._bucket,
-            Key=key,
-            Body=file_bytes,
-            ContentType=mime_type,
-        )
-
-        logger.info("Uploaded WhatsApp media %s to S3 (key=%s)", media_id, key)
         return key
 
     async def get_file(self, media_path: str) -> StoredMedia:

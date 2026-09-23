@@ -30,12 +30,8 @@ def upgrade() -> None:
         sa.Column("result", postgresql.JSONB(), nullable=False),
         sa.Column("created_at", sa.DateTime(timezone=True), nullable=False),
     )
-    # Preserve historical channel labels without exposing retired channels in the runtime enum.
-    op.alter_column("person", "channel", type_=sa.String(), postgresql_using="channel::text")
 
 
 def downgrade() -> None:
-    op.alter_column("person", "channel", type_=postgresql.ENUM(name="channel", create_type=False),
-                    postgresql_using="channel::channel")
     op.drop_table("inbox")
     op.drop_table("outbox")

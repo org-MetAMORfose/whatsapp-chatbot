@@ -7,8 +7,8 @@ from app.domain.db.delivery_model import InboxModel
 from app.domain.db.message_history_model import MessageHistoryModel
 from app.domain.enum.channels import Channel
 from app.domain.message import Message
+from app.infra.message_queue import MessageQueue
 from app.interfaces.bot_adapter import BotAdapter
-from app.message_queue.message_queue import MessageQueue
 from app.repository.sql.person_repository import PersonRepository
 from app.repository.sql.transaction import transaction
 
@@ -36,6 +36,8 @@ class MessageDispatcherService:
     async def dispatch(self, message: Message) -> None:
         logger.info("Dispatching message: %s", message)
 
+        if not message.is_recent():
+            return
         adapter = self.channels.get(message.channel)
         if adapter is None:
             logger.error("No adapter found for channel %s", message.channel)

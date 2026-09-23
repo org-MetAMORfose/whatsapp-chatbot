@@ -1,5 +1,4 @@
 from unittest.mock import MagicMock
-from urllib.parse import unquote
 
 import pytest
 import requests
@@ -14,25 +13,24 @@ def service() -> GoogleSheetsService:
     return instance
 
 
-def test_retry_updates_row_identified_by_operation_id() -> None:
+def test_retry_uses_metadata_without_writing_again() -> None:
     sheets = service()
-    sheets._client.request.return_value.json.return_value = {"values": [["header"], ["registration:123"]]}
-    payload = {"name": "Ana", "phone": "5511999999999", "area": "Psicoterapia", "birth_date": ""}
-    sheets.deliver("registration:123", "sheets.patient.upsert.v1", payload)
-    sheets.deliver("registration:123", "sheets.patient.upsert.v1", payload)
-    writes = [call for call in sheets._client.request.call_args_list if call.args[0] == "PUT"]
-    assert len(writes) == 2
-    for call in writes:
-        assert unquote(call.args[1]).endswith("'Patients'!A2:G2")
-        assert call.kwargs["json"]["values"][0][-1] == "registration:123"
-        assert call.kwargs["timeout"] == 30
+    sheets._client.request.return_value.json.return_value = {"matchedDeveloperMetadata": [{"developerMetadata": {"metadataId": 123}}]}
+    sheets.deliver("registration:123", "sheets.patient.upsert.v1", {"name": "Ana", "phone": "123", "area": "Psi", "birth_date": ""})
+    sheets._client.request.assert_called_once()
+    assert sheets._client.request.call_args.args[1].endswith("/developerMetadata:search")
 
 
-def test_new_delivery_appends_after_existing_rows() -> None:
+def test_values_and_metadata_are_written_atomically_without_column_g() -> None:
     sheets = service()
-    sheets._client.request.return_value.json.side_effect = [{"values": []}, {"values": [["header"], ["old row"]]}, {}]
+    sheets._client.request.return_value.json.side_effect = [{}, {"values": [["header"], ["old row"]]}, {}]
     sheets.deliver("new", "sheets.patient.upsert.v1", {"name": "Ana", "phone": "123", "area": "Psi", "birth_date": ""})
-    assert unquote(sheets._client.request.call_args.args[1]).endswith("'Patients'!A3:G3")
+    call = sheets._client.request.call_args
+    assert call.args[1].endswith(":batchUpdate")
+    batch = call.kwargs["json"]["requests"]
+    assert len(batch[1]["updateCells"]["rows"][0]["values"]) == 6
+    assert batch[1]["updateCells"]["start"]["rowIndex"] == 2
+    assert batch[2]["createDeveloperMetadata"]["developerMetadata"]["metadataValue"]
 
 
 def test_http_failure_propagates_for_outbox_retry() -> None:

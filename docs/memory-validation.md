@@ -1,5 +1,8 @@
 # Verificação de memória — 22/09/2026
 
+> Relatório histórico anterior às correções de 23/09 (novo agendador e metadata no Sheets).
+> Não representa uma medição refeita da versão atual.
+
 ## Resultado observado
 
 Teste local Linux, Docker Engine 29.8.1, imagem Python 3.13 slim, um processo API e

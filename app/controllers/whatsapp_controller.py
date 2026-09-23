@@ -10,7 +10,7 @@ import app.config.settings as config
 from app.domain.enum.channels import Channel
 from app.domain.message import Message
 from app.services.receiver_service import MessageReceiverService
-from app.services.s3_media_service import MediaType, S3MediaService
+from app.services.s3_media_service import MediaType
 
 logger = logging.getLogger(__name__)
 
@@ -26,10 +26,8 @@ class WhatsAppController:
     def __init__(
         self,
         message_handler: MessageReceiverService,
-        s3_service: S3MediaService | None = None,
     ) -> None:
         self.message_handler = message_handler
-        self.s3_service = s3_service
         self.router = APIRouter()
 
         self.router.add_api_route(

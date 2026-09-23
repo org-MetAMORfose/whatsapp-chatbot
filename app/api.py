@@ -10,9 +10,10 @@ from app.controllers.health_controller import HealthController
 from app.controllers.send_message_controller import SendMessageController
 from app.controllers.upload_media_controller import UploadMediaController
 from app.controllers.whatsapp_controller import WhatsAppController
-from app.message_queue import MessageQueue
+from app.infra.media_factory import create_media_service
+from app.infra.message_queue import MessageQueue
 from app.repository.sql.faq_knowledge_repository import FaqKnowledgeRepository
-from app.services.media_factory import create_media_service
+from app.repository.sql.person_repository import PersonRepository
 from app.services.receiver_service import MessageReceiverService
 
 
@@ -31,7 +32,7 @@ def create_app() -> FastAPI:
             engine.dispose()
 
     app = FastAPI(lifespan=lifespan)
-    app.include_router(WhatsAppController(MessageReceiverService(MessageQueue(redis, "inbound"))).router)
+    app.include_router(WhatsAppController(MessageReceiverService(MessageQueue(redis, "inbound"), PersonRepository(factory))).router)
     app.include_router(SendMessageController(MessageQueue(redis, "outbound")).router)
     app.include_router(HealthController(redis).router)
     app.include_router(FaqKnowledgeController(FaqKnowledgeRepository(factory)).router)

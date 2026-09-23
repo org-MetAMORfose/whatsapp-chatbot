@@ -15,7 +15,7 @@ from sqlalchemy import text
 
 from app.config import infra
 from app.context import AppContext
-from app.message_queue.message_queue import Delivery, MessageQueue
+from app.infra.message_queue import Delivery, MessageQueue
 from app.repository.sql.outbox_repository import OutboxRepository
 from app.worker_health import HEARTBEAT_FILE
 
@@ -26,6 +26,7 @@ async def consume(queue: MessageQueue, handler: Callable[[Delivery], Awaitable[N
     while not ctx.is_shutting_down():
         delivery = await queue.claim_next()
         if delivery is None:
+            await asyncio.sleep(0.1)
             continue
         try:
             await handler(delivery)
@@ -37,7 +38,7 @@ async def consume(queue: MessageQueue, handler: Callable[[Delivery], Awaitable[N
             if delivery.attempts >= 5:
                 await queue.dead_letter(delivery, exc)
             else:
-                await asyncio.sleep(min(30, 2 ** delivery.attempts))
+                await queue.retry(delivery, min(30, 2 ** delivery.attempts))
 
 
 async def relay(repository: OutboxRepository, ctx: AppContext) -> None:
@@ -77,6 +78,7 @@ async def relay(repository: OutboxRepository, ctx: AppContext) -> None:
 async def run() -> None:
     from app.agent.agent import AgentWorker
     from app.channel_adapters.whatsapp import WhatsAppAdapter
+    from app.infra.media_factory import create_media_service
     from app.repository.redis.chat_repository import ChatRepository
     from app.repository.redis.patient_stage_repository import PatientStageRepository
     from app.repository.redis.professional_stage_repository import ProfessionalStageRepository
@@ -87,7 +89,6 @@ async def run() -> None:
     from app.repository.sql.professional_repository import ProfessionalRepository
     from app.services.dispatcher_service import MessageDispatcherService
     from app.services.inbound_processor import InboundProcessor
-    from app.services.media_factory import create_media_service
 
     ctx = AppContext()
     loop = asyncio.get_running_loop()

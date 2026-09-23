@@ -1,5 +1,6 @@
 """Small authenticated REST client for Sheets; no discovery resource graphs."""
 from dataclasses import dataclass
+from hashlib import sha256
 from typing import Any
 from urllib.parse import parse_qs, quote, urlparse
 
@@ -101,21 +102,37 @@ class GoogleSheetsService:
 
     def deliver(self, operation_id: str, kind: str, payload: dict[str, Any]) -> None:
         if kind == "sheets.patient.upsert.v1":
-            sheet, end, column = self._patients, "G", 6
+            sheet, end = self._patients, "F"
             row = PatientSheet.model_validate(payload).to_sheet_row()
         elif kind == "sheets.professional.upsert.v1":
-            sheet, end, column = self._professionals, "O", 14
+            sheet, end = self._professionals, "N"
             row = ProfessionalSheet.model_validate(payload).to_sheet_row()
         else:
             raise ValueError(f"Unsupported delivery kind: {kind}")
-        # Read only the ID column on retries. On new entries preserve the original row layout,
-        # including sheets with empty leading columns, using explicit coordinates.
-        ids = self._read(sheet, f"{end}:{end}")
-        row_number = next((i for i, values in enumerate(ids, 1) if values and values[0] == operation_id), None)
-        if row_number is None:
-            row_number = max(2, len(self._read(sheet, f"A:{end}")) + 1)
-        values = (row + [""] * column)[:column] + [operation_id]
-        self._write(sheet, f"A{row_number}:{end}{row_number}", [values])
+        metadata_key = f"outbox:{sheet.gid}"
+        metadata_value = sha256(operation_id.encode()).hexdigest()
+        found = self._request("POST", f"{sheet.spreadsheet_id}/developerMetadata:search", body={
+            "dataFilters": [{"developerMetadataLookup": {
+                "metadataKey": metadata_key, "metadataValue": metadata_value, "visibility": "DOCUMENT",
+            }}],
+        })
+        if found.get("matchedDeveloperMetadata"):
+            return
+        row_index = max(1, len(self._read(sheet, f"A:{end}")))
+        location = {"sheetId": sheet.gid, "dimension": "ROWS", "startIndex": row_index, "endIndex": row_index + 1}
+        # Metadata and visible values commit in one Google batch. No technical G/O columns.
+        self._request("POST", f"{sheet.spreadsheet_id}:batchUpdate", body={"requests": [
+            {"insertDimension": {"range": location, "inheritFromBefore": True}},
+            {"updateCells": {
+                "start": {"sheetId": sheet.gid, "rowIndex": row_index, "columnIndex": 0},
+                "rows": [{"values": [{"userEnteredValue": {"stringValue": cell}} for cell in row]}],
+                "fields": "userEnteredValue",
+            }},
+            {"createDeveloperMetadata": {"developerMetadata": {
+                "metadataKey": metadata_key, "metadataValue": metadata_value, "visibility": "DOCUMENT",
+                "location": {"dimensionRange": location},
+            }}},
+        ]})
 
     def register_patient(self, patient: PatientSheet) -> None:
         row = max(2, len(self._read(self._patients, "A:F")) + 1)

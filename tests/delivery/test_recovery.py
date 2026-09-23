@@ -12,7 +12,7 @@ from app.domain.db.message_history_model import MessageHistoryModel
 from app.domain.db.person_model import PersonModel
 from app.domain.enum.channels import Channel
 from app.domain.message import Message
-from app.message_queue.message_queue import MessageQueue
+from app.infra.message_queue import MessageQueue
 from app.repository.redis.staged_state import StagedState, stage_state
 from app.repository.sql.outbox_repository import OutboxRepository
 from app.repository.sql.person_repository import PersonRepository
@@ -23,7 +23,7 @@ from app.services.inbound_processor import InboundProcessor
 
 def message() -> Message:
     return Message(event_id=uuid4().hex, message_id=1, channel=Channel.WHATSAPP,
-                   chat_id=uuid4().hex, user_id=uuid4().hex, created_at=None, content="hello")
+                   chat_id=uuid4().hex, user_id=uuid4().hex, created_at=datetime.now(UTC), content="hello")
 
 
 @pytest.mark.asyncio
@@ -38,8 +38,7 @@ async def test_claim_survives_consumer_crash_and_deduplicates_publish(redis_clie
     recovered = await restarted.claim_next()
     assert recovered is not None and recovered.id == claimed.id and recovered.attempts == 2
     await restarted.ack(recovered)
-    assert await redis_client.xlen(queue.key) == 0
-    assert (await redis_client.xpending(queue.key, queue.group))["pending"] == 0
+    assert (await queue.get_metrics())["pending"] == 0
 
 
 @pytest.mark.asyncio
@@ -70,20 +69,20 @@ async def test_committed_result_replays_without_repeating_actions(factory, redis
         assert session.get(InboxModel, msg.event_id) is not None
         assert session.get(OutboxModel, msg.event_id) is not None
     inbound.complete_inbound = complete  # type: ignore[method-assign]
+    await inbound.retry(delivery, 0)
     recovered = await inbound.claim_next()
     assert recovered is not None
     await processor.process(recovered)
     agent._process_message.assert_awaited_once()
     assert await redis_client.get(state_key) == "next-state"
-    assert await redis_client.xlen(outbound.key) == 1
+    assert (await outbound.get_metrics())["pending"] == 1
     # A delayed duplicate must not restore the earlier state or enqueue another reply.
     await redis_client.set(state_key, "newer-state")
-    await redis_client.xadd(inbound.key, {"payload": msg.model_dump_json()})
-    duplicate = await inbound.claim_next()
-    assert duplicate is not None
-    await processor.process(duplicate)
+    # Publisher suppresses the completed duplicate while its bounded receipt exists.
+    await inbound.publish(msg)
+    assert await inbound.claim_next() is None
     assert await redis_client.get(state_key) == "newer-state"
-    assert await redis_client.xlen(outbound.key) == 1
+    assert (await outbound.get_metrics())["pending"] == 1
     with factory() as session:
         assert session.scalar(select(func.count()).select_from(MessageHistoryModel)) == 1
 
@@ -144,30 +143,113 @@ async def test_outbound_receipt_prevents_duplicate_send_and_history(factory):
 
 
 @pytest.mark.asyncio
-async def test_poison_message_moves_to_failed_stream(redis_client):
+async def test_chat_order_and_retry_does_not_block_other_chats(redis_client):
     queue = MessageQueue(redis_client, uuid4().hex)
-    await redis_client.xadd(queue.key, {"payload": "invalid json"})
-    delivery = await queue.claim_next()
-    assert delivery is not None
-    with pytest.raises(ValueError):
-        _ = delivery.message
-    await queue.dead_letter(delivery, ValueError())
-    assert (await queue.get_metrics()) == {"pending": 0, "failed": 1}
+    now = datetime.now(UTC)
+    a_old = message().model_copy(update={"chat_id": "a", "created_at": now - timedelta(seconds=20)})
+    a_new = message().model_copy(update={"chat_id": "a", "created_at": now - timedelta(seconds=10)})
+    b = message().model_copy(update={"chat_id": "b", "created_at": now - timedelta(seconds=5)})
+    for msg in (a_new, b, a_old):
+        await queue.publish(msg)
+    first = await queue.claim_next()
+    assert first is not None and first.message.event_id == a_old.event_id
+    await queue.retry(first, 60)
+    other = await queue.claim_next()
+    assert other is not None and other.message.chat_id == "b"
+    await queue.ack(other)
+    assert await queue.claim_next() is None
+    await queue.retry(first, 0)
+    again = await queue.claim_next()
+    assert again is not None and again.id == first.id
+    await queue.ack(again)
+    last = await queue.claim_next()
+    assert last is not None and last.message.event_id == a_new.event_id
 
 
 @pytest.mark.asyncio
-async def test_legacy_queue_migration_is_fifo_and_keeps_history(redis_client):
-    from app.migrate_queues import MOVE
-    name = uuid4().hex
-    legacy, stream = f"test:legacy:{name}", f"test:stream:{name}"
-    first, second = message(), message()
-    first.history_id = 77
-    await redis_client.lpush(legacy, first.model_dump_json())
-    await redis_client.lpush(legacy, second.model_dump_json())
-    assert await redis_client.eval(MOVE, 2, legacy, stream, "legacy:one") == 1
-    assert await redis_client.eval(MOVE, 2, legacy, stream, "legacy:two") == 1
-    assert await redis_client.eval(MOVE, 2, legacy, stream, "legacy:three") == 0
-    rows = await redis_client.xrange(stream)
-    assert Message.model_validate_json(rows[0][1]["payload"]).history_id == 77
-    assert Message.model_validate_json(rows[1][1]["payload"]).chat_id == second.chat_id
-    await redis_client.delete(legacy, stream)
+async def test_expired_ingress_archived_but_not_queued(factory, redis_client):
+    from app.services.receiver_service import MessageReceiverService
+    queue = MessageQueue(redis_client, uuid4().hex)
+    receiver = MessageReceiverService(queue, PersonRepository(factory))
+    old = message().model_copy(update={"created_at": datetime.now(UTC) - timedelta(minutes=6)})
+    await receiver.handle(old)
+    await receiver.handle(old)
+    assert await queue.claim_next() is None
+    with factory() as session:
+        assert session.scalar(select(func.count()).select_from(MessageHistoryModel)) == 1
+
+
+@pytest.mark.asyncio
+async def test_queued_message_expires_but_history_remains(factory, redis_client):
+    import time
+    from unittest.mock import patch
+
+    from app.services.receiver_service import MessageReceiverService
+    queue = MessageQueue(redis_client, uuid4().hex)
+    receiver = MessageReceiverService(queue, PersonRepository(factory))
+    await receiver.handle(message())
+    with patch("app.infra.message_queue.time.time", return_value=time.time() + 301):
+        assert await queue.claim_next() is None
+    with factory() as session:
+        assert session.scalar(select(func.count()).select_from(MessageHistoryModel)) == 1
+
+
+@pytest.mark.asyncio
+async def test_queue_capacity_and_ttl(redis_client):
+    from app.infra.message_queue import QueueFullError
+    queue = MessageQueue(redis_client, uuid4().hex)
+    queue.max_records = 2
+    await queue.publish(message())
+    await queue.publish(message())
+    with pytest.raises(QueueFullError):
+        await queue.publish(message())
+    assert (await queue.get_metrics())["pending"] == 2
+    for key in queue.keys[:2]:
+        assert 0 < await redis_client.ttl(key) <= 3600
+
+
+@pytest.mark.asyncio
+async def test_state_record_cap_and_ttl(redis_client):
+    from app.infra.redis_policy import STATE_INDEX
+    state = StagedState(redis_client)
+    prefix = "test:bounded:" + uuid4().hex
+    for i in range(1026):
+        await state.set(f"{prefix}:{i}", "value", ex=7200)
+    assert await redis_client.zcard(STATE_INDEX) <= 1024
+    assert await state.get(f"{prefix}:0") is None
+    assert 0 < await redis_client.ttl(f"{prefix}:1025") <= 3600
+    keys = [key async for key in redis_client.scan_iter(match=f"{prefix}:*")]
+    if keys:
+        await redis_client.delete(*keys)
+        await redis_client.zrem(STATE_INDEX, *keys)
+
+
+@pytest.mark.asyncio
+async def test_restart_preserves_retry_deadline(redis_client):
+    queue = MessageQueue(redis_client, uuid4().hex)
+    await queue.publish(message())
+    delivery = await queue.claim_next()
+    assert delivery is not None
+    await queue.retry(delivery, 60)
+    restarted = MessageQueue(redis_client, queue.queue_name)
+    assert await restarted.claim_next() is None
+
+
+@pytest.mark.asyncio
+async def test_redis_failure_keeps_history_and_retry_does_not_duplicate(factory, redis_client):
+    from app.services.receiver_service import MessageReceiverService
+    queue = MessageQueue(redis_client, uuid4().hex)
+    publish = queue.publish
+    queue.publish = AsyncMock(side_effect=ConnectionError())  # type: ignore[method-assign]
+    receiver = MessageReceiverService(queue, PersonRepository(factory))
+    msg = message()
+    with pytest.raises(ConnectionError):
+        await receiver.handle(msg)
+    with factory() as session:
+        assert session.scalar(select(func.count()).select_from(MessageHistoryModel)) == 1
+    queue.publish = publish  # type: ignore[method-assign]
+    await receiver.handle(msg)
+    delivery = await queue.claim_next()
+    assert delivery is not None and delivery.message.history_id is not None
+    with factory() as session:
+        assert session.scalar(select(func.count()).select_from(MessageHistoryModel)) == 1

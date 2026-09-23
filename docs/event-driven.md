@@ -10,46 +10,50 @@
 - Um advisory lock PostgreSQL impede dois workers simultâneos neste estágio.
   Não escalar réplicas antes de implementar particionamento por conversa.
 
-Apenas WhatsApp está ativo. Dependência, adapters, runners, configuração e testes
-específicos do canal retirado foram removidos. Migrations antigas não foram editadas;
-a migration nova converte `person.channel` em texto, preservando o histórico.
+Apenas WhatsApp tem integração ativa. `Channel` e `person.channel` continuam enums,
+incluindo o valor histórico TELEGRAM. A migration 0009 apenas cria inbox/outbox.
 
-## Entrada e saída imediata
+## Entrada, retenção e ordenação
 
-O webhook extrai e enfileira cada mensagem, mantendo o ID original do provedor.
-Só confirma HTTP após Redis aceitar; falhas de Redis propagam erro HTTP.
-Mensagens atrasadas não são descartadas apenas por idade. Eventos não suportados
-continuam sendo ignorados. Mídia é enfileirada como ID/tipo e resolvida pelo worker.
+O webhook salva **toda mensagem recebida** no PostgreSQL, inclusive mensagens antigas.
+O recibo `received:{event_id}` evita histórico duplicado e conserva o payload original
+(incluindo referência à mídia). `history_id` é usado pelo FAQ para associar a pergunta
+à tabela de histórico, portanto permanece no modelo.
 
-As filas são Streams, com consumer group, pending entries, confirmação e remoção
-atômicas. O worker recupera a entrada pendente mais antiga antes de aceitar outra.
-Há até cinco tentativas, com atraso exponencial; erros de infraestrutura Redis
-reiniciam o processo e conservam as pendências. Isso preserva ordem, mas um retry
-pode atrasar temporariamente outras conversas. A fila de falhas guarda até mil
-entradas por direção (`message_queue:{inbound|outbound}:stream:failed`), incluindo
-payload, ID original e número de tentativas; as mais antigas saem ao ultrapassar
-esse limite. Monitore e exporte falhas antes disso.
+Somente mensagens com timestamp do WhatsApp de até cinco minutos entram no inbound.
+Sem timestamp, com timestamp futuro ou vencidas: ficam no banco e não são respondidas.
+A fila remove mensagens que vencem enquanto esperam; o dispatcher também confere a
+idade antes do envio. Respostas preservam o timestamp da mensagem que as originou.
 
-A publicação deduplica por ID durante 30 dias. O processamento também registra um
-recibo persistente na tabela `inbox`, evitando repetir ações mesmo após essa janela.
-O registro contém o resultado e as mudanças de estado ainda não aplicadas no Redis.
+`app/infra/message_queue.py` usa sorted sets e registros Redis. A seleção considera
+primeiro o menor timestamp **disponível no Redis** de cada chat. A mensagem reserva
+seu chat enquanto está em processamento. Em falha, `available_at` recebe a data da
+próxima tentativa, sem sleep no caminho de retry: outros chats continuam elegíveis,
+e as seguintes daquele chat aguardam sua primeira mensagem. Eventos que chegam depois
+de outro já processado não podem ser reordenados retroativamente.
 
-Processamento de uma entrada:
+Limites automáticos:
 
-1. Resolver mídia, quando houver.
-2. Abrir transação SQL compartilhada pelos repositórios.
-3. Registrar pessoa/histórico, verificar atendimento manual e executar ações.
-4. Salvar cadastro, intenções de integração e recibo de processamento juntos.
-5. Depois do commit SQL, aplicar estado, enfileirar resposta e confirmar entrada
-   em uma única transação Redis.
+- 512 mensagens por fila; cheia produz erro, sem apagar uma mensagem válida.
+- Mensagens deixam de ser elegíveis após cinco minutos; expurgadas em cada acesso.
+- 512 recibos de conclusão por fila, válidos por até uma hora.
+- 1.024 registros de contexto/draft no total; os de expiração mais próxima são
+  removidos ao exceder o limite. Todos possuem TTL de no máximo uma hora.
+- Payloads/estados Redis limitados a 16 KiB cada.
+- Nenhuma fila de falhas permanente no Redis: o histórico recebido permanece no SQL.
 
-Alterações de estado são acumuladas em memória durante o passo 3, com leitura das
-próprias alterações. Um rollback não avança o fluxo. Se houver queda depois do
-commit SQL, o recibo permite concluir o passo 5 sem executar novamente as ações.
-Uma reentrega posterior não restaura um estado antigo da conversa.
+Não é preciso observar Redis para efetuar limpeza. Falhas de infraestrutura reiniciam
+o worker; na inicialização ele libera reservas abandonadas e preserva os prazos dos
+retries. Há no máximo cinco tentativas antes de abandonar o processamento automático.
 
-O dispatcher registra histórico/recibo depois do envio e confirma a fila.
-`POST /send` agora retorna **202 accepted**, não uma confirmação de entrega.
+Cadastro, outbox e recibo de processamento usam uma transação SQL compartilhada.
+As mudanças do contexto são acumuladas até o commit; estado, resposta e conclusão da
+entrada são então aplicados atomicamente no Redis. O histórico já foi persistido pelo
+webhook antes disso. Falha na publicação não perde o histórico e permite reentrega.
+
+`POST /send` retorna **202 accepted**, não uma confirmação de entrega.
+A factory de mídia fica em `app/infra/media_factory.py`. `WhatsAppMediaService.download`
+retorna bytes e MIME; `S3MediaService` se limita ao armazenamento/leitura no S3.
 
 ## Outbox
 
@@ -83,22 +87,18 @@ Handlers disponíveis: `sheets.patient.upsert.v1` e
 handlers; a tabela já comporta os dados e o agendamento por `available_at`.
 Tipos sem handler falham visivelmente, sem serem marcados como enviados.
 
-A idempotência do Sheets usa uma coluna extra reservada:
-
-- Pacientes: **G**.
-- Profissionais: **O**.
-
-Essas colunas devem estar livres antes do primeiro deploy. Guardam o ID da operação,
-junto dos dados na mesma escrita. Uma tentativa repetida localiza o ID e atualiza
-sua linha. Não apagar/alterar IDs; a garantia pressupõe este único writer e ausência
-de edições concorrentes que desloquem linhas durante uma entrega.
+A deduplicação do Sheets usa **developer metadata**, sem gravar IDs nas colunas
+G/O. Dados e metadata são criados em um único `batchUpdate`; em uma tentativa
+repetida, a metadata indica que a operação já foi aplicada. As colunas originais
+A:F e A:N são preservadas. IDs escritos por versões anteriores não são apagados
+automaticamente de planilhas reais por esta alteração de código.
 
 ## Limites das garantias
 
 - Não há garantia de exatamente uma entrega em APIs externas: cair depois de o
   provedor aceitar e antes de registrar sucesso pode repetir o envio WhatsApp.
 - AOF `everysec` pode perder aproximadamente o último segundo em falha da máquina.
-  Streams não substituem persistência/backup. O Redis é configurado sem eviction.
+  O agendador não substitui persistência/backup. O Redis é configurado sem eviction.
 - SQL e Redis não participam de uma transação distribuída. Os recibos e o protocolo
   de recuperação cobrem quedas normais entre etapas; não resolvem restaurações
   independentes de backups inconsistentes dos dois serviços.
@@ -115,9 +115,10 @@ de edições concorrentes que desloquem linhas durante uma entrega.
 4. Executar `docker compose run --rm --no-deps api python -m app.migrate_queues`.
 5. Iniciar API e worker com `docker compose up -d --remove-orphans api worker`.
 
-O comando move, atomicamente e em FIFO, as listas antigas `*:pending` para Streams.
-Preserva `history_id` de entradas que já tinham histórico. Pode ser repetido: listas
-vazias não fazem nada. Payload inválido interrompe a migração sem remover a entrada.
+O comando arquiva entradas das listas/Streams antigos e publica somente as recentes
+no novo agendador. Preserva histórico existente, remove a origem após publicação e
+aplica os limites de retenção aos contextos antigos. Payload inválido interrompe a
+migração sem remover a entrada. Executar com todos os consumidores parados.
 Verificar previamente pendências do canal removido: não serão consumidas como WhatsApp.
 O workflow de deploy executa essa sequência. Não subir a versão antiga e a nova juntas.
 

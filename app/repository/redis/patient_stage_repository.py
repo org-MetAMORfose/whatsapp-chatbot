@@ -19,7 +19,7 @@ class PatientStageRepository:
 
     redis_client: StagedState
 
-    TTL_SECONDS = 90 * 60
+    TTL_SECONDS = 60 * 60
 
     def __init__(self, redis_client: redis.Redis) -> None:  # type: ignore[type-arg]
         self.redis_client = StagedState(redis_client)

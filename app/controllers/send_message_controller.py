@@ -8,7 +8,7 @@ from pydantic import BaseModel, field_validator
 
 from app.domain.enum.channels import Channel
 from app.domain.message import Message
-from app.message_queue import MessageQueue
+from app.infra.message_queue import MessageQueue
 from app.services.s3_media_service import S3MediaService
 
 logger = logging.getLogger(__name__)
