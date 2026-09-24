@@ -1,5 +1,4 @@
 """Run against a disposable PostgreSQL: MATCHING_TEST_DATABASE_URL only."""
-import json
 import os
 import subprocess
 import sys
@@ -12,7 +11,7 @@ from sqlalchemy import create_engine, text
 from sqlalchemy.engine import Engine
 from sqlalchemy.exc import DBAPIError
 
-from matching.service import execute, retry_pending
+from matching.service import execute, match_pending
 
 
 @pytest.fixture(scope="module")
@@ -59,42 +58,35 @@ def seed(engine: Engine, *, patients: int = 2, capacity: int = 1, cycles: int = 
             person = db.scalar(text("""INSERT INTO person(phone_number,channel,chat_mode,created_at)
                 VALUES (:phone,'WHATSAPP','AUTOMATIC',now()) RETURNING id"""), {"phone": f"patient-{i}"})
             patient = db.scalar(text("INSERT INTO patient(person_id,area,created_at) VALUES (:p,'Psicoterapia',now()) RETURNING id"), {"p": person})
-            db.execute(text("""INSERT INTO outbox(id,kind,payload,status,attempts,available_at,locked_until,created_at)
-                VALUES (:id,'matching.requested',CAST(:payload AS jsonb),'processing',1,now(),now()+interval '5 minutes',now())"""),
-                       {"id": f"event-{i}", "payload": json.dumps({"patient_id": patient})})
+            assert patient is not None
 
 
-def test_last_slot_concurrent_and_idempotent(database):
+def test_last_slot_concurrently(database):
     seed(database)
     barrier = Barrier(2)
 
     def run(i):
         barrier.wait()
-        return execute(database, f"event-{i}", 1)
+        return execute(database, {"patient_id": i + 1})
 
     with ThreadPoolExecutor(max_workers=2) as pool:
         results = list(pool.map(run, range(2)))
     assert sorted(r["status"] for r in results) == ["matched", "no_capacity"]
-    for i in range(2):
-        assert execute(database, f"event-{i}", 1) == results[i]
     with database.connect() as db:
         assert db.scalar(text("SELECT count(*) FROM matching_slot")) == 1
-        assert db.scalar(text("SELECT count(*) FROM outbox WHERE status='sent'")) == 2
+        assert db.scalar(text("SELECT count(*) FROM outbox WHERE kind='matching.completed' AND status='pending'")) == 2
 
 
-def test_same_patient_different_events_concurrently(database):
+def test_same_patient_concurrently(database):
     seed(database, patients=1, cycles=2)
-    with database.begin() as db:
-        db.execute(text("""INSERT INTO outbox SELECT 'duplicate',kind,payload,status,available_at,attempts,locked_until,last_error,created_at
-            FROM outbox WHERE id='event-0'"""))
     barrier = Barrier(2)
 
-    def run(event):
+    def run(_):
         barrier.wait()
-        return execute(database, event, 1)
+        return execute(database, {"patient_id": 1})
 
     with ThreadPoolExecutor(max_workers=2) as pool:
-        results = list(pool.map(run, ["event-0", "duplicate"]))
+        results = list(pool.map(run, range(2)))
     assert results[0] == results[1]
     with database.connect() as db:
         assert db.scalar(text("SELECT count(*) FROM matching_slot")) == 1
@@ -102,82 +94,108 @@ def test_same_patient_different_events_concurrently(database):
 
 def test_pending_patient_matched_after_new_capacity(database):
     seed(database)
-    assert execute(database, "event-0", 1)["status"] == "matched"
-    assert execute(database, "event-1", 1)["status"] == "no_capacity"
+    assert execute(database, {"patient_id": 1})["status"] == "matched"
+    assert execute(database, {"patient_id": 2})["status"] == "no_capacity"
     with database.begin() as db:
         db.execute(text("""INSERT INTO matching_cycle(professional_id,type,promised_patients,starts_at,deadline_at,created_at)
             VALUES (1,'REPLACEMENT',1,now(),now()+interval '1 day',now())"""))
-    assert retry_pending(database)[0]["status"] == "matched"
-    assert retry_pending(database) == []
+    assert match_pending(database)[0]["status"] == "matched"
+    assert match_pending(database) == []
 
 
-def test_stale_attempt_and_expired_cycle(database):
-    seed(database, patients=1)
-    assert execute(database, "event-0", 2)["status"] == "stale_attempt"
+def test_expired_cycle_and_wrong_area(database):
+    seed(database)
+    with database.begin() as db:
+        db.execute(text("UPDATE patient SET area='Psicanálise' WHERE id=1"))
+    assert execute(database, {"patient_id": 1})["status"] == "no_capacity"
     with database.begin() as db:
         db.execute(text("UPDATE matching_cycle SET deadline_at=now()-interval '1 second'"))
-    assert execute(database, "event-0", 1)["status"] == "no_capacity"
+    assert execute(database, {"patient_id": 2})["status"] == "no_capacity"
 
 
-def test_database_rejects_direct_overbooking_and_capacity_reduction(database):
-    seed(database)
-    execute(database, "event-0", 1)
-    with pytest.raises(DBAPIError), database.begin() as db:
-        db.execute(text("""INSERT INTO matching_slot(cycle_id,patient_id,compatibility_score,urgency_score,final_score,
-            score_breakdown,algorithm_version,created_at) VALUES (1,2,0,0,0,'{}','test',now())"""))
-    with pytest.raises(DBAPIError), database.begin() as db:
-        db.execute(text("UPDATE matching_cycle SET promised_patients=0"))
-    with pytest.raises(DBAPIError), database.begin() as db:
-        db.execute(text("DELETE FROM matching_slot"))
-
-
-def test_atomic_rollback_on_insert_failure(database):
-    seed(database, patients=1)
+def test_atomic_rollback_on_outbox_failure(database):
+    seed(database, patients=0)
     with database.begin() as db:
-        db.execute(text("ALTER TABLE matching_slot ADD CONSTRAINT fail_insert CHECK (final_score < 0)"))
+        db.execute(text("ALTER TABLE outbox ADD CONSTRAINT fail_insert CHECK (kind <> 'matching.completed')"))
     try:
         with pytest.raises(DBAPIError):
-            execute(database, "event-0", 1)
+            execute(database, {"name": "Ana", "birth_date": "1990-01-01", "phone_number": "5511999999999", "area": "Psicoterapia"})
         with database.connect() as db:
-            assert db.scalar(text("SELECT status FROM outbox WHERE id='event-0'")) == "processing"
+            assert db.scalar(text("SELECT count(*) FROM patient")) == 0
+            assert db.scalar(text("SELECT count(*) FROM person")) == 1
             assert db.scalar(text("SELECT count(*) FROM matching_slot")) == 0
     finally:
         with database.begin() as db:
-            db.execute(text("ALTER TABLE matching_slot DROP CONSTRAINT fail_insert"))
-    assert execute(database, "event-0", 1)["status"] == "matched"
+            db.execute(text("ALTER TABLE outbox DROP CONSTRAINT fail_insert"))
 
 
-def test_relay_claims_separate_kinds_and_fences_expired_attempt(database):
+def test_registration_reuses_person_and_can_match_by_id(database):
+    seed(database, patients=0, capacity=3)
+    data = {"name": "Ana", "birth_date": "1990-01-01", "phone_number": "5511999999999", "area": "Psicoterapia"}
+    result = execute(database, data)
+    assert result["status"] == "matched"
+    assert execute(database, {"patient_id": result["patient_id"]}) == result
+    second = execute(database, data)
+    assert second["patient_id"] != result["patient_id"]
+    with database.connect() as db:
+        assert db.scalar(text("SELECT count(*) FROM person WHERE phone_number='5511999999999'")) == 1
+        assert db.scalar(text("SELECT birth_date::text FROM person WHERE phone_number='5511999999999'")) == "1990-01-01"
+        assert db.scalar(text("SELECT count(*) FROM matching_slot")) == 2
+
+
+def test_hourly_sweep_stops_at_100(database):
+    seed(database, patients=110, capacity=110)
+    assert len(match_pending(database)) == 100
+    assert len(match_pending(database)) == 10
+
+
+def test_no_matching_triggers(database):
+    with database.connect() as db:
+        assert db.scalar(text("SELECT count(*) FROM pg_trigger WHERE tgname IN ('matching_slot_guard','matching_cycle_guard')")) == 0
+
+
+def test_matching_result_not_claimed_by_chatbot_relays(database):
     from sqlalchemy.orm import sessionmaker
 
     from app.repository.sql.outbox_repository import OutboxRepository
     seed(database, patients=1)
-    with database.begin() as db:
-        db.execute(text("UPDATE outbox SET locked_until=now()-interval '1 second'"))
-        db.execute(text("""INSERT INTO outbox(id,kind,payload,status,attempts,available_at,created_at)
-            VALUES ('sheet','sheets.patient','{}','pending',0,now(),now())"""))
-    repository = OutboxRepository(sessionmaker(database, expire_on_commit=False))
-    sheet = repository.claim()
-    assert sheet is not None
-    assert sheet.id == "sheet"
-    event = repository.claim(matching=True)
-    assert event is not None
-    assert event.id == "event-0"
-    assert event.attempts == 2
-    assert execute(database, event.id, 1)["status"] == "stale_attempt"
-    assert execute(database, event.id, 2)["status"] == "matched"
-    with database.begin() as db:
-        db.execute(text("UPDATE outbox SET status='processing', attempts=5, locked_until=now()-interval '1 second' WHERE id='event-0'"))
-    assert repository.claim(matching=True) is None
+    execute(database, {"patient_id": 1})
+    repo = OutboxRepository(sessionmaker(database))
+    assert repo.claim() is None
+    assert repo.claim(matching=True) is None
+
+
+def test_unknown_patient_emits_result(database):
+    assert execute(database, {"patient_id": 999}) == {"patient_id": 999, "status": "patient_not_found"}
     with database.connect() as db:
-        assert db.scalar(text("SELECT status FROM outbox WHERE id='event-0'")) == "failed"
+        assert db.scalar(text("SELECT payload->>'status' FROM outbox")) == "patient_not_found"
 
 
-def test_direct_write_rejects_wrong_area(database):
-    seed(database, patients=1)
-    with database.begin() as db:
-        db.execute(text("UPDATE patient SET area='Psicanálise'"))
-    with pytest.raises(DBAPIError), database.begin() as db:
-        db.execute(text("""INSERT INTO matching_slot(cycle_id,patient_id,compatibility_score,urgency_score,final_score,
-            score_breakdown,algorithm_version,created_at) VALUES (1,1,0,0,0,'{}','test',now())"""))
-    assert execute(database, "event-0", 1)["status"] == "no_capacity"
+def test_real_batch_of_ten_without_reading_outbox(database):
+    from unittest.mock import patch
+
+    from sqlalchemy import event
+
+    from matching.handler import handler
+    seed(database, patients=5, capacity=10)
+    statements = []
+
+    def capture(conn, cursor, statement, parameters, context, executemany):
+        statements.append(statement.lower())
+
+    event.listen(database, "before_cursor_execute", capture)
+    try:
+        patients = [{"patient_id": i} for i in range(1, 6)] + [
+            {"name": "Ana", "birth_date": "1990-01-01", "phone_number": f"external-{i}", "area": "Psicoterapia"}
+            for i in range(5)
+        ]
+        with patch("matching.handler.database", return_value=database):
+            result = handler({"patients": patients}, None)
+        assert len(result["results"]) == 10
+        assert all(item["status"] == "matched" for item in result["results"])
+        assert not any("outbox" in statement and "select" in statement for statement in statements)
+    finally:
+        event.remove(database, "before_cursor_execute", capture)
+    with database.connect() as db:
+        assert db.scalar(text("SELECT count(*) FROM matching_slot")) == 10
+        assert db.scalar(text("SELECT count(*) FROM outbox WHERE kind='matching.completed'")) == 10

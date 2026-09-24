@@ -39,44 +39,6 @@ def upgrade() -> None:
         sa.Column("algorithm_version", sa.String(), nullable=False),
         sa.Column("created_at", sa.DateTime(timezone=True), nullable=False))
     op.create_index("ix_matching_slot_cycle_id", "matching_slot", ["cycle_id"])
-    op.execute("""
-    CREATE FUNCTION guard_matching_slot() RETURNS trigger LANGUAGE plpgsql AS $$
-    DECLARE c matching_cycle; patient_area text; professional_area text;
-    BEGIN
-      IF TG_OP <> 'INSERT' THEN
-        RAISE EXCEPTION 'Matching slots are immutable';
-      END IF;
-      SELECT area INTO patient_area FROM patient WHERE id = NEW.patient_id FOR UPDATE;
-      SELECT * INTO c FROM matching_cycle WHERE id = NEW.cycle_id FOR UPDATE;
-      IF NOT FOUND THEN RAISE EXCEPTION 'Unknown matching cycle'; END IF;
-      SELECT area INTO professional_area FROM professional WHERE id = c.professional_id FOR SHARE;
-      IF patient_area IS NULL OR patient_area IS DISTINCT FROM professional_area THEN
-        RAISE EXCEPTION 'Incompatible matching area';
-      END IF;
-      IF c.cancelled_at IS NOT NULL OR c.starts_at > clock_timestamp() OR c.deadline_at <= clock_timestamp() THEN
-        RAISE EXCEPTION 'Matching cycle is not open';
-      END IF;
-      IF (SELECT count(*) FROM matching_slot WHERE cycle_id = c.id) >= c.promised_patients THEN
-        RAISE EXCEPTION 'Matching cycle is full';
-      END IF;
-      NEW.created_at := clock_timestamp();
-      RETURN NEW;
-    END $$;
-    CREATE TRIGGER matching_slot_guard BEFORE INSERT OR UPDATE OR DELETE ON matching_slot
-      FOR EACH ROW EXECUTE FUNCTION guard_matching_slot();
-    CREATE FUNCTION guard_matching_cycle() RETURNS trigger LANGUAGE plpgsql AS $$
-    BEGIN
-      IF NEW.professional_id <> OLD.professional_id THEN
-        RAISE EXCEPTION 'Cycle professional is immutable';
-      END IF;
-      IF NEW.promised_patients < (SELECT count(*) FROM matching_slot WHERE cycle_id = OLD.id) THEN
-        RAISE EXCEPTION 'Capacity cannot be below allocations';
-      END IF;
-      RETURN NEW;
-    END $$;
-    CREATE TRIGGER matching_cycle_guard BEFORE UPDATE ON matching_cycle
-      FOR EACH ROW EXECUTE FUNCTION guard_matching_cycle();
-    """)
     op.drop_table("professional_patient")
 
 
@@ -85,7 +47,7 @@ def downgrade() -> None:
         raise RuntimeError("Cannot discard matching history; restore a backup or migrate allocations explicitly")
     op.drop_table("matching_slot")
     op.drop_table("matching_cycle")
-    op.execute("DROP FUNCTION guard_matching_slot(); DROP FUNCTION guard_matching_cycle(); DROP TYPE matching_cycle_type")
+    op.execute("DROP FUNCTION IF EXISTS guard_matching_slot(); DROP FUNCTION IF EXISTS guard_matching_cycle(); DROP TYPE matching_cycle_type")
     op.drop_column("professional", "minority_group")
     op.drop_column("professional", "gender")
     op.create_table("professional_patient",

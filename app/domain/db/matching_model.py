@@ -1,4 +1,4 @@
-"""Matching allocation ledger. Capacity is protected by PostgreSQL triggers."""
+"""Matching allocation ledger. Capacity is validated by the matching service under row locks."""
 from datetime import datetime
 from typing import Any
 
