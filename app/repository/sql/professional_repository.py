@@ -6,9 +6,7 @@ from datetime import datetime
 from sqlalchemy import select
 from sqlalchemy.orm import Session, joinedload
 
-from app.domain.db.patient_model import PatientModel
 from app.domain.db.professional_model import ProfessionalModel
-from app.domain.db.professional_patient_model import ProfessionalPatientModel
 from app.repository.sql.transaction import commit, session_scope
 
 
@@ -36,6 +34,8 @@ class ProfessionalRepository:
         background: str | None,
         video_platform: str | None,
         email: str | None,
+        gender: str | None = None,
+        minority_group: str | None = None,
         created_at: datetime | None = None,
     ) -> ProfessionalModel:
         """Create a professional application unless one already exists."""
@@ -57,6 +57,8 @@ class ProfessionalRepository:
                 background=background,
                 video_platform=video_platform,
                 email=email,
+                gender=gender,
+                minority_group=minority_group,
                 created_at=created_at or datetime.utcnow(),
             )
             session.add(professional)
@@ -80,27 +82,3 @@ class ProfessionalRepository:
             commit(session)
             session.refresh(merged)
             return merged
-
-    def get_with_patients(self, professional_id: int) -> ProfessionalModel | None:
-        with session_scope(self._session_factory) as session:
-            stmt = (
-                select(ProfessionalModel)
-                .options(
-                    joinedload(ProfessionalModel.patients).joinedload(PatientModel.person),
-                    joinedload(ProfessionalModel.person),
-                )
-                .where(ProfessionalModel.id == professional_id)
-            )
-            return session.execute(stmt).unique().scalar_one_or_none()
-
-    def get_patients(self, professional_id: int) -> list[PatientModel]:
-        with session_scope(self._session_factory) as session:
-            stmt = (
-                select(PatientModel)
-                .join(ProfessionalPatientModel)
-                .where(
-                    ProfessionalPatientModel.professional_id == professional_id,
-                    ProfessionalPatientModel.deleted.is_(False),
-                )
-            )
-            return list(session.scalars(stmt).all())

@@ -14,7 +14,6 @@ from app.domain.db.message_history_model import MessageHistoryModel
 from app.domain.db.patient_model import PatientModel
 from app.domain.db.person_model import PersonModel
 from app.domain.db.professional_model import ProfessionalModel
-from app.domain.db.professional_patient_model import ProfessionalPatientModel
 from app.domain.enum.channels import Channel
 from app.domain.enum.chat_mode import ChatMode
 from app.domain.enum.chat_state import ChatState
@@ -169,27 +168,3 @@ def make_message_history(
             return message
 
     return _make_message_history
-
-
-@pytest.fixture
-def make_professional_patient_link(
-    session_factory: sessionmaker[Session],
-) -> Callable[..., ProfessionalPatientModel]:
-    def _make_professional_patient_link(
-        *,
-        professional_id: int,
-        patient_id: int,
-        created_at: datetime | None = None,
-    ) -> ProfessionalPatientModel:
-        link = ProfessionalPatientModel(
-            professional_id=professional_id,
-            patient_id=patient_id,
-            created_at=created_at or datetime.utcnow(),
-        )
-        with session_factory() as session:
-            session.add(link)
-            session.commit()
-            session.refresh(link)
-            return link
-
-    return _make_professional_patient_link

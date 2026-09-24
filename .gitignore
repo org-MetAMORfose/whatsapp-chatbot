@@ -220,3 +220,6 @@ vps-info.txt
 
 #segredos
 secrets/
+
+# AWS SAM local build output
+.aws-sam/
