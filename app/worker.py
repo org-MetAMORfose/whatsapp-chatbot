@@ -76,7 +76,7 @@ async def relay(repository: OutboxRepository, ctx: AppContext) -> None:
 
 
 async def matching_relay(repository: OutboxRepository, ctx: AppContext) -> None:
-    """Invoke asynchronously; only Lambda commits successful completion."""
+    """Transport chatbot registrations through the independent patient contract."""
     import json
     import os
 
@@ -90,18 +90,19 @@ async def matching_relay(repository: OutboxRepository, ctx: AppContext) -> None:
         return
     client = boto3.client("lambda",
         region_name=os.environ.get("AWS_REGION") or os.environ.get("AWS_DEFAULT_REGION", "us-east-1"),
-        config=Config(connect_timeout=5, read_timeout=10, retries={"max_attempts": 2}))
+        config=Config(connect_timeout=5, read_timeout=130, retries={"total_max_attempts": 1}))
 
     def deliver() -> bool:
         item = repository.claim(matching=True)
         if item is None:
             return False
         try:
-            response = client.invoke(FunctionName=name, InvocationType="Event",
-                Payload=json.dumps({"operation_id": item.id, "attempt": item.attempts}).encode())
-            if response["StatusCode"] != 202:
-                raise RuntimeError("Lambda did not accept matching event")
-            # Leave processing until Lambda commits, or the lease expires.
+            response = client.invoke(FunctionName=name, InvocationType="RequestResponse",
+                Payload=json.dumps({"patient_id": item.payload["patient_id"]}).encode())
+            response["Payload"].close()
+            if response["StatusCode"] != 200 or response.get("FunctionError"):
+                raise RuntimeError("Matching Lambda execution failed")
+            repository.finish(item)
         except Exception as exc:
             repository.finish(item, exc)
             logger.exception("Matching invocation failed: id=%s", item.id)

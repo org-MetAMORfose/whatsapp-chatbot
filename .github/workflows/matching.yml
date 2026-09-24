@@ -54,11 +54,11 @@ jobs:
           aws-region: ${{ vars.AWS_REGION }}
       - uses: aws-actions/setup-sam@v2
       # Schema migrations are owned by the application's existing migrator.
-      # Configure this environment only after 0010_matching is applied.
+      # Configure this environment only after 0011_remove_matching_triggers is applied.
       - name: Require compatible schema release
         env:
           SCHEMA_REVISION: ${{ vars.MATCHING_SCHEMA_REVISION }}
-        run: test "$SCHEMA_REVISION" = '0010_matching'
+        run: test "$SCHEMA_REVISION" = '0011_remove_matching_triggers'
       - run: sam build --use-container --template-file deploy/matching/template.yaml
       - name: Deploy
         env:

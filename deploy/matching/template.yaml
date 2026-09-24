@@ -36,9 +36,12 @@ Resources:
           Type: Schedule
           Properties:
             Schedule: rate(1 hour)
+            RetryPolicy:
+              MaximumRetryAttempts: 0
+              MaximumEventAgeInSeconds: 60
       EventInvokeConfig:
         MaximumEventAgeInSeconds: 300
-        MaximumRetryAttempts: 2
+        MaximumRetryAttempts: 0
     Metadata:
       BuildMethod: makefile
 Outputs:

@@ -7,7 +7,7 @@ from typing import Any
 from sqlalchemy import create_engine
 from sqlalchemy.engine import Engine
 
-from matching.service import execute, retry_pending
+from matching.service import execute, match_pending, validate_patient
 
 _engine: Engine | None = None
 logger = logging.getLogger(__name__)
@@ -26,14 +26,16 @@ def database() -> Engine:
 
 
 def handler(event: dict[str, Any], context: Any) -> dict[str, Any]:
+    if not isinstance(event, dict):
+        raise ValueError("Expected an object")
     if event.get("source") == "aws.events":
-        results = retry_pending(database(), limit=25)
-        logger.info("matching sweep completed: count=%s", len(results))
-        return {"processed": len(results)}
-    operation_id = event.get("operation_id")
-    attempt = event.get("attempt")
-    if not isinstance(operation_id, str) or type(attempt) is not int or attempt < 1:
-        raise ValueError("Expected operation_id and positive attempt")
-    result = execute(database(), operation_id, attempt)
-    logger.info("matching completed: operation=%s status=%s", operation_id, result["status"])
-    return result
+        results = match_pending(database(), limit=100)
+        return {"processed": len(results), "results": results}
+    if "patients" in event:
+        patients = event["patients"]
+        if set(event) != {"patients"} or not isinstance(patients, list) or not 1 <= len(patients) <= 100:
+            raise ValueError("Expected between 1 and 100 patients")
+        inputs = [validate_patient(patient) for patient in patients]
+        return {"results": [execute(database(), patient) for patient in inputs]}
+    patient = validate_patient(event)
+    return execute(database(), patient)
