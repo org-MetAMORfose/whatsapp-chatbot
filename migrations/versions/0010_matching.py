@@ -47,7 +47,7 @@ def downgrade() -> None:
         raise RuntimeError("Cannot discard matching history; restore a backup or migrate allocations explicitly")
     op.drop_table("matching_slot")
     op.drop_table("matching_cycle")
-    op.execute("DROP FUNCTION IF EXISTS guard_matching_slot(); DROP FUNCTION IF EXISTS guard_matching_cycle(); DROP TYPE matching_cycle_type")
+    op.execute("DROP TYPE matching_cycle_type")
     op.drop_column("professional", "minority_group")
     op.drop_column("professional", "gender")
     op.create_table("professional_patient",

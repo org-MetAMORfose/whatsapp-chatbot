@@ -48,7 +48,7 @@ async def relay(repository: OutboxRepository, ctx: AppContext) -> None:
     def deliver() -> bool:
         nonlocal service
         from app.services.google_sheets_service import GoogleSheetsService
-        item = repository.claim()
+        item = repository.claim(kinds=("sheets.patient.upsert.v1", "sheets.professional.upsert.v1"), max_attempts=5)
         if item is None:
             return False
         try:
@@ -59,9 +59,9 @@ async def relay(repository: OutboxRepository, ctx: AppContext) -> None:
             service.deliver(item.id, item.kind, item.payload)
         except Exception as exc:
             logger.exception("Outbox delivery failed: id=%s attempt=%s", item.id, item.attempts)
-            repository.finish(item, exc)
+            repository.finish(item, exc, max_attempts=5)
         else:
-            repository.finish(item)
+            repository.finish(item, max_attempts=5)
         return True
 
     loop = asyncio.get_running_loop()
@@ -93,7 +93,7 @@ async def matching_relay(repository: OutboxRepository, ctx: AppContext) -> None:
         config=Config(connect_timeout=5, read_timeout=130, retries={"total_max_attempts": 1}))
 
     def deliver() -> bool:
-        item = repository.claim(matching=True)
+        item = repository.claim(kinds=("matching.requested",), max_attempts=1)
         if item is None:
             return False
         try:
@@ -102,9 +102,9 @@ async def matching_relay(repository: OutboxRepository, ctx: AppContext) -> None:
             response["Payload"].close()
             if response["StatusCode"] != 200 or response.get("FunctionError"):
                 raise RuntimeError("Matching Lambda execution failed")
-            repository.finish(item)
+            repository.finish(item, max_attempts=1)
         except Exception as exc:
-            repository.finish(item, exc)
+            repository.finish(item, exc, max_attempts=1)
             logger.exception("Matching invocation failed: id=%s", item.id)
         return True
 

@@ -73,7 +73,7 @@ Esse limite é da varredura horária, não um bloqueio global das chamadas diret
 
 Validações de negócio ficam no código. A transação bloqueia paciente/ciclo e
 revalida a capacidade após esperar os locks. Unicidade e FKs permanecem no banco.
-A migration 0011 remove triggers também em instalações que já aplicaram 0010.
+A migration `0010_matching` concentra o schema; não há migration 0011 nem triggers.
 Escritas SQL externas não validam área/capacidade automaticamente; devem seguir o
 mesmo serviço e protocolo de locks. Alterações futuras de capacidade também devem
 bloquear o ciclo e impedir capacidade menor que a ocupação.
@@ -85,53 +85,80 @@ aplicação, na mesma transação. Seu relay chama a Lambda com `{"patient_id": 
 e conclui o evento de transporte ao receber a resposta. A Lambda não conhece esse
 evento; outros projetos podem invocar o mesmo contrato diretamente, sem outbox de
 entrada. Falhas do relay são marcadas `failed`, sem retry automático. Se o processo
-cair durante a chamada, o evento pode permanecer `processing`, exigindo inspeção.
+cair durante a chamada, o evento passa a `failed` quando o lease expirar, sem reenvio.
 Perguntas, mensagens e transições do chatbot não foram alteradas.
 
 ## Configuração e deploy
 
-As variáveis estão em `.env.example`:
+O deploy atualiza uma Lambda **já existente**, sem criar infraestrutura, acessar o
+banco ou aplicar migrations. O CD do chatbot aplica `0010_matching` e, quando
+termina com sucesso, chama `.github/workflows/matching.yml` com o mesmo commit.
+Também é possível executar esse workflow manualmente após o schema estar aplicado.
 
-- `MATCHING_LAMBDA_NAME`: nome/ARN do alias para o worker.
-- `AWS_REGION`: região usada pelo worker; o SDK também aceita AWS_DEFAULT_REGION.
-- `MATCHING_DATABASE_URL`: conexão PostgreSQL da Lambda, para configuração direta/local.
-- `DATABASE_SECRET_ARN`: alternativa na Lambda; secret JSON `{"url": "postgresql+psycopg://..."}`.
-- `MATCHING_TEST_DATABASE_URL`: PostgreSQL descartável para os testes reais.
+Usa as credenciais e região AWS já existentes. Só são necessárias estas configurações
+específicas do matching:
 
-Não é preciso configurar a URL do banco da Lambda no worker. Em AWS, o template
-usa Secrets Manager e uma role dedicada. A role precisa SELECT nas tabelas de
-cadastro/matching, INSERT em person/patient/matching_slot/outbox, acesso às sequências
-e UPDATE nas tabelas bloqueadas por row locks. Nenhum SELECT na outbox é necessário.
+- `MATCHING_LAMBDA_NAME`: nome da função existente, sem alias/versão (GitHub variable
+  ou secret). Também é propagado ao worker do chatbot.
+- `MATCHING_DATABASE_URL`: URL PostgreSQL completa, com usuário/senha (GitHub secret).
+  O deploy grava essa variável na Lambda e preserva as demais variáveis existentes.
 
-1. Aplicar `alembic upgrade head` pelo migrador existente. O schema requerido é
-   `0011_remove_matching_triggers`. A migration 0010 não descarta vínculos antigos
-   de `professional_patient` se a tabela estiver preenchida.
-2. Configurar rede privada Lambda → PostgreSQL no Lightsail, firewall/pg_hba e TLS.
-   O hostname Docker `postgres` não é resolvido pela Lambda. A VPC também precisa
-   alcançar Secrets Manager (endpoint privado ou saída de rede).
-3. Executar `sam validate --lint --template deploy/matching/template.yaml`,
-   `sam build --use-container --template-file deploy/matching/template.yaml` e
-   `sam deploy --guided`. Uma função, alias live, memória 256 MB, concorrência 2.
-4. Configurar `MATCHING_LAMBDA_NAME` no worker e permissão IAM lambda:InvokeFunction
-   sobre o alias. APIs externas autenticadas usam o mesmo contrato; não expor
-   credenciais AWS no navegador. Não existe Function URL pública.
+Execução local, com as variáveis exportadas e AWS já autenticada:
 
-CD separado em `.github/workflows/matching.yml`: environment matching-production,
-OIDC, vars MATCHING_DEPLOY_ROLE_ARN, AWS_REGION, MATCHING_DATABASE_SECRET_ARN,
-MATCHING_SUBNET_IDS, MATCHING_SECURITY_GROUP_IDS e MATCHING_SCHEMA_REVISION.
-A última variável deve ser atualizada somente após aplicar a migration. Não é
-uma verificação remota do banco. Não executar migrations no handler.
+```sh
+uv run --with pip python -m matching.deploy
+```
+
+Não há SAM, template, Secrets Manager, variáveis de subnet/security group nem
+verificação de migration no deploy do matching. O script empacota, atualiza o código
+e define o handler `matching.handler.handler`. Não altera role, rede, memória,
+timeout ou agendamento da função. Configure esses recursos no console: Python 3.13
+(também suporta 3.12), pacote ZIP, timeout adequado ao lote (120 s recomendado),
+acesso de rede ao PostgreSQL e EventBridge horário se quiser a varredura automática.
+Desabilite retries no console para manter a política atual. Use o nome da função;
+o script não atualiza aliases ou versões publicadas.
+
+O runtime e a arquitetura são lidos da função existente para selecionar os wheels
+compatíveis. O ZIP inclui `matching`, os modelos de `app/domain/db`, enums e
+`app/domain/matching`, sem inicializar API, Redis ou configuração do chatbot.
+`pgvector` é incluído porque o registro de modelos compartilhados também importa
+os modelos de FAQ. O handler valida JSON e converte para dataclasses; serviço e
+algoritmo trabalham com tipos explícitos. PostgreSQL continua sendo a fonte de verdade.
+
+## Outbox genérica
+
+`claim(kinds=..., max_attempts=...)` seleciona e bloqueia apenas os tipos informados,
+com `FOR UPDATE SKIP LOCKED` e lease de cinco minutos. Eventos com lease vencido
+são recuperados se ainda há tentativas; caso contrário são marcados `failed`.
+`finish(..., max_attempts=...)` aplica o limite informado pelo consumidor e protege
+contra conclusão de uma tentativa antiga. O repositório não conhece matching/Sheets.
+Sheets informa seus dois tipos e usa cinco tentativas. Matching informa
+`matching.requested` e limite de uma tentativa, tanto no claim quanto no finish.
 
 ## Testes
 
+Uma única URL serve aos testes PostgreSQL de entrega e matching:
+
 ```sh
 PYTHON_DOTENV_DISABLED=1 pytest tests/matching -q
-MATCHING_TEST_DATABASE_URL='postgresql+psycopg://...' PYTHON_DOTENV_DISABLED=1 pytest tests/matching -q
+DELIVERY_TEST_DATABASE_URL='postgresql+psycopg://...' PYTHON_DOTENV_DISABLED=1 pytest tests/matching tests/delivery -q
 python -m matching.simulate --seeds 100 --professionals 50 --patients 500
 ```
 
-A URL de integração deve apontar para banco descartável com permissão de criar
-bancos temporários. Sem ela, os testes PostgreSQL são explicitamente pulados.
-Os testes de domínio recebem um relógio controlado, com datas em diferentes anos;
-não dependem do dia em que pytest é executado. Os testes de integração usam o
-relógio do próprio PostgreSQL para montar ciclos relativos ao instante do teste.
+A URL deve apontar para PostgreSQL descartável com permissão para criar bancos
+temporários. Os testes de entrega também usam `DELIVERY_TEST_REDIS_URL` para Redis.
+Sem essas configurações, os respectivos testes de integração são pulados.
+Os testes de domínio recebem relógio controlado; não dependem da data atual.
+
+Para verificar somente o pacote, sem AWS:
+
+```sh
+uv run --with pip python -m matching.package --output /tmp/matching.zip
+```
+
+A credencial de deploy precisa de `lambda:GetFunctionConfiguration`,
+`lambda:UpdateFunctionCode` e `lambda:UpdateFunctionConfiguration` na função.
+O worker continua precisando apenas de `lambda:InvokeFunction`. O deploy usa as
+APIs [UpdateFunctionCode](https://docs.aws.amazon.com/lambda/latest/api/API_UpdateFunctionCode.html)
+e [UpdateFunctionConfiguration](https://docs.aws.amazon.com/cli/latest/reference/lambda/update-function-configuration.html),
+sem criar recursos nem acessar o banco.

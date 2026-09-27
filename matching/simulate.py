@@ -7,6 +7,7 @@ import time
 from datetime import UTC, datetime, timedelta
 from typing import Any
 
+from app.domain.matching import Candidate, Patient
 from matching.domain import rank
 
 
@@ -14,16 +15,16 @@ def simulate(seed: int, professionals: int = 50, patients: int = 500) -> dict[st
     rng = random.Random(seed)  # noqa: S311
     now = datetime(2026, 1, 1, tzinfo=UTC)
     areas = ["Psicoterapia", "Nutrição", "Psiquiatria", "Psicanálise"]
-    cycles: list[dict[str, Any]] = [{"id": i, "area": rng.choice(areas), "approach": rng.choice(["TCC", "Psicanálise", None]),
-               "gender": rng.choice(["Mulher", "Homem", "Mulher trans", None]),
-               "minority_group": rng.choice(["Negro", "LGBT", "Negro LGBT", None]),
-               "starts_at": now + timedelta(days=rng.randint(-30, 2)),
-               "deadline_at": now + timedelta(days=rng.randint(-2, 30)),
-               "cancelled_at": now if rng.random() < 0.05 else None,
-               "promised_patients": rng.randint(1, 12), "used": 0,
-               "type": rng.choice(["REGULAR", "REPLACEMENT"])} for i in range(professionals)]
-    population: list[dict[str, Any]] = [{"id": i, "area": rng.choice(areas), "psychotherapy_approach": rng.choice(["TCC", "Psicanálise", None]),
-                   "professional_profile": rng.choice(["Mulher", "Mulher negra", "LGBTQIAPN+", None])} for i in range(patients)]
+    cycles = [Candidate(id=i, area=rng.choice(areas), approach=rng.choice(["TCC", "Psicanálise", None]),
+               gender=rng.choice(["Mulher", "Homem", "Mulher trans", None]),
+               minority_group=rng.choice(["Negro", "LGBT", "Negro LGBT", None]),
+               starts_at=now + timedelta(days=rng.randint(-30, 2)),
+               deadline_at=now + timedelta(days=rng.randint(-2, 30)),
+               cancelled_at=now if rng.random() < 0.05 else None,
+               promised_patients=rng.randint(1, 12), used=0,
+               type=rng.choice(["REGULAR", "REPLACEMENT"])) for i in range(professionals)]
+    population = [Patient(id=i, area=rng.choice(areas), psychotherapy_approach=rng.choice(["TCC", "Psicanálise", None]),
+                   professional_profile=rng.choice(["Mulher", "Mulher negra", "LGBTQIAPN+", None])) for i in range(patients)]
     compatibilities: list[float] = []
     assigned: set[int] = set()
     urgent = 0
@@ -33,19 +34,19 @@ def simulate(seed: int, professionals: int = 50, patients: int = 500) -> dict[st
         if not choices:
             continue
         cycle, score = choices[0]
-        if patient["id"] in assigned or cycle["area"] != patient["area"] or cycle["deadline_at"] <= now:
-            raise AssertionError(f"Invalid allocation seed={seed} patient={patient['id']}")
-        assigned.add(patient["id"])
-        cycle["used"] += 1
-        if cycle["used"] > cycle["promised_patients"]:
+        if patient.id in assigned or cycle.area != patient.area or cycle.deadline_at <= now:
+            raise AssertionError(f"Invalid allocation seed={seed} patient={patient.id}")
+        assigned.add(patient.id)
+        cycle.used += 1
+        if cycle.used > cycle.promised_patients:
             raise AssertionError(f"Overbooking seed={seed}")
         compatibilities.append(score.compatibility)
-        urgent += score.breakdown["phase"] == "urgent"
-    eligible = [c for c in cycles if c["starts_at"] <= now < c["deadline_at"] and not c["cancelled_at"]]
-    capacity = sum(c["promised_patients"] for c in eligible)
+        urgent += score.breakdown.phase == "urgent"
+    eligible = [c for c in cycles if c.starts_at <= now < c.deadline_at and not c.cancelled_at]
+    capacity = sum(c.promised_patients for c in eligible)
     # Exact maximum cardinality for this model: area is the sole pairwise hard criterion.
-    optimum = sum(min(sum(p["area"] == area for p in population),
-                      sum(c["promised_patients"] for c in eligible if c["area"] == area)) for area in areas)
+    optimum = sum(min(sum(p.area == area for p in population),
+                      sum(c.promised_patients for c in eligible if c.area == area)) for area in areas)
     return {"seed": seed, "matched": len(assigned), "pending": patients-len(assigned),
             "fill_rate": len(assigned)/capacity if capacity else 0, "avoidable_unfilled": optimum-len(assigned),
             "mean_compatibility": statistics.mean(compatibilities) if compatibilities else 0,

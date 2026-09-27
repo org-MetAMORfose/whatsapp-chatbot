@@ -253,3 +253,45 @@ async def test_redis_failure_keeps_history_and_retry_does_not_duplicate(factory,
     assert delivery is not None and delivery.message.history_id is not None
     with factory() as session:
         assert session.scalar(select(func.count()).select_from(MessageHistoryModel)) == 1
+
+
+def test_outbox_kind_filter_and_consumer_retry_policy(factory):
+    repo = OutboxRepository(factory)
+    with transaction(factory):
+        repo.enqueue("single", "custom.single", {})
+        repo.enqueue("retry", "custom.retry", {})
+    single = repo.claim(kinds=("custom.single",), max_attempts=1)
+    assert single is not None and single.id == "single"
+    repo.finish(single, TimeoutError(), max_attempts=1)
+    retry = repo.claim(kinds=("custom.retry",), max_attempts=5)
+    assert retry is not None and retry.id == "retry"
+    repo.finish(retry, TimeoutError(), max_attempts=5)
+    with factory() as session:
+        assert session.get(OutboxModel, "single").status == "failed"
+        assert session.get(OutboxModel, "retry").status == "pending"
+    assert repo.claim(kinds=()) is None
+
+
+def test_outbox_expired_lease_obeys_attempt_limit_and_fences_late_finish(factory):
+    repo = OutboxRepository(factory)
+    with transaction(factory):
+        repo.enqueue("lease", "custom.single", {})
+    old = repo.claim(kinds=("custom.single",), max_attempts=1)
+    assert old is not None
+    with factory() as session, session.begin():
+        session.execute(update(OutboxModel).where(OutboxModel.id == "lease").values(locked_until=datetime.now(UTC)-timedelta(seconds=1)))
+    assert repo.claim(kinds=("custom.single",), max_attempts=1) is None
+    repo.finish(old, max_attempts=1)
+    with factory() as session:
+        assert session.get(OutboxModel, "lease").status == "failed"
+
+
+def test_outbox_skips_locked_rows(factory):
+    repo = OutboxRepository(factory)
+    with transaction(factory):
+        repo.enqueue("a", "custom.kind", {})
+        repo.enqueue("b", "custom.kind", {})
+    with factory() as session, session.begin():
+        session.execute(select(OutboxModel).where(OutboxModel.id == "a").with_for_update()).scalar_one()
+        claimed = repo.claim(kinds=("custom.kind",))
+        assert claimed is not None and claimed.id == "b"

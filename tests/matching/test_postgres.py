@@ -1,4 +1,4 @@
-"""Run against a disposable PostgreSQL: MATCHING_TEST_DATABASE_URL only."""
+"""Run against a disposable PostgreSQL: DELIVERY_TEST_DATABASE_URL only."""
 import os
 import subprocess
 import sys
@@ -11,14 +11,20 @@ from sqlalchemy import create_engine, text
 from sqlalchemy.engine import Engine
 from sqlalchemy.exc import DBAPIError
 
-from matching.service import execute, match_pending
+from matching.input import validate_patient
+from matching.service import execute as execute_matching
+from matching.service import match_pending
+
+
+def execute(engine: Engine, data):
+    return execute_matching(engine, validate_patient(data)).as_payload()
 
 
 @pytest.fixture(scope="module")
 def migrated_engine():
-    url = os.environ.get("MATCHING_TEST_DATABASE_URL")
+    url = os.environ.get("DELIVERY_TEST_DATABASE_URL")
     if not url:
-        pytest.skip("Set MATCHING_TEST_DATABASE_URL to an isolated PostgreSQL")
+        pytest.skip("Set DELIVERY_TEST_DATABASE_URL to an isolated PostgreSQL")
     from sqlalchemy.engine import make_url
     name = "matching_test_" + uuid4().hex
     admin = create_engine(url, isolation_level="AUTOCOMMIT")
@@ -99,7 +105,7 @@ def test_pending_patient_matched_after_new_capacity(database):
     with database.begin() as db:
         db.execute(text("""INSERT INTO matching_cycle(professional_id,type,promised_patients,starts_at,deadline_at,created_at)
             VALUES (1,'REPLACEMENT',1,now(),now()+interval '1 day',now())"""))
-    assert match_pending(database)[0]["status"] == "matched"
+    assert match_pending(database)[0].status == "matched"
     assert match_pending(database) == []
 
 
@@ -161,8 +167,8 @@ def test_matching_result_not_claimed_by_chatbot_relays(database):
     seed(database, patients=1)
     execute(database, {"patient_id": 1})
     repo = OutboxRepository(sessionmaker(database))
-    assert repo.claim() is None
-    assert repo.claim(matching=True) is None
+    assert repo.claim(kinds=("sheets.patient.upsert.v1", "sheets.professional.upsert.v1")) is None
+    assert repo.claim(kinds=("matching.requested",), max_attempts=1) is None
 
 
 def test_unknown_patient_emits_result(database):
