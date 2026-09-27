@@ -1,0 +1,1 @@
+"""WhatsApp template domain values."""

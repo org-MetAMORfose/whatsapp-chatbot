@@ -125,11 +125,13 @@ async def run() -> None:
     from app.repository.redis.professional_stage_repository import ProfessionalStageRepository
     from app.repository.sql.faq_knowledge_repository import FaqKnowledgeRepository
     from app.repository.sql.faq_session_repository import FaqSessionRepository
+    from app.repository.sql.matching_notification_repository import MatchingNotificationRepository
     from app.repository.sql.patient_repository import PatientRepository
     from app.repository.sql.person_repository import PersonRepository
     from app.repository.sql.professional_repository import ProfessionalRepository
     from app.services.dispatcher_service import MessageDispatcherService
     from app.services.inbound_processor import InboundProcessor
+    from app.services.matching_completed_relay import MatchingCompletedRelay
 
     ctx = AppContext()
     loop = asyncio.get_running_loop()
@@ -165,7 +167,9 @@ async def run() -> None:
             )
             processor = InboundProcessor(factory, agent, people, inbound, outbound, media)
             dispatcher = MessageDispatcherService(ctx, outbound, people)
-            dispatcher.register_adapter(WhatsAppAdapter.channel, WhatsAppAdapter(s3_service=media))
+            whatsapp = WhatsAppAdapter(s3_service=media)
+            dispatcher.register_adapter(WhatsAppAdapter.channel, whatsapp)
+            matching_notifications = MatchingCompletedRelay(outbox, MatchingNotificationRepository(factory), whatsapp)
 
             async def send(delivery: Delivery) -> None:
                 await dispatcher.dispatch(delivery.message)
@@ -185,7 +189,7 @@ async def run() -> None:
             tasks = [asyncio.create_task(consume(inbound, processor.process, ctx)),
                      asyncio.create_task(consume(outbound, send, ctx)),
                      asyncio.create_task(relay(outbox, ctx)), asyncio.create_task(matching_relay(outbox, ctx)),
-                     asyncio.create_task(heartbeat())]
+                     asyncio.create_task(matching_notifications.run(ctx)), asyncio.create_task(heartbeat())]
             stopping = asyncio.create_task(ctx.wait_for_shutdown())
             done, _ = await asyncio.wait([*tasks, stopping], return_when=asyncio.FIRST_COMPLETED)
             ctx.request_shutdown()

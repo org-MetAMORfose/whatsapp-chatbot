@@ -51,7 +51,7 @@ Resposta individual (em lote, `{"results": [...]}`):
 
 Outros resultados: `no_capacity` e `patient_not_found`. Todo resultado grava um
 novo evento `matching.completed`, com o mesmo payload e status `pending`, na mesma
-transação do cadastro/slot. Um consumidor externo poderá entregar esses resultados.
+transação do cadastro/slot. O worker consome esses resultados pelo relay específico descrito abaixo.
 O relay de Sheets e o relay de solicitações do chatbot não consomem esses eventos.
 
 ## Regras e concorrência
@@ -162,3 +162,29 @@ O worker continua precisando apenas de `lambda:InvokeFunction`. O deploy usa as
 APIs [UpdateFunctionCode](https://docs.aws.amazon.com/lambda/latest/api/API_UpdateFunctionCode.html)
 e [UpdateFunctionConfiguration](https://docs.aws.amazon.com/cli/latest/reference/lambda/update-function-configuration.html),
 sem criar recursos nem acessar o banco.
+
+## Notificação direta pelo WhatsApp
+
+O worker possui um relay exclusivo para `matching.completed`, com cinco tentativas,
+lease e claim do OutboxRepository. Processa um evento por vez e não usa Redis nem
+cria Message na fila outbound. Para `matched`, resolve paciente, slot, ciclo e
+profissional pelo ORM, verificando também os IDs fornecidos no evento. Dados
+insuficientes ou IDs inconsistentes falham e seguem o retry da outbox.
+
+A dataclass `MatchingPatientTemplate` define `matching_paciente`, idioma `pt_BR` e
+os parâmetros do body, nesta ordem: nome do profissional, área, link
+`https://wa.me/<telefone internacional do profissional>`. Não contém o texto do
+template. Telefones são normalizados sem inventar DDI; precisam estar cadastrados
+com código de país. O adapter expõe `send_template` e exige resposta HTTP bem-sucedida
+com message ID antes de o relay concluir o evento.
+
+`no_capacity` e `patient_not_found` são concluídos sem mensagem. Qualquer outro
+status é erro. Após cinco falhas, o evento fica `failed`. O template usa as mesmas
+variáveis WHATSAPP_ACCESS_TOKEN e WHATSAPP_PHONE_NUMBER_ID; não requer variáveis
+novas, e seu nome/idioma permanecem fixos conforme o contrato.
+
+A idempotência da outbox é por evento: eventos concluídos não são consumidos de
+novo; claims concorrentes respeitam SKIP LOCKED e o lease. Como o POST externo e
+a conclusão no PostgreSQL não são uma transação única, uma queda depois de o
+WhatsApp aceitar a mensagem e antes do finish pode gerar reenvio na recuperação.
+Não há promessa de exactly-once na API externa nem campos novos na outbox.
