@@ -125,7 +125,6 @@ async def run() -> None:
     from app.repository.redis.professional_stage_repository import ProfessionalStageRepository
     from app.repository.sql.faq_knowledge_repository import FaqKnowledgeRepository
     from app.repository.sql.faq_session_repository import FaqSessionRepository
-    from app.repository.sql.matching_notification_repository import MatchingNotificationRepository
     from app.repository.sql.patient_repository import PatientRepository
     from app.repository.sql.person_repository import PersonRepository
     from app.repository.sql.professional_repository import ProfessionalRepository
@@ -169,7 +168,7 @@ async def run() -> None:
             dispatcher = MessageDispatcherService(ctx, outbound, people)
             whatsapp = WhatsAppAdapter(s3_service=media)
             dispatcher.register_adapter(WhatsAppAdapter.channel, whatsapp)
-            matching_notifications = MatchingCompletedRelay(outbox, MatchingNotificationRepository(factory), whatsapp)
+            matching_notifications = MatchingCompletedRelay(outbox, whatsapp)
 
             async def send(delivery: Delivery) -> None:
                 await dispatcher.dispatch(delivery.message)

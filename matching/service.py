@@ -1,12 +1,12 @@
 """Matching transactions using the same ORM models as the chatbot."""
-from dataclasses import asdict
+from dataclasses import asdict, replace
 from datetime import UTC, datetime
 from uuid import uuid4
 
 from sqlalchemy import Select, func, select
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.engine import Engine
-from sqlalchemy.orm import Session, lazyload
+from sqlalchemy.orm import Session, aliased, lazyload
 
 from app.domain.db.delivery_model import OutboxModel
 from app.domain.db.matching_model import MatchingCycleModel as Cycle
@@ -14,6 +14,7 @@ from app.domain.db.matching_model import MatchingSlotModel as Slot
 from app.domain.db.patient_model import PatientModel
 from app.domain.db.person_model import PersonModel
 from app.domain.db.professional_model import ProfessionalModel
+from app.domain.enum.channels import Channel
 from app.domain.enum.chat_mode import ChatMode
 from app.domain.matching import Candidate, MatchResult, Patient, PatientInput, PatientReference, PatientRegistration
 from matching.domain import ALGORITHM_VERSION, rank, score_candidate
@@ -75,6 +76,27 @@ def allocate(db: Session, patient: Patient) -> MatchResult:
     return MatchResult(patient.id, "no_capacity")
 
 
+def notification_snapshot(db: Session, result: MatchResult) -> MatchResult:
+    """Capture notification data in the same transaction as the allocation/event."""
+    patient_person = aliased(PersonModel)
+    professional_person = aliased(PersonModel)
+    row = db.execute(select(patient_person.phone_number, patient_person.channel,
+        professional_person.name, ProfessionalModel.area, professional_person.phone_number).select_from(Slot).join(
+        PatientModel, PatientModel.id == Slot.patient_id).join(patient_person, patient_person.id == PatientModel.person_id).join(
+        Cycle, Cycle.id == Slot.cycle_id).join(ProfessionalModel, ProfessionalModel.id == Cycle.professional_id).join(
+        professional_person, professional_person.id == ProfessionalModel.person_id).where(
+        Slot.id == result.slot_id, Slot.patient_id == result.patient_id, Cycle.id == result.cycle_id)).one_or_none()
+    if row is None:
+        raise ValueError("Matching allocation or its contacts were not found")
+    phone, channel, name, area, professional_phone = row
+    if channel != Channel.WHATSAPP:
+        raise ValueError("Matching patient does not have a WhatsApp contact")
+    if any(not isinstance(value, str) or not value.strip() for value in (phone, name, area, professional_phone)):
+        raise ValueError("Incomplete matching notification snapshot")
+    return replace(result, patient_phone=phone, professional_name=name,
+                   professional_area=area, professional_phone=professional_phone)
+
+
 def execute(engine: Engine, data: PatientInput) -> MatchResult:
     with Session(engine) as db, db.begin():
         db.execute(select(func.set_config("lock_timeout", "5s", True)))
@@ -84,6 +106,8 @@ def execute(engine: Engine, data: PatientInput) -> MatchResult:
             PatientModel.id == patient_id).with_for_update())
         result = allocate(db, Patient(patient.id, patient.area, patient.psychotherapy_approach, patient.professional_profile)) if patient else (
             MatchResult(patient_id, "patient_not_found"))
+        if result.status == "matched":
+            result = notification_snapshot(db, result)
         db.add(OutboxModel(id=f"matching:result:{uuid4()}", kind="matching.completed", payload=result.as_payload()))
         return result
 

@@ -167,9 +167,16 @@ sem criar recursos nem acessar o banco.
 
 O worker possui um relay exclusivo para `matching.completed`, com cinco tentativas,
 lease e claim do OutboxRepository. Processa um evento por vez e não usa Redis nem
-cria Message na fila outbound. Para `matched`, resolve paciente, slot, ciclo e
-profissional pelo ORM, verificando também os IDs fornecidos no evento. Dados
-insuficientes ou IDs inconsistentes falham e seguem o retry da outbox.
+cria Message na fila outbound. O matching inclui no JSON do evento `patient_phone`,
+`professional_name`, `professional_area` e `professional_phone`, além de `patient_id`,
+`slot_id` e `cycle_id` para auditoria. Esse snapshot é gravado na mesma transação
+da alocação, inclusive quando o paciente já possui slot. Contatos ausentes impedem
+a transação de publicar um resultado incompleto.
+
+Para `matched`, o relay constrói o template diretamente do snapshot, sem consultar
+cadastros, slots ou ciclos. Alterações posteriores nos cadastros não mudam o evento.
+Payloads incompletos (inclusive eventos antigos contendo apenas IDs) falham e seguem
+o retry da outbox; não existe fallback de consulta ao banco.
 
 A dataclass `MatchingPatientTemplate` define `matching_paciente`, idioma `pt_BR` e
 os parâmetros do body, nesta ordem: nome do profissional, área, link

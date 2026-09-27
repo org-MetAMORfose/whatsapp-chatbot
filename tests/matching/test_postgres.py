@@ -52,8 +52,8 @@ def database(migrated_engine):
 
 def seed(engine: Engine, *, patients: int = 2, capacity: int = 1, cycles: int = 1) -> None:
     with engine.begin() as db:
-        person = db.scalar(text("""INSERT INTO person(phone_number,channel,chat_mode,created_at)
-            VALUES ('professional','WHATSAPP','AUTOMATIC',now()) RETURNING id"""))
+        person = db.scalar(text("""INSERT INTO person(phone_number,channel,chat_mode,created_at,name)
+            VALUES ('5511977776666','WHATSAPP','AUTOMATIC',now(),'Dra. Ana') RETURNING id"""))
         professional = db.scalar(text("""INSERT INTO professional(person_id,area,professional_register,register_type,created_at)
             VALUES (:person,'Psicoterapia','123','CRP',now()) RETURNING id"""), {"person": person})
         for i in range(cycles):
@@ -62,7 +62,7 @@ def seed(engine: Engine, *, patients: int = 2, capacity: int = 1, cycles: int = 
                        {"professional": professional, "type": "REGULAR" if i == 0 else "REPLACEMENT", "capacity": capacity})
         for i in range(patients):
             person = db.scalar(text("""INSERT INTO person(phone_number,channel,chat_mode,created_at)
-                VALUES (:phone,'WHATSAPP','AUTOMATIC',now()) RETURNING id"""), {"phone": f"patient-{i}"})
+                VALUES (:phone,'WHATSAPP','AUTOMATIC',now()) RETURNING id"""), {"phone": f"55119888{i:05d}"})
             patient = db.scalar(text("INSERT INTO patient(person_id,area,created_at) VALUES (:p,'Psicoterapia',now()) RETURNING id"), {"p": person})
             assert patient is not None
 
@@ -192,7 +192,7 @@ def test_real_batch_of_ten_without_reading_outbox(database):
     event.listen(database, "before_cursor_execute", capture)
     try:
         patients = [{"patient_id": i} for i in range(1, 6)] + [
-            {"name": "Ana", "birth_date": "1990-01-01", "phone_number": f"external-{i}", "area": "Psicoterapia"}
+            {"name": "Ana", "birth_date": "1990-01-01", "phone_number": f"55119666{i:05d}", "area": "Psicoterapia"}
             for i in range(5)
         ]
         with patch("matching.handler.database", return_value=database):
@@ -205,3 +205,28 @@ def test_real_batch_of_ten_without_reading_outbox(database):
     with database.connect() as db:
         assert db.scalar(text("SELECT count(*) FROM matching_slot")) == 10
         assert db.scalar(text("SELECT count(*) FROM outbox WHERE kind='matching.completed'")) == 10
+
+
+def test_completed_event_captures_notification_snapshot(database):
+    seed(database, patients=1)
+    first = execute(database, {"patient_id": 1})
+    repeated = execute(database, {"patient_id": 1})
+    assert repeated == first
+    assert first == {"status": "matched", "patient_id": 1, "slot_id": first["slot_id"], "cycle_id": first["cycle_id"],
+                     "patient_phone": "5511988800000", "professional_name": "Dra. Ana",
+                     "professional_area": "Psicoterapia", "professional_phone": "5511977776666"}
+    with database.begin() as db:
+        db.execute(text("UPDATE person SET name='Changed', phone_number='changed-' || id"))
+        payloads = db.execute(text("SELECT payload FROM outbox WHERE kind='matching.completed'")).scalars().all()
+    assert payloads == [first, first]
+
+
+def test_incomplete_snapshot_rolls_back_allocation_and_event(database):
+    seed(database, patients=1)
+    with database.begin() as db:
+        db.execute(text("UPDATE person SET name=NULL"))
+    with pytest.raises(ValueError, match="Incomplete matching notification snapshot"):
+        execute(database, {"patient_id": 1})
+    with database.connect() as db:
+        assert db.scalar(text("SELECT count(*) FROM matching_slot")) == 0
+        assert db.scalar(text("SELECT count(*) FROM outbox")) == 0

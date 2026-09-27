@@ -74,5 +74,10 @@ class MatchResult:
     slot_id: int | None = None
     cycle_id: int | None = None
 
+    patient_phone: str | None = None
+    professional_name: str | None = None
+    professional_area: str | None = None
+    professional_phone: str | None = None
+
     def as_payload(self) -> dict[str, Any]:
         return {key: value for key, value in asdict(self).items() if value is not None}

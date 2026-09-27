@@ -5,7 +5,7 @@ from typing import Any
 
 from app.channel_adapters.whatsapp import WhatsAppAdapter
 from app.context import AppContext
-from app.repository.sql.matching_notification_repository import MatchingNotificationRepository
+from app.domain.whatsapp.matching_patient_template import MatchingPatientTemplate
 from app.repository.sql.outbox_repository import OutboxRepository
 
 logger = logging.getLogger(__name__)
@@ -22,9 +22,8 @@ def positive_id(payload: dict[str, Any], key: str, *, required: bool = False) ->
 
 
 class MatchingCompletedRelay:
-    def __init__(self, repository: OutboxRepository, notifications: MatchingNotificationRepository, adapter: WhatsAppAdapter) -> None:
+    def __init__(self, repository: OutboxRepository, adapter: WhatsAppAdapter) -> None:
         self.repository = repository
-        self.notifications = notifications
         self.adapter = adapter
 
     async def process_next(self) -> bool:
@@ -37,8 +36,14 @@ class MatchingCompletedRelay:
                 patient_id = positive_id(item.payload, "patient_id", required=True)
                 if patient_id is None:
                     raise ValueError("Missing patient_id")
-                template = await asyncio.to_thread(self.notifications.resolve, patient_id,
-                    slot_id=positive_id(item.payload, "slot_id"), cycle_id=positive_id(item.payload, "cycle_id"))
+                positive_id(item.payload, "slot_id")
+                positive_id(item.payload, "cycle_id")
+                template = MatchingPatientTemplate(
+                    patient_phone=item.payload.get("patient_phone", ""),
+                    professional_name=item.payload.get("professional_name", ""),
+                    professional_area=item.payload.get("professional_area", ""),
+                    professional_phone=item.payload.get("professional_phone", ""),
+                )
                 await self.adapter.send_template(to=template.patient_phone, name=template.name,
                     language=template.language, body_parameters=template.body_parameters)
             elif status not in ("no_capacity", "patient_not_found"):
