@@ -1,184 +1,44 @@
-import asyncio
 from datetime import UTC, datetime
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
 from app.context import AppContext
-from app.domain.db.message_history_model import MessageHistoryModel
 from app.domain.enum.channels import Channel
 from app.domain.message import Message
-from app.interfaces.bot_adapter import BotAdapter
-from app.message_queue.message_queue import MessageQueue
 from app.services.dispatcher_service import MessageDispatcherService
 
 
-@pytest.fixture
-def mock_context() -> MagicMock:
-    ctx = MagicMock(spec=AppContext)
-    return ctx
-
-
-@pytest.fixture
-def mock_outbound_queue() -> MagicMock:
-    return MagicMock(spec=MessageQueue)
-
-
-@pytest.fixture
-def person_repository() -> MagicMock:
-    repository = MagicMock()
-    repository.get_or_create_person.return_value = MagicMock(id=1)
-    repository.create_message.return_value = MagicMock(spec=MessageHistoryModel)
-    return repository
-
-
-@pytest.fixture
-def dispatcher(
-    mock_context: MagicMock,
-    mock_outbound_queue: MagicMock,
-    person_repository: MagicMock,
-) -> MessageDispatcherService:
-    return MessageDispatcherService(
-        ctx=mock_context,
-        outbound_queue=mock_outbound_queue,
-        person_repository=person_repository,
-    )
-
-
-@pytest.fixture
-def telegram_adapter() -> MagicMock:
-    adapter = MagicMock(spec=BotAdapter)
-    adapter.send_message = AsyncMock()
-    return adapter
-
-
-@pytest.fixture
-def whatsapp_adapter() -> MagicMock:
-    adapter = MagicMock(spec=BotAdapter)
-    adapter.send_message = AsyncMock()
-    return adapter
-
-
-def make_message(channel: Channel, chat_id: str, user_id: str, content: str) -> Message:
-    return Message(
-        message_id=1 if channel == Channel.TELEGRAM else 2,
-        created_at=datetime.now(UTC),
-        channel=channel,
-        chat_id=chat_id,
-        user_id=user_id,
-        content=content,
-    )
+def message() -> Message:
+    return Message(message_id=1, event_id="reply:abc", channel=Channel.WHATSAPP,
+                   chat_id="123", user_id="123", content="hello", created_at=datetime.now(UTC))
 
 
 @pytest.mark.asyncio
-async def test_dispatch_sends_message_to_registered_channel_adapter(
-    dispatcher: MessageDispatcherService,
-    telegram_adapter: MagicMock,
-    person_repository: MagicMock,
-) -> None:
-    dispatcher.register_adapter(Channel.TELEGRAM, telegram_adapter)
-
-    message = make_message(
-        channel=Channel.TELEGRAM,
-        chat_id="123",
-        user_id="user_1",
-        content="Hello",
-    ).model_copy(update={"media": "media/document/registration.pdf"})
-
-    await dispatcher.dispatch(message)
-
-    telegram_adapter.send_message.assert_awaited_once_with(message)
-    person_repository.get_or_create_person.assert_called_once_with(
-        phone_number="user_1",
-        channel=Channel.TELEGRAM,
-    )
-    person_repository.create_message.assert_called_once()
-
-    created_message = person_repository.create_message.call_args.args[0]
-    assert created_message.person_id == 1
-    assert created_message.content == "Hello"
-    assert created_message.media_path == "media/document/registration.pdf"
-    assert created_message.is_from_user is False
-    assert created_message.created_at == message.created_at
+async def test_missing_adapter_fails_for_retry() -> None:
+    dispatcher = MessageDispatcherService(AppContext(), MagicMock(), MagicMock())
+    with pytest.raises(ValueError, match="No adapter"):
+        await dispatcher.dispatch(message())
 
 
 @pytest.mark.asyncio
-async def test_dispatch_uses_correct_adapter_when_two_channels_are_registered(
-    dispatcher: MessageDispatcherService,
-    telegram_adapter: MagicMock,
-    whatsapp_adapter: MagicMock,
-    person_repository: MagicMock,
-) -> None:
-    dispatcher.register_adapter(Channel.TELEGRAM, telegram_adapter)
-    dispatcher.register_adapter(Channel.WHATSAPP, whatsapp_adapter)
-
-    telegram_message = make_message(
-        channel=Channel.TELEGRAM,
-        chat_id="123",
-        user_id="user_1",
-        content="hello telegram",
-    )
-    whatsapp_message = make_message(
-        channel=Channel.WHATSAPP,
-        chat_id="5511999999999",
-        user_id="user_2",
-        content="hello whatsapp",
-    )
-
-    await dispatcher.dispatch(telegram_message)
-    await dispatcher.dispatch(whatsapp_message)
-
-    telegram_adapter.send_message.assert_awaited_once_with(telegram_message)
-    whatsapp_adapter.send_message.assert_awaited_once_with(whatsapp_message)
-
-    assert person_repository.get_or_create_person.call_count == 2
-    assert person_repository.create_message.call_count == 2
+async def test_completed_delivery_does_not_send_again() -> None:
+    people = MagicMock()
+    people._session_factory.return_value.__enter__.return_value.get.return_value = object()
+    dispatcher = MessageDispatcherService(AppContext(), MagicMock(), people)
+    adapter = MagicMock(send_message=AsyncMock())
+    dispatcher.register_adapter(Channel.WHATSAPP, adapter)
+    await dispatcher.dispatch(message())
+    adapter.send_message.assert_not_awaited()
 
 
 @pytest.mark.asyncio
-async def test_dispatch_does_nothing_when_channel_has_no_registered_adapter(
-    dispatcher: MessageDispatcherService,
-    person_repository: MagicMock,
-) -> None:
-    message = make_message(
-        channel=Channel.TELEGRAM,
-        chat_id="123",
-        user_id="user_1",
-        content="Hello",
-    )
-
-    await dispatcher.dispatch(message)
-
-    person_repository.get_or_create_person.assert_not_called()
-    person_repository.create_message.assert_not_called()
-
-
-@pytest.mark.asyncio
-async def test_start_creates_and_stores_task(
-    dispatcher: MessageDispatcherService,
-) -> None:
-    mock_task = MagicMock()
-
-    with patch(
-        "app.services.dispatcher_service.asyncio.create_task",
-        return_value=mock_task,
-    ) as mock_create_task:
-        await dispatcher.start()
-
-    mock_create_task.assert_called_once()
-    assert dispatcher._task is mock_task
-
-
-@pytest.mark.asyncio
-async def test_stop_cancels_and_awaits_existing_task(
-    dispatcher: MessageDispatcherService,
-) -> None:
-    task = asyncio.Future()
-    task.set_result(None)
-    task.cancel = MagicMock()  # type: ignore[method-assign]
-
-    dispatcher._task = task  # type: ignore[assignment]
-
-    await dispatcher.stop()
-
-    task.cancel.assert_called_once()
+async def test_provider_failure_is_not_recorded_as_success() -> None:
+    people = MagicMock()
+    people._session_factory.return_value.__enter__.return_value.get.return_value = None
+    dispatcher = MessageDispatcherService(AppContext(), MagicMock(), people)
+    adapter = MagicMock(send_message=AsyncMock(side_effect=TimeoutError()))
+    dispatcher.register_adapter(Channel.WHATSAPP, adapter)
+    with pytest.raises(TimeoutError):
+        await dispatcher.dispatch(message())
+    people.create_message.assert_not_called()

@@ -6,7 +6,6 @@ import pytest
 from app.controllers.whatsapp_controller import WhatsAppController, _ParsedWhatsAppMessage
 from app.domain.enum.channels import Channel
 from app.domain.message import Message
-from app.services.s3_media_service import S3MediaService
 
 
 @pytest.mark.asyncio
@@ -55,7 +54,7 @@ async def test_receive_webhook_forwards_extracted_messages_to_handler() -> None:
 
 
 @pytest.mark.asyncio
-async def test_receive_webhook_discards_messages_older_than_ten_minutes() -> None:
+async def test_receive_webhook_keeps_delayed_messages_for_recovery() -> None:
     message_handler = MagicMock()
     message_handler.handle = AsyncMock()
     controller = WhatsAppController(message_handler=message_handler)
@@ -90,22 +89,9 @@ async def test_receive_webhook_discards_messages_older_than_ten_minutes() -> Non
     ):
         result = await controller.receive_webhook(request)
 
-    message_handler.handle.assert_awaited_once_with(recent_message)
+    message_handler.handle.assert_any_await(stale_message)
+    message_handler.handle.assert_any_await(recent_message)
     assert result == {"status": "ok"}
-
-
-def test_is_recent_message_discards_messages_without_timestamp() -> None:
-    controller = WhatsAppController(message_handler=MagicMock())
-    message = Message(
-        message_id=1,
-        channel=Channel.WHATSAPP,
-        created_at=None,
-        user_id="111",
-        chat_id="111",
-        content="unknown age",
-    )
-
-    assert controller._is_recent_message(message) is False
 
 
 def test_parse_message_text_returns_expected_message() -> None:
@@ -189,14 +175,9 @@ def test_parse_message_interactive_button_reply_sets_title_as_content() -> None:
 
 
 @pytest.mark.asyncio
-async def test_parse_and_resolve_image_stores_only_the_s3_path() -> None:
-    s3_service = MagicMock(spec=S3MediaService)
-    s3_service.upload_from_whatsapp = AsyncMock(
-        return_value="media/image/whatsapp-image.jpg"
-    )
+async def test_parse_image_keeps_reference_for_worker() -> None:
     controller = WhatsAppController(
         message_handler=MagicMock(),
-        s3_service=s3_service,
     )
     raw_message = {
         "id": "wamid.image123",
@@ -213,24 +194,12 @@ async def test_parse_and_resolve_image_stores_only_the_s3_path() -> None:
     assert parsed.media_id == "whatsapp-image"
     assert parsed.media_type == "image"
 
-    resolved = await controller._resolve_media(parsed)
-
-    assert resolved.media == "media/image/whatsapp-image.jpg"
-    s3_service.upload_from_whatsapp.assert_awaited_once_with(
-        "whatsapp-image",
-        "image",
-    )
 
 
 @pytest.mark.asyncio
-async def test_parse_and_resolve_video_stores_only_the_s3_path() -> None:
-    s3_service = MagicMock(spec=S3MediaService)
-    s3_service.upload_from_whatsapp = AsyncMock(
-        return_value="media/video/whatsapp-video.mp4"
-    )
+async def test_parse_video_keeps_reference_for_worker() -> None:
     controller = WhatsAppController(
         message_handler=MagicMock(),
-        s3_service=s3_service,
     )
     raw_message = {
         "id": "wamid.video123",
@@ -250,13 +219,6 @@ async def test_parse_and_resolve_video_stores_only_the_s3_path() -> None:
     assert parsed.media_id == "whatsapp-video"
     assert parsed.media_type == "video"
 
-    resolved = await controller._resolve_media(parsed)
-
-    assert resolved.media == "media/video/whatsapp-video.mp4"
-    s3_service.upload_from_whatsapp.assert_awaited_once_with(
-        "whatsapp-video",
-        "video",
-    )
 
 
 def test_parse_media_without_media_id_is_ignored() -> None:

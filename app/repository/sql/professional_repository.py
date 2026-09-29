@@ -9,6 +9,7 @@ from sqlalchemy.orm import Session, joinedload
 from app.domain.db.patient_model import PatientModel
 from app.domain.db.professional_model import ProfessionalModel
 from app.domain.db.professional_patient_model import ProfessionalPatientModel
+from app.repository.sql.transaction import commit, session_scope
 
 
 class ProfessionalRepository:
@@ -18,9 +19,9 @@ class ProfessionalRepository:
         self._session_factory = session_factory
 
     def create(self, professional: ProfessionalModel) -> ProfessionalModel:
-        with self._session_factory() as session:
+        with session_scope(self._session_factory) as session:
             session.add(professional)
-            session.commit()
+            commit(session)
             session.refresh(professional)
             return professional
 
@@ -38,7 +39,7 @@ class ProfessionalRepository:
         created_at: datetime | None = None,
     ) -> ProfessionalModel:
         """Create a professional application unless one already exists."""
-        with self._session_factory() as session:
+        with session_scope(self._session_factory) as session:
             existing = session.scalar(
                 select(ProfessionalModel).where(
                     ProfessionalModel.person_id == person_id,
@@ -59,29 +60,29 @@ class ProfessionalRepository:
                 created_at=created_at or datetime.utcnow(),
             )
             session.add(professional)
-            session.commit()
+            commit(session)
             session.refresh(professional)
             return professional
 
     def get_by_id(self, professional_id: int) -> ProfessionalModel | None:
-        with self._session_factory() as session:
+        with session_scope(self._session_factory) as session:
             stmt = select(ProfessionalModel).options(joinedload(ProfessionalModel.person)).where(ProfessionalModel.id == professional_id)
             return session.execute(stmt).unique().scalar_one_or_none()
 
     def get_by_person_id(self, person_id: int) -> ProfessionalModel | None:
-        with self._session_factory() as session:
+        with session_scope(self._session_factory) as session:
             stmt = select(ProfessionalModel).options(joinedload(ProfessionalModel.person)).where(ProfessionalModel.person_id == person_id)
             return session.execute(stmt).unique().scalar_one_or_none()
 
     def update(self, professional: ProfessionalModel) -> ProfessionalModel:
-        with self._session_factory() as session:
+        with session_scope(self._session_factory) as session:
             merged = session.merge(professional)
-            session.commit()
+            commit(session)
             session.refresh(merged)
             return merged
 
     def get_with_patients(self, professional_id: int) -> ProfessionalModel | None:
-        with self._session_factory() as session:
+        with session_scope(self._session_factory) as session:
             stmt = (
                 select(ProfessionalModel)
                 .options(
@@ -93,7 +94,7 @@ class ProfessionalRepository:
             return session.execute(stmt).unique().scalar_one_or_none()
 
     def get_patients(self, professional_id: int) -> list[PatientModel]:
-        with self._session_factory() as session:
+        with session_scope(self._session_factory) as session:
             stmt = (
                 select(PatientModel)
                 .join(ProfessionalPatientModel)

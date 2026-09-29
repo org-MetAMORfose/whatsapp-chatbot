@@ -97,7 +97,6 @@ REDIS_DB = int(__get_env_variable("REDIS_DB", "0"))
 REDIS_USERNAME = __get_env_variable("REDIS_USERNAME", "default")
 REDIS_PASSWORD = __get_env_variable("REDIS_PASSWORD", "")
 
-TELEGRAM_BOT_TOKEN = __get_env_variable("TELEGRAM_BOT_TOKEN", "")
 
 WHATSAPP_VERIFY_TOKEN = __get_env_variable("WHATSAPP_VERIFY_TOKEN", "")
 WHATSAPP_ACCESS_TOKEN = __get_env_variable("WHATSAPP_ACCESS_TOKEN", "")
@@ -105,8 +104,6 @@ WHATSAPP_PHONE_NUMBER_ID = __get_env_variable("WHATSAPP_PHONE_NUMBER_ID", "")
 WHATSAPP_WEBHOOK_PORT = int(
     __get_env_variable("WHATSAPP_WEBHOOK_PORT", "8000"))
 
-USE_TELEGRAM = __get_bool_env_variable("USE_TELEGRAM", "0")
-USE_WHATSAPP = __get_bool_env_variable("USE_WHATSAPP", "0")
 
 DATABASE_URL = __get_env_variable("DATABASE_URL", "sqlite:///app.db")
 
@@ -115,7 +112,6 @@ AWS_SECRET_ACCESS_KEY = __get_env_variable("AWS_SECRET_ACCESS_KEY", "")
 AWS_REGION = __get_env_variable("AWS_REGION", "us-east-1")
 S3_BUCKET_NAME = __get_env_variable("S3_BUCKET_NAME", "")
 
-GOOGLE_SERVICE_ACCOUNT_CREDENTIALS = load_google_service_account_credentials()
 GOOGLE_PATIENTS_SPREADSHEET_URL = __get_env_variable(
     "GOOGLE_PATIENTS_SPREADSHEET_URL", "")
 GOOGLE_PROFESSIONALS_SPREADSHEET_URL = __get_env_variable(

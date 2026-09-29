@@ -1,6 +1,5 @@
 """Executes configured agent actions for the chat flow."""
 
-import asyncio
 import logging
 import re
 import unicodedata
@@ -9,8 +8,6 @@ from dataclasses import dataclass
 from datetime import date, datetime
 from functools import partial
 from typing import Final
-
-from pydantic import ValidationError
 
 from app.agent.chat_flow import Node
 from app.agent.faq_flow import FaqFlow
@@ -26,13 +23,10 @@ from app.repository.redis.patient_stage_repository import PatientStageRepository
 from app.repository.redis.professional_stage_repository import (
     ProfessionalStageRepository,
 )
+from app.repository.sql.outbox_repository import OutboxRepository
 from app.repository.sql.patient_repository import PatientRepository
 from app.repository.sql.person_repository import PersonRepository
 from app.repository.sql.professional_repository import ProfessionalRepository
-from app.services.google_sheets_service import (
-    GoogleSheetsService,
-    GoogleSheetsServiceError,
-)
 
 
 @dataclass
@@ -71,7 +65,7 @@ class ActionExecutor:
         person_repository: PersonRepository,
         patient_repository: PatientRepository,
         patient_stage_repository: PatientStageRepository,
-        google_sheets_service: GoogleSheetsService,
+        outbox_repository: OutboxRepository,
         faq_flow: FaqFlow,
     ) -> None:
         self.professional_stage_repository = professional_stage_repository
@@ -79,7 +73,7 @@ class ActionExecutor:
         self.person_repository = person_repository
         self.patient_repository = patient_repository
         self.patient_stage_repository = patient_stage_repository
-        self.google_sheets_service = google_sheets_service
+        self.outbox_repository = outbox_repository
         self.faq_flow = faq_flow
 
         self.actions: Final[dict[str, Action]] = {
@@ -848,25 +842,14 @@ class ActionExecutor:
         if not self._is_patient_price_range(message):
             return ""
 
-        try:
-            patient = PatientSheet(
-                name=context.name or "",
-                phone=message.user_id,
-                area=context.area or "",
-                birth_date=(
-                    context.birth_date.strftime("%d/%m/%Y")
-                    if context.birth_date is not None
-                    else ""
-                ),
-            )
-            await asyncio.to_thread(
-                self.google_sheets_service.register_patient, patient
-            )
-        except (GoogleSheetsServiceError, ValidationError):
-            logger.exception(
-                "Failed to register patient %s in Google Sheets",
-                message.user_id,
-            )
+        patient = PatientSheet(
+            name=context.name or "", phone=message.user_id, area=context.area or "",
+            birth_date=context.birth_date.strftime("%d/%m/%Y") if context.birth_date else "",
+        )
+        event_id = message.event_id or str(message.message_id)
+        self.outbox_repository.enqueue(
+            f"{event_id}:sheets.patient", "sheets.patient.upsert.v1", patient.model_dump(mode="json"),
+        )
 
         return ""
 
@@ -883,26 +866,14 @@ class ActionExecutor:
             )
             return ""
 
-        try:
-            professional = ProfessionalSheet(
-                name=context.name or "",
-                area=context.area or "",
-                phone=message.user_id,
-                email=context.email or "",
-                active=False,
-                birth_date=(
-                    context.birth_date.strftime("%d/%m/%Y")
-                    if context.birth_date is not None
-                    else ""
-                ),
-            )
-            await asyncio.to_thread(
-                self.google_sheets_service.register_professional, professional
-            )
-        except (GoogleSheetsServiceError, ValidationError):
-            logger.exception(
-                "Failed to register professional %s in Google Sheets",
-                message.user_id,
-            )
+        professional = ProfessionalSheet(
+            name=context.name or "", area=context.area or "", phone=message.user_id,
+            email=context.email or "", active=False,
+            birth_date=context.birth_date.strftime("%d/%m/%Y") if context.birth_date else "",
+        )
+        event_id = message.event_id or str(message.message_id)
+        self.outbox_repository.enqueue(
+            f"{event_id}:sheets.professional", "sheets.professional.upsert.v1", professional.model_dump(mode="json"),
+        )
 
         return ""

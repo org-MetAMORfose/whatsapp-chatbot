@@ -11,7 +11,6 @@ def _make_service(s3_client: MagicMock) -> S3MediaService:
         return_value=s3_client,
     ):
         return S3MediaService(
-            whatsapp_token="whatsapp-token",
             bucket="private-media-bucket",
             region="us-east-1",
             aws_access_key_id="access-key",

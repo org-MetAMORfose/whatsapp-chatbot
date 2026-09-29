@@ -21,3 +21,11 @@ logs/
 *.log
 .DS_Store
 tests/
+
+**/.mypy_cache
+**/.ruff_cache
+**/.pytest_cache
+**/__pycache__
+secrets/
+.agents/
+.codex/

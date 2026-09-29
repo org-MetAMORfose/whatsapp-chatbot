@@ -3,12 +3,14 @@ import logging
 from datetime import datetime
 
 from app.context import AppContext
+from app.domain.db.delivery_model import InboxModel
 from app.domain.db.message_history_model import MessageHistoryModel
 from app.domain.enum.channels import Channel
 from app.domain.message import Message
+from app.infra.message_queue import MessageQueue
 from app.interfaces.bot_adapter import BotAdapter
-from app.message_queue.message_queue import MessageQueue
 from app.repository.sql.person_repository import PersonRepository
+from app.repository.sql.transaction import transaction
 
 logger = logging.getLogger(__name__)
 
@@ -34,52 +36,24 @@ class MessageDispatcherService:
     async def dispatch(self, message: Message) -> None:
         logger.info("Dispatching message: %s", message)
 
+        if not message.is_recent():
+            return
         adapter = self.channels.get(message.channel)
         if adapter is None:
             logger.error("No adapter found for channel %s", message.channel)
-            return
+            raise ValueError(f"No adapter for {message.channel}")
 
+        event_id = "sent:" + (message.event_id or f"{message.channel.value}:{message.message_id}")
+        with self.person_repository._session_factory() as session:
+            if session.get(InboxModel, event_id) is not None:
+                return
         await adapter.send_message(message)
-
-        person = self.person_repository.get_or_create_person(
-            phone_number=message.user_id,
-            channel=message.channel,
-        )
-
-        history_message = MessageHistoryModel(
-            person_id=person.id,
-            created_at=message.created_at or datetime.utcnow(),
-            content=message.content,
-            media_path=message.media,
-            is_from_user=False,
-        )
-
-        self.person_repository.create_message(history_message)
-
-    async def start(self) -> None:
-        self._task = asyncio.create_task(self._run())
-        logger.info("Message dispatcher started, waiting for messages...")
-
-    async def _run(self) -> None:
-        while not self.ctx.is_shutting_down():
-            try:
-                message = await self.outbound_queue.claim_next()
-                if message is None:
-                    logger.debug("No message available, continuing to wait...")
-                    continue
-
-                await self.dispatch(message)
-            except asyncio.CancelledError:
-                break
-            except Exception as e:
-                logger.error("Error dispatching message: %s", e, exc_info=True)
-
-    async def stop(self) -> None:
-        if self._task is not None:
-            self._task.cancel()
-            try:
-                await self._task
-            except asyncio.CancelledError:
-                pass
-
-        logger.info("Message dispatcher stopped.")
+        with transaction(self.person_repository._session_factory) as session:
+            person = self.person_repository.get_or_create_person(
+                phone_number=message.user_id, channel=message.channel,
+            )
+            self.person_repository.create_message(MessageHistoryModel(
+                person_id=person.id, created_at=message.created_at or datetime.utcnow(),
+                content=message.content, media_path=message.media, is_from_user=False,
+            ))
+            session.add(InboxModel(id=event_id, result={"sent": True}))

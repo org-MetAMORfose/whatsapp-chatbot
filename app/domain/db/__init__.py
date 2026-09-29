@@ -1,3 +1,4 @@
+from app.domain.db.delivery_model import InboxModel, OutboxModel
 from app.domain.db.faq_interaction_model import FaqInteractionModel
 from app.domain.db.faq_knowledge_entry_model import FaqKnowledgeEntryModel
 from app.domain.db.faq_session_model import FaqSessionModel
@@ -8,6 +9,8 @@ from app.domain.db.professional_model import ProfessionalModel
 from app.domain.db.professional_patient_model import ProfessionalPatientModel
 
 __all__ = [
+    "InboxModel",
+    "OutboxModel",
     "FaqInteractionModel",
     "FaqKnowledgeEntryModel",
     "FaqSessionModel",

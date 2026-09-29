@@ -10,6 +10,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.domain.db.faq_knowledge_entry_model import FaqKnowledgeEntryModel
+from app.repository.sql.transaction import commit, session_scope
 
 
 @dataclass(frozen=True)
@@ -45,14 +46,14 @@ class FaqKnowledgeRepository:
             created_at=created_at,
         )
 
-        with self._session_factory() as session:
+        with session_scope(self._session_factory) as session:
             session.add(entry)
-            session.commit()
+            commit(session)
             session.refresh(entry)
             return entry
 
     def get_by_id(self, entry_id: int) -> FaqKnowledgeEntryModel | None:
-        with self._session_factory() as session:
+        with session_scope(self._session_factory) as session:
             return session.get(FaqKnowledgeEntryModel, entry_id)
 
     def find_similar(
@@ -76,7 +77,7 @@ class FaqKnowledgeRepository:
             .limit(limit)
         )
 
-        with self._session_factory() as session:
+        with session_scope(self._session_factory) as session:
             rows = session.execute(stmt).all()
 
         return [

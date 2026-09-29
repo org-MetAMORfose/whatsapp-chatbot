@@ -12,6 +12,7 @@ from app.domain.db.faq_interaction_model import FaqInteractionModel
 from app.domain.db.faq_session_model import FaqSessionModel
 from app.domain.enum.faq_answer_status import FaqAnswerStatus
 from app.domain.enum.faq_session_outcome import FaqSessionOutcome
+from app.repository.sql.transaction import commit, session_scope
 
 FAQ_SESSION_INACTIVITY_TIMEOUT = timedelta(hours=1)
 
@@ -29,7 +30,7 @@ class FaqSessionRepository:
         now: datetime,
     ) -> FaqSessionModel:
         """Reuse the latest active session or abandon it after one idle hour."""
-        with self._session_factory() as session:
+        with session_scope(self._session_factory) as session:
             latest = session.scalar(
                 select(FaqSessionModel)
                 .where(FaqSessionModel.person_id == person_id)
@@ -49,7 +50,7 @@ class FaqSessionRepository:
                 created_at=now,
             )
             session.add(faq_session)
-            session.commit()
+            commit(session)
             session.refresh(faq_session)
             return faq_session
 
@@ -67,7 +68,7 @@ class FaqSessionRepository:
         created_at: datetime,
     ) -> FaqInteractionModel:
         """Increment the question counter and persist its interaction atomically."""
-        with self._session_factory() as session:
+        with session_scope(self._session_factory) as session:
             faq_session = session.scalar(
                 select(FaqSessionModel)
                 .where(FaqSessionModel.id == session_id)
@@ -90,7 +91,7 @@ class FaqSessionRepository:
                 created_at=created_at,
             )
             session.add(interaction)
-            session.commit()
+            commit(session)
             session.refresh(interaction)
             return interaction
 
@@ -99,12 +100,12 @@ class FaqSessionRepository:
         session_id: int,
         outcome: FaqSessionOutcome,
     ) -> FaqSessionModel:
-        with self._session_factory() as session:
+        with session_scope(self._session_factory) as session:
             faq_session = session.get(FaqSessionModel, session_id)
             if faq_session is None:
                 raise ValueError(f"FAQ session {session_id} was not found.")
             faq_session.outcome = outcome
-            session.commit()
+            commit(session)
             session.refresh(faq_session)
             return faq_session
 
@@ -116,7 +117,7 @@ class FaqSessionRepository:
         answer_status: FaqAnswerStatus | None = None,
     ) -> FaqSessionModel | None:
         """Finish the person's latest active FAQ session atomically."""
-        with self._session_factory() as session:
+        with session_scope(self._session_factory) as session:
             faq_session = session.scalar(
                 select(FaqSessionModel)
                 .where(
@@ -145,7 +146,7 @@ class FaqSessionRepository:
                     interaction.answer_status = answer_status
 
             faq_session.outcome = outcome
-            session.commit()
+            commit(session)
             session.refresh(faq_session)
             return faq_session
 
