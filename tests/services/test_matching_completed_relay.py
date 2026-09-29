@@ -63,7 +63,7 @@ async def test_professional_notification_sends_matching_professional_template():
 
     adapter.send_template.assert_awaited_once_with(
         to="5511977776666",
-        name="matching_professional",
+        name="matching_profissional",
         language="pt_BR",
         body_parameters=("Leo", "Psicoterapia", "https://wa.me/5511988887777"),
     )

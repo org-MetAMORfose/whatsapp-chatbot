@@ -1,4 +1,4 @@
-"""Values expected by the approved matching_professional template."""
+"""Values expected by the approved matching_profissional template."""
 
 from dataclasses import dataclass
 from typing import ClassVar
@@ -13,7 +13,7 @@ class MatchingProfessionalTemplate:
     patient_area: str
     patient_phone: str
 
-    name: ClassVar[str] = "matching_professional"
+    name: ClassVar[str] = "matching_profissional"
     language: ClassVar[str] = "pt_BR"
 
     def __post_init__(self) -> None:
