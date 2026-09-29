@@ -1,9 +1,9 @@
 """Reserve and finalize integration deliveries using short SQL transactions."""
-from collections.abc import Callable
+from collections.abc import Callable, Collection
 from datetime import UTC, datetime, timedelta
 from typing import Any
 
-from sqlalchemy import and_, delete, or_, select, update
+from sqlalchemy import and_, delete, or_, select, true, update
 from sqlalchemy.orm import Session
 
 from app.domain.db.delivery_model import OutboxModel
@@ -21,14 +21,22 @@ class OutboxRepository:
                                     available_at=available_at or datetime.now(UTC)))
             session.flush()
 
-    def claim(self) -> OutboxModel | None:
+    def claim(self, *, kinds: Collection[str] | None = None, max_attempts: int = 5) -> OutboxModel | None:
+        if max_attempts < 1:
+            raise ValueError("max_attempts must be positive")
         now = datetime.now(UTC)
         with self.factory() as session, session.begin():
-            item = session.scalar(select(OutboxModel).where(or_(
+            item = session.scalar(select(OutboxModel).where(
+                OutboxModel.kind.in_(kinds) if kinds is not None else true(), or_(
                 and_(OutboxModel.status == "pending", OutboxModel.available_at <= now),
                 and_(OutboxModel.status == "processing", OutboxModel.locked_until <= now),
             )).order_by(OutboxModel.available_at, OutboxModel.id).limit(1).with_for_update(skip_locked=True))
             if item is None:
+                return None
+            if item.attempts >= max_attempts:
+                item.status = "failed"
+                item.locked_until = None
+                item.last_error = "Delivery attempts exhausted"
                 return None
             item.status = "processing"
             item.attempts += 1
@@ -37,10 +45,12 @@ class OutboxRepository:
             session.expunge(item)
             return item
 
-    def finish(self, item: OutboxModel, error: Exception | None = None) -> None:
+    def finish(self, item: OutboxModel, error: Exception | None = None, *, max_attempts: int = 5) -> None:
+        if max_attempts < 1:
+            raise ValueError("max_attempts must be positive")
         values: dict[str, Any] = {"locked_until": None, "last_error": None, "status": "sent"}
         if error is not None:
-            values.update(status="failed" if item.attempts >= 5 else "pending",
+            values.update(status="failed" if item.attempts >= max_attempts else "pending",
                           last_error=type(error).__name__,
                           available_at=datetime.now(UTC) + timedelta(seconds=min(300, 5 * 2 ** (item.attempts - 1))))
         with self.factory() as session, session.begin():

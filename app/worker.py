@@ -48,7 +48,7 @@ async def relay(repository: OutboxRepository, ctx: AppContext) -> None:
     def deliver() -> bool:
         nonlocal service
         from app.services.google_sheets_service import GoogleSheetsService
-        item = repository.claim()
+        item = repository.claim(kinds=("sheets.patient.upsert.v1", "sheets.professional.upsert.v1"), max_attempts=5)
         if item is None:
             return False
         try:
@@ -59,9 +59,9 @@ async def relay(repository: OutboxRepository, ctx: AppContext) -> None:
             service.deliver(item.id, item.kind, item.payload)
         except Exception as exc:
             logger.exception("Outbox delivery failed: id=%s attempt=%s", item.id, item.attempts)
-            repository.finish(item, exc)
+            repository.finish(item, exc, max_attempts=5)
         else:
-            repository.finish(item)
+            repository.finish(item, max_attempts=5)
         return True
 
     loop = asyncio.get_running_loop()
@@ -73,6 +73,47 @@ async def relay(repository: OutboxRepository, ctx: AppContext) -> None:
                 last_cleanup = loop.time()
             if not await loop.run_in_executor(executor, deliver):
                 await asyncio.sleep(1)
+
+
+async def matching_relay(repository: OutboxRepository, ctx: AppContext) -> None:
+    """Transport chatbot registrations through the independent patient contract."""
+    import json
+    import os
+
+    import boto3
+    from botocore.config import Config
+
+    name = os.environ.get("MATCHING_LAMBDA_NAME")
+    if not name:
+        logger.warning("MATCHING_LAMBDA_NAME unset; matching events remain pending")
+        await ctx.wait_for_shutdown()
+        return
+    client = boto3.client("lambda",
+        region_name=os.environ.get("AWS_REGION") or os.environ.get("AWS_DEFAULT_REGION", "us-east-1"),
+        config=Config(connect_timeout=5, read_timeout=130, retries={"total_max_attempts": 1}))
+
+    def deliver() -> bool:
+        item = repository.claim(kinds=("matching.requested",), max_attempts=1)
+        if item is None:
+            return False
+        try:
+            response = client.invoke(FunctionName=name, InvocationType="RequestResponse",
+                Payload=json.dumps({"patient_id": item.payload["patient_id"]}).encode())
+            response["Payload"].close()
+            if response["StatusCode"] != 200 or response.get("FunctionError"):
+                raise RuntimeError("Matching Lambda execution failed")
+            repository.finish(item, max_attempts=1)
+        except Exception as exc:
+            repository.finish(item, exc, max_attempts=1)
+            logger.exception("Matching invocation failed: id=%s", item.id)
+        return True
+
+    loop = asyncio.get_running_loop()
+    with ThreadPoolExecutor(max_workers=1, thread_name_prefix="matching") as executor:
+        while not ctx.is_shutting_down():
+            if not await loop.run_in_executor(executor, deliver):
+                await asyncio.sleep(0.2)
+    client.close()
 
 
 async def run() -> None:
@@ -89,6 +130,7 @@ async def run() -> None:
     from app.repository.sql.professional_repository import ProfessionalRepository
     from app.services.dispatcher_service import MessageDispatcherService
     from app.services.inbound_processor import InboundProcessor
+    from app.services.matching_completed_relay import MatchingCompletedRelay
 
     ctx = AppContext()
     loop = asyncio.get_running_loop()
@@ -124,7 +166,9 @@ async def run() -> None:
             )
             processor = InboundProcessor(factory, agent, people, inbound, outbound, media)
             dispatcher = MessageDispatcherService(ctx, outbound, people)
-            dispatcher.register_adapter(WhatsAppAdapter.channel, WhatsAppAdapter(s3_service=media))
+            whatsapp = WhatsAppAdapter(s3_service=media)
+            dispatcher.register_adapter(WhatsAppAdapter.channel, whatsapp)
+            matching_notifications = MatchingCompletedRelay(outbox, whatsapp)
 
             async def send(delivery: Delivery) -> None:
                 await dispatcher.dispatch(delivery.message)
@@ -143,7 +187,8 @@ async def run() -> None:
 
             tasks = [asyncio.create_task(consume(inbound, processor.process, ctx)),
                      asyncio.create_task(consume(outbound, send, ctx)),
-                     asyncio.create_task(relay(outbox, ctx)), asyncio.create_task(heartbeat())]
+                     asyncio.create_task(relay(outbox, ctx)), asyncio.create_task(matching_relay(outbox, ctx)),
+                     asyncio.create_task(matching_notifications.run(ctx)), asyncio.create_task(heartbeat())]
             stopping = asyncio.create_task(ctx.wait_for_shutdown())
             done, _ = await asyncio.wait([*tasks, stopping], return_when=asyncio.FIRST_COMPLETED)
             ctx.request_shutdown()

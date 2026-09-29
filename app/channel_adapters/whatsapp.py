@@ -1,5 +1,6 @@
 import io
 import logging
+from collections.abc import Sequence
 from typing import Any
 
 import httpx
@@ -191,6 +192,31 @@ class WhatsAppAdapter(BotAdapter):
             logger.error("Error sending WhatsApp message: %s",
                          e, exc_info=True)
             raise
+
+    async def send_template(self, to: str, name: str, language: str, body_parameters: Sequence[str]) -> str:
+        """Send an approved Cloud API template directly; return the accepted message ID."""
+        if not to or not name or not language or any(not value for value in body_parameters):
+            raise ValueError("Template recipient, name, language and parameters must be present")
+        payload = {
+            "messaging_product": "whatsapp",
+            "to": to,
+            "type": "template",
+            "template": {
+                "name": name,
+                "language": {"code": language},
+                "components": [{"type": "body", "parameters": [
+                    {"type": "text", "text": value} for value in body_parameters
+                ]}],
+            },
+        }
+        headers = {"Authorization": f"Bearer {self.access_token}", "Content-Type": "application/json"}
+        async with httpx.AsyncClient(timeout=30.0) as client:
+            response = await client.post(f"{self.base_url}/messages", headers=headers, json=payload)
+        response.raise_for_status()
+        messages = response.json().get("messages", [])
+        if not messages or not isinstance(messages[0].get("id"), str) or not messages[0]["id"]:
+            raise RuntimeError("WhatsApp template response did not confirm a message ID")
+        return str(messages[0]["id"])
 
     async def _upload_media_to_whatsapp(self, media_path: str) -> str:
         """Upload media to WhatsApp and return media_id."""
