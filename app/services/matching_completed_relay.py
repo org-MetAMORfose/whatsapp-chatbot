@@ -6,6 +6,7 @@ from typing import Any
 from app.channel_adapters.whatsapp import WhatsAppAdapter
 from app.context import AppContext
 from app.domain.whatsapp.matching_patient_template import MatchingPatientTemplate
+from app.domain.whatsapp.matching_professional_template import MatchingProfessionalTemplate
 from app.repository.sql.outbox_repository import OutboxRepository
 
 logger = logging.getLogger(__name__)
@@ -27,27 +28,50 @@ class MatchingCompletedRelay:
         self.adapter = adapter
 
     async def process_next(self) -> bool:
-        item = await asyncio.to_thread(self.repository.claim, kinds=("matching.completed",), max_attempts=MAX_ATTEMPTS)
+        item = await asyncio.to_thread(
+            self.repository.claim,
+            kinds=("matching.completed", "matching.professional.notification"),
+            max_attempts=MAX_ATTEMPTS,
+        )
         if item is None:
             return False
         try:
             status = item.payload.get("status")
-            if status == "matched":
-                patient_id = positive_id(item.payload, "patient_id", required=True)
-                if patient_id is None:
-                    raise ValueError("Missing patient_id")
-                positive_id(item.payload, "slot_id")
-                positive_id(item.payload, "cycle_id")
-                template = MatchingPatientTemplate(
-                    patient_phone=item.payload.get("patient_phone", ""),
-                    professional_name=item.payload.get("professional_name", ""),
-                    professional_area=item.payload.get("professional_area", ""),
+            if item.kind == "matching.professional.notification":
+                if status != "matched":
+                    raise ValueError("Professional notification requires a matched result")
+                self._validate_matched_payload(item.payload)
+                professional_template = MatchingProfessionalTemplate(
                     professional_phone=item.payload.get("professional_phone", ""),
+                    patient_name=item.payload.get("patient_name", ""),
+                    patient_area=item.payload.get("patient_area", ""),
+                    patient_phone=item.payload.get("patient_phone", ""),
                 )
-                await self.adapter.send_template(to=template.patient_phone, name=template.name,
-                    language=template.language, body_parameters=template.body_parameters)
-            elif status not in ("no_capacity", "patient_not_found"):
-                raise ValueError("Unknown matching completion status")
+                await self.adapter.send_template(
+                    to=professional_template.professional_phone,
+                    name=professional_template.name,
+                    language=professional_template.language,
+                    body_parameters=professional_template.body_parameters,
+                )
+            elif item.kind == "matching.completed":
+                if status == "matched":
+                    self._validate_matched_payload(item.payload)
+                    patient_template = MatchingPatientTemplate(
+                        patient_phone=item.payload.get("patient_phone", ""),
+                        professional_name=item.payload.get("professional_name", ""),
+                        professional_area=item.payload.get("professional_area", ""),
+                        professional_phone=item.payload.get("professional_phone", ""),
+                    )
+                    await self.adapter.send_template(
+                        to=patient_template.patient_phone,
+                        name=patient_template.name,
+                        language=patient_template.language,
+                        body_parameters=patient_template.body_parameters,
+                    )
+                elif status not in ("no_capacity", "patient_not_found"):
+                    raise ValueError("Unknown matching completion status")
+            else:
+                raise ValueError("Unknown matching notification kind")
         except Exception as exc:
             logger.error("Matching notification failed: id=%s attempt=%s error=%s", item.id, item.attempts, type(exc).__name__)
             await asyncio.to_thread(self.repository.finish, item, exc, max_attempts=MAX_ATTEMPTS)
@@ -56,6 +80,14 @@ class MatchingCompletedRelay:
             # here leaves the lease recoverable; it must not masquerade as success.
             await asyncio.to_thread(self.repository.finish, item, max_attempts=MAX_ATTEMPTS)
         return True
+
+    @staticmethod
+    def _validate_matched_payload(payload: dict[str, Any]) -> None:
+        patient_id = positive_id(payload, "patient_id", required=True)
+        if patient_id is None:
+            raise ValueError("Missing patient_id")
+        positive_id(payload, "slot_id")
+        positive_id(payload, "cycle_id")
 
     async def run(self, ctx: AppContext) -> None:
         while not ctx.is_shutting_down():

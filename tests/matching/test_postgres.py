@@ -61,8 +61,9 @@ def seed(engine: Engine, *, patients: int = 2, capacity: int = 1, cycles: int = 
               VALUES (:professional,:type,:capacity,now()-interval '1 day',now()+interval '10 days',now())"""),
                        {"professional": professional, "type": "REGULAR" if i == 0 else "REPLACEMENT", "capacity": capacity})
         for i in range(patients):
-            person = db.scalar(text("""INSERT INTO person(phone_number,channel,chat_mode,created_at)
-                VALUES (:phone,'WHATSAPP','AUTOMATIC',now()) RETURNING id"""), {"phone": f"55119888{i:05d}"})
+            person = db.scalar(text("""INSERT INTO person(phone_number,channel,chat_mode,created_at,name)
+                VALUES (:phone,'WHATSAPP','AUTOMATIC',now(),:name) RETURNING id"""),
+                {"phone": f"55119888{i:05d}", "name": f"Paciente {i}"})
             patient = db.scalar(text("INSERT INTO patient(person_id,area,created_at) VALUES (:p,'Psicoterapia',now()) RETURNING id"), {"p": person})
             assert patient is not None
 
@@ -213,12 +214,16 @@ def test_completed_event_captures_notification_snapshot(database):
     repeated = execute(database, {"patient_id": 1})
     assert repeated == first
     assert first == {"status": "matched", "patient_id": 1, "slot_id": first["slot_id"], "cycle_id": first["cycle_id"],
-                     "patient_phone": "5511988800000", "professional_name": "Dra. Ana",
-                     "professional_area": "Psicoterapia", "professional_phone": "5511977776666"}
+                     "patient_name": "Paciente 0", "patient_phone": "5511988800000", "patient_area": "Psicoterapia",
+                     "professional_name": "Dra. Ana", "professional_area": "Psicoterapia",
+                     "professional_phone": "5511977776666"}
     with database.begin() as db:
         db.execute(text("UPDATE person SET name='Changed', phone_number='changed-' || id"))
         payloads = db.execute(text("SELECT payload FROM outbox WHERE kind='matching.completed'")).scalars().all()
+        professional_payloads = db.execute(text(
+            "SELECT payload FROM outbox WHERE kind='matching.professional.notification'")).scalars().all()
     assert payloads == [first, first]
+    assert professional_payloads == [first, first]
 
 
 def test_incomplete_snapshot_rolls_back_allocation_and_event(database):
