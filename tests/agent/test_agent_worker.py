@@ -462,9 +462,17 @@ async def test_action_can_override_static_flow_transition() -> None:
             }
         }
     )
+    route_action = flow.nodes["route"].transitions[0].actions[0]
+    route_action.config = {
+        "config_type": "action_transition",
+        "source": {"type": "action_result", "field": "patient_is_returning"},
+        "operator": "eq",
+        "value": True,
+        "target_node_key": "returning",
+    }
     worker = make_worker(chat_repository, flow=flow)
     cast(Any, worker.action_executor).run = AsyncMock(
-        return_value=ActionResult(next_node="returning")
+        return_value=ActionResult(data={"patient_is_returning": True})
     )
 
     response = await worker._process_message(make_message("Atendimento normal"))

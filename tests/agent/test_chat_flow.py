@@ -3,7 +3,7 @@ from datetime import datetime
 import pytest
 from pydantic import ValidationError
 
-from app.agent.chat_flow import ChatFlow, Node, Transition
+from app.agent.chat_flow import ChatFlow, Node, Transition, TransitionAction
 from app.domain.enum.channels import Channel
 from app.domain.enum.chatbot_flow import InputType, NodeType
 from app.domain.message import Message
@@ -43,19 +43,27 @@ def flow_with(transition: Transition) -> ChatFlow:
     )
 
 
-def test_flow_requires_typed_start_node() -> None:
-    with pytest.raises(ValidationError, match="START"):
-        ChatFlow(
-            nodes={
-                "start": Node(
-                    key="start",
-                    type=NodeType.MESSAGE,
-                    title="Início",
-                    message="Início",
-                    position=0,
-                )
-            }
-        )
+def test_flow_does_not_require_a_single_reserved_start_key() -> None:
+    flow = ChatFlow(
+        nodes={
+            "entrada_paciente": Node(
+                key="entrada_paciente",
+                type=NodeType.START,
+                title="Início",
+                message="Início",
+                position=0,
+            ),
+            "entrada_profissional": Node(
+                key="entrada_profissional",
+                type=NodeType.START,
+                title="Início profissional",
+                message="Início profissional",
+                position=1,
+            ),
+        }
+    )
+
+    assert set(flow.nodes) == {"entrada_paciente", "entrada_profissional"}
 
 
 def test_flow_rejects_missing_transition_target() -> None:
@@ -89,6 +97,34 @@ def test_text_expected_value_ignores_case_and_accents() -> None:
     )
 
     assert transition.matches(message("Renovação por Pix"))
+
+
+def test_action_config_routes_third_faq_question() -> None:
+    transition = Transition(
+        input_type=InputType.TEXT,
+        target="faq_resposta",
+        position=0,
+        actions=[
+            TransitionAction(
+                action_key="faq_process_question",
+                config={
+                    "config_type": "action_transition",
+                    "source": {
+                        "type": "action_result",
+                        "field": "question_count",
+                    },
+                    "operator": "gte",
+                    "value": 3,
+                    "target_node_key": "faq_resposta_com_atendimento",
+                },
+            )
+        ],
+    )
+
+    assert transition.target_for({"question_count": 2}) == "faq_resposta"
+    assert transition.target_for({"question_count": 3}) == (
+        "faq_resposta_com_atendimento"
+    )
 
 
 @pytest.mark.parametrize(

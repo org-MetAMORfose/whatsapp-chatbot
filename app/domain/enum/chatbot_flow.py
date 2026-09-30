@@ -18,3 +18,22 @@ class InputType(str, Enum):
     DOCUMENT = "DOCUMENT"
     VIDEO = "VIDEO"
     AUTO = "AUTO"
+
+
+class RevisionStatus(str, Enum):
+    DRAFT = "DRAFT"
+    PUBLISHED = "PUBLISHED"
+    DISCARDED = "DISCARDED"
+
+
+class ChangeEntityType(str, Enum):
+    NODE = "NODE"
+    TRANSITION = "TRANSITION"
+    TRANSITION_ACTION = "TRANSITION_ACTION"
+    INPUT_ERROR_MESSAGE = "INPUT_ERROR_MESSAGE"
+
+
+class ChangeOperation(str, Enum):
+    CREATE = "CREATE"
+    UPDATE = "UPDATE"
+    DELETE = "DELETE"

@@ -1,7 +1,9 @@
 from app.domain.db.chatbot_flow_model import (
+    FlowActionDependencyModel,
+    FlowGraphChangeModel,
+    FlowGraphRevisionModel,
     FlowInputErrorMessageModel,
     FlowNodeModel,
-    FlowRevisionModel,
     FlowTransitionActionModel,
     FlowTransitionModel,
 )
@@ -16,9 +18,11 @@ from app.domain.db.person_model import PersonModel
 from app.domain.db.professional_model import ProfessionalModel
 
 __all__ = [
+    "FlowActionDependencyModel",
+    "FlowGraphChangeModel",
+    "FlowGraphRevisionModel",
     "FlowInputErrorMessageModel",
     "FlowNodeModel",
-    "FlowRevisionModel",
     "FlowTransitionActionModel",
     "FlowTransitionModel",
     "InboxModel",

@@ -3,6 +3,7 @@
 
 import json
 import unicodedata
+from datetime import UTC, datetime
 
 import sqlalchemy as sa
 from alembic import op
@@ -1535,44 +1536,136 @@ def _fallback_input_types(key: str, node: dict[str, object]) -> list[str]:
     return ["AUTO"]
 
 
+def _action_config(
+    node_key: str,
+    action_key: str,
+    expected_value: str | None,
+) -> dict[str, object] | None:
+    field: str | None = None
+    operator = "eq"
+    value: object = True
+    target: str | None = None
+    if action_key == "faq_process_question" and node_key == "faq_inicio":
+        field, operator, value = "question_count", "gte", 3
+        target = "faq_resposta_com_atendimento"
+    elif action_key == "faq_continue_or_satisfy" and expected_value is None:
+        field, operator, value = "question_count", "gte", 3
+        target = "faq_resposta_com_atendimento"
+    elif action_key == "postgres_route_patient_registration" and _normalize(expected_value or "") == "agendar atendimento":
+        field, value = "patient_is_returning", True
+        target = "paciente_retorno_resumo"
+    elif action_key == "postgres_route_patient_preference_update" and _normalize(expected_value or "") == "atualizar":
+        field, value = "patient_area", "psicoterapia"
+        target = "paciente_retorno_campos_psicoterapia"
+    elif action_key == "redis_update_patient_birth_date":
+        field, value = "patient_area", "psicoterapia"
+        target = "paciente_psico_perfil"
+    if field is None or target is None:
+        return None
+    return {
+        "config_type": "action_transition",
+        "source": {"type": "action_result", "field": field},
+        "operator": operator,
+        "value": value,
+        "target_node_key": target,
+    }
+
+
 def upgrade() -> None:
     node_enum = postgresql.ENUM("START", "MESSAGE", "END", name="node_type", schema=SCHEMA, create_type=False)
     input_enum = postgresql.ENUM(
-        "TEXT", "EMAIL", "DATE", "NUMBER", "IMAGE", "DOCUMENT", "VIDEO", "AUTO",
-        name="input_type", schema=SCHEMA, create_type=False,
+        "TEXT",
+        "EMAIL",
+        "DATE",
+        "NUMBER",
+        "IMAGE",
+        "DOCUMENT",
+        "VIDEO",
+        "AUTO",
+        name="input_type",
+        schema=SCHEMA,
+        create_type=False,
     )
     node_table = sa.table(
         "node",
-        sa.column("id", sa.Integer()), sa.column("key", sa.String()), sa.column("type", node_enum),
-        sa.column("title", sa.String()), sa.column("description", sa.Text()),
-        sa.column("message", sa.Text()), sa.column("position", sa.Integer()), schema=SCHEMA,
+        sa.column("id", sa.Integer()),
+        sa.column("key", sa.String()),
+        sa.column("type", node_enum),
+        sa.column("title", sa.String()),
+        sa.column("description", sa.Text()),
+        sa.column("message", sa.Text()),
+        sa.column("position", sa.Integer()),
+        schema=SCHEMA,
     )
     transition_table = sa.table(
         "transition",
-        sa.column("id", sa.Integer()), sa.column("node_id", sa.Integer()),
-        sa.column("input_type", input_enum), sa.column("expected_value", sa.String()),
-        sa.column("button_label", sa.String()), sa.column("next_node_id", sa.Integer()),
-        sa.column("position", sa.Integer()), schema=SCHEMA,
+        sa.column("id", sa.Integer()),
+        sa.column("node_id", sa.Integer()),
+        sa.column("input_type", input_enum),
+        sa.column("expected_value", sa.String()),
+        sa.column("button_label", sa.String()),
+        sa.column("next_node_id", sa.Integer()),
+        sa.column("position", sa.Integer()),
+        schema=SCHEMA,
     )
     action_table = sa.table(
         "transition_action",
-        sa.column("transition_id", sa.Integer()), sa.column("action_key", sa.String()),
-        sa.column("config", postgresql.JSONB()), sa.column("is_required", sa.Boolean()), schema=SCHEMA,
+        sa.column("id", sa.Integer()),
+        sa.column("transition_id", sa.Integer()),
+        sa.column("action_key", sa.String()),
+        sa.column("config", postgresql.JSONB()),
+        sa.column("is_required", sa.Boolean()),
+        schema=SCHEMA,
+    )
+    dependency_table = sa.table(
+        "action_dependency",
+        sa.column("action_id", sa.Integer()),
+        sa.column("depends_on_id", sa.Integer()),
+        schema=SCHEMA,
+    )
+    revision_status = postgresql.ENUM(
+        "DRAFT",
+        "PUBLISHED",
+        "DISCARDED",
+        name="revision_status",
+        schema=SCHEMA,
+        create_type=False,
+    )
+    revision_table = sa.table(
+        "graph_revision",
+        sa.column("status", revision_status),
+        sa.column("version", sa.Integer()),
+        sa.column("created_at", sa.DateTime(timezone=True)),
+        sa.column("updated_at", sa.DateTime(timezone=True)),
+        sa.column("published_at", sa.DateTime(timezone=True)),
+        schema=SCHEMA,
     )
     error_table = sa.table(
         "input_error_message",
-        sa.column("input_type", input_enum), sa.column("message", sa.Text()), schema=SCHEMA,
+        sa.column("input_type", input_enum),
+        sa.column("message", sa.Text()),
+        schema=SCHEMA,
     )
 
     connection = op.get_bind()
     nodes = FLOW_DATA["nodes"]
+    action_locations: dict[tuple[str, str, str | None, str], int] = {}
+    dependencies: set[tuple[int, int]] = set()
     ids: dict[str, int] = {}
     for position, (key, node) in enumerate(nodes.items()):
         node_type = "START" if key == "start" else "END" if node.get("end", False) else "MESSAGE"
-        ids[key] = connection.execute(node_table.insert().values(
-            key=key, type=node_type, title=node["title"], description=node.get("description"),
-            message=node["message"], position=position,
-        ).returning(node_table.c.id)).scalar_one()
+        ids[key] = connection.execute(
+            node_table.insert()
+            .values(
+                key=key,
+                type=node_type,
+                title=node["title"],
+                description=node.get("description"),
+                message=node["message"],
+                position=position,
+            )
+            .returning(node_table.c.id)
+        ).scalar_one()
 
     for key, node in nodes.items():
         used_buttons: set[str] = set()
@@ -1582,8 +1675,8 @@ def upgrade() -> None:
             conditions = source_transition.get("conditions", [])
             specs: list[tuple[str, str | None]] = (
                 [("TEXT", condition) for condition in conditions]
-                if conditions else
-                [(input_type, None) for input_type in _fallback_input_types(key, node)]
+                if conditions
+                else [(input_type, None) for input_type in _fallback_input_types(key, node)]
             )
             for input_type, expected_value in specs:
                 button_label = None
@@ -1594,27 +1687,76 @@ def upgrade() -> None:
                             button_label = button
                             used_buttons.add(button)
                             break
-                transition_id = connection.execute(transition_table.insert().values(
-                    node_id=ids[key], input_type=input_type, expected_value=expected_value,
-                    button_label=button_label, next_node_id=ids[source_transition["target"]],
-                    position=transition_position,
-                ).returning(transition_table.c.id)).scalar_one()
+                transition_id = connection.execute(
+                    transition_table.insert()
+                    .values(
+                        node_id=ids[key],
+                        input_type=input_type,
+                        expected_value=expected_value,
+                        button_label=button_label,
+                        next_node_id=ids[source_transition["target"]],
+                        position=transition_position,
+                    )
+                    .returning(transition_table.c.id)
+                ).scalar_one()
                 transition_position += 1
+                previous_action_id: int | None = None
                 for action_key in node.get("actions", []):
-                    connection.execute(action_table.insert().values(
-                        transition_id=transition_id, action_key=action_key, config=None,
-                        is_required=action_key not in OPTIONAL_ACTIONS,
-                    ))
+                    action_id = connection.execute(
+                        action_table.insert()
+                        .values(
+                            transition_id=transition_id,
+                            action_key=action_key,
+                            config=_action_config(key, action_key, expected_value),
+                            is_required=action_key not in OPTIONAL_ACTIONS,
+                        )
+                        .returning(action_table.c.id)
+                    ).scalar_one()
+                    location = (key, input_type, expected_value, action_key)
+                    action_locations[location] = action_id
+                    if previous_action_id is not None:
+                        dependencies.add((action_id, previous_action_id))
+                    previous_action_id = action_id
 
-    op.bulk_insert(error_table, [
-        {"input_type": input_type, "message": message}
-        for input_type, message in INPUT_ERRORS.items()
-    ])
+    op.bulk_insert(error_table, [{"input_type": input_type, "message": message} for input_type, message in INPUT_ERRORS.items()])
+
+    def located(node_key: str, action_key: str, expected: str | None = None) -> list[int]:
+        return [
+            action_id
+            for (node, _input, value, action), action_id in action_locations.items()
+            if node == node_key and action == action_key and value == expected
+        ]
+
+    patient_name = located("paciente_nome", "redis_update_patient_name")[0]
+    patient_route = located("paciente_tipo_atendimento", "postgres_route_patient_registration", "agendar atendimento")[0]
+    patient_birth_date = located("paciente_data_nascimento", "redis_update_patient_birth_date")[0]
+    professional_stage = located("explicacao_rede", "redis_create_professional_stage", "prosseguir")[0]
+    professional_birth_date = located("profissional_data_nascimento", "redis_update_professional_birth_date")[0]
+    for action_id in located("paciente_tipo_atendimento", "postgres_route_patient_registration"):
+        dependencies.add((action_id, patient_name))
+    for node_key, action_key in (
+        ("paciente_data_nascimento", "redis_update_patient_birth_date"),
+        ("paciente_retorno_resumo", "postgres_register_returning_patient_from_last_request"),
+        ("paciente_retorno_resumo", "postgres_route_patient_preference_update"),
+    ):
+        for action_id in located(node_key, action_key):
+            dependencies.add((action_id, patient_route))
+    for action_id in located("paciente_faixa_valor", "postgres_register_new_patient_request"):
+        dependencies.update({(action_id, patient_name), (action_id, patient_birth_date)})
+    for action_id in located("selecao_profissional_pagamento", "postgres_register_professional_application"):
+        dependencies.update({(action_id, professional_stage), (action_id, professional_birth_date)})
+    op.bulk_insert(dependency_table, [{"action_id": action_id, "depends_on_id": depends_on_id} for action_id, depends_on_id in sorted(dependencies)])
+
+    now = datetime.now(UTC)
+    op.bulk_insert(revision_table, [{"status": "PUBLISHED", "version": 1, "created_at": now, "updated_at": now, "published_at": now}])
 
 
 def downgrade() -> None:
     connection = op.get_bind()
+    connection.execute(sa.text("DELETE FROM chatbot_flow.action_dependency"))
+    connection.execute(sa.text("DELETE FROM chatbot_flow.graph_change"))
     connection.execute(sa.text("DELETE FROM chatbot_flow.transition_action"))
     connection.execute(sa.text("DELETE FROM chatbot_flow.transition"))
     connection.execute(sa.text("DELETE FROM chatbot_flow.node"))
+    connection.execute(sa.text("DELETE FROM chatbot_flow.graph_revision"))
     connection.execute(sa.text("DELETE FROM chatbot_flow.input_error_message"))

@@ -180,13 +180,13 @@ class AgentWorker:
         action_result = await self.action_executor.run(transition.actions, message)
         if isinstance(action_result, ActionResult):
             func_output = action_result.output
-            action_next_node = action_result.next_node
+            action_data = action_result.data or {}
         else:
             # Allows existing custom executors to keep returning a plain string.
             func_output = action_result
-            action_next_node = None
+            action_data = {}
 
-        next_target = action_next_node or transition.target
+        next_target = transition.target_for(action_data)
         if next_target:
             next_node = flow.get(next_target)
 

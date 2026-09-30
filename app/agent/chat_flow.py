@@ -5,7 +5,7 @@ import re
 import unicodedata
 from datetime import date, datetime
 from decimal import Decimal, InvalidOperation
-from typing import Any
+from typing import Any, Literal
 
 from pydantic import BaseModel, Field, model_validator
 
@@ -22,13 +22,29 @@ def normalize_text(value: str) -> str:
     return "".join(character for character in normalized if not unicodedata.combining(character))
 
 
+class ActionTransitionSource(BaseModel):
+    type: Literal["action_result"]
+    field: str = Field(min_length=1)
+
+
+class ActionTransitionConfig(BaseModel):
+    config_type: Literal["action_transition"]
+    source: ActionTransitionSource
+    operator: Literal["eq", "neq", "gt", "gte", "lt", "lte"]
+    value: Any
+    target_node_key: str = Field(min_length=1)
+
+
 class TransitionAction(BaseModel):
+    id: int | None = None
     action_key: str
     config: dict[str, Any] | None = None
     is_required: bool = True
+    depends_on_ids: list[int] = Field(default_factory=list)
 
 
 class Transition(BaseModel):
+    id: int | None = None
     input_type: InputType
     expected_value: str | None = None
     button_label: str | None = None
@@ -74,8 +90,19 @@ class Transition(BaseModel):
             return True
         return normalize_text(message.content or "") == normalize_text(self.expected_value)
 
+    def target_for(self, action_data: dict[str, Any]) -> str:
+        for action in self.actions:
+            if action.config is None:
+                continue
+            config = ActionTransitionConfig.model_validate(action.config)
+            actual = action_data.get(config.source.field)
+            if actual is not None and _compare(actual, config.operator, config.value):
+                return config.target_node_key
+        return self.target
+
 
 class Node(BaseModel):
+    id: int | None = None
     key: str
     type: NodeType
     title: str
@@ -105,16 +132,11 @@ class Node(BaseModel):
 
     def input_error_type(self, message: Message) -> InputType | None:
         fallback_types = {
-            transition.input_type
-            for transition in self.transitions
-            if transition.expected_value is None and transition.input_type != InputType.AUTO
+            transition.input_type for transition in self.transitions if transition.expected_value is None and transition.input_type != InputType.AUTO
         }
         if not fallback_types:
             return None
-        if any(
-            transition.expected_value is None and transition.accepts_input(message)
-            for transition in self.transitions
-        ):
+        if any(transition.expected_value is None and transition.accepts_input(message) for transition in self.transitions):
             return None
 
         media_types = fallback_types & {InputType.IMAGE, InputType.DOCUMENT, InputType.VIDEO}
@@ -133,18 +155,23 @@ class ChatFlow(BaseModel):
 
     @model_validator(mode="after")
     def validate_graph(self) -> "ChatFlow":
-        start = self.nodes.get("start")
-        if start is None or start.type != NodeType.START:
-            raise ValueError("Flow must contain a START node with key 'start'")
-
         missing_targets = [
-            (node.key, transition.target)
-            for node in self.nodes.values()
-            for transition in node.transitions
-            if transition.target not in self.nodes
+            (node.key, transition.target) for node in self.nodes.values() for transition in node.transitions if transition.target not in self.nodes
         ]
         if missing_targets:
             raise ValueError(f"Flow contains missing transition targets: {missing_targets}")
+
+        missing_config_targets: list[tuple[str, str]] = []
+        for node in self.nodes.values():
+            for transition in node.transitions:
+                for action in transition.actions:
+                    if action.config is None:
+                        continue
+                    config = ActionTransitionConfig.model_validate(action.config)
+                    if config.target_node_key not in self.nodes:
+                        missing_config_targets.append((node.key, config.target_node_key))
+        if missing_config_targets:
+            raise ValueError(f"Flow contains missing action targets: {missing_config_targets}")
 
         for node in self.nodes.values():
             positions = [transition.position for transition in node.transitions]
@@ -167,11 +194,7 @@ class ChatFlow(BaseModel):
         if input_type is None:
             return None
 
-        fallback_types = {
-            transition.input_type
-            for transition in node.transitions
-            if transition.expected_value is None
-        }
+        fallback_types = {transition.input_type for transition in node.transitions if transition.expected_value is None}
         if {InputType.IMAGE, InputType.DOCUMENT}.issubset(fallback_types):
             return "Você deve enviar uma imagem ou um documento."
         return self.input_error_messages.get(
@@ -201,4 +224,23 @@ def _valid_number(content: str) -> bool:
             return True
         except InvalidOperation:
             continue
+    return False
+
+
+def _compare(actual: Any, operator: str, expected: Any) -> bool:
+    try:
+        if operator == "eq":
+            return bool(actual == expected)
+        if operator == "neq":
+            return bool(actual != expected)
+        if operator == "gt":
+            return bool(actual > expected)
+        if operator == "gte":
+            return bool(actual >= expected)
+        if operator == "lt":
+            return bool(actual < expected)
+        if operator == "lte":
+            return bool(actual <= expected)
+    except TypeError:
+        return False
     return False

@@ -5,6 +5,7 @@ import pytest
 
 from app.agent.action_executor import ActionExecutor
 from app.agent.chat_flow import TransitionAction
+from app.agent.faq_flow import FaqFlowResult
 from app.domain.db.patient_model import PatientModel
 from app.domain.enum.channels import Channel
 from app.domain.enum.chat_state import ChatState
@@ -57,6 +58,25 @@ def make_executor() -> tuple[
         patient_stage_repository,
         outbox_repository,
     )
+
+
+@pytest.mark.asyncio
+async def test_faq_action_exposes_question_count_without_choosing_a_node() -> None:
+    executor, *_ = make_executor()
+    executor.faq_flow.process = AsyncMock(
+        return_value=FaqFlowResult(
+            content="Resposta",
+            session_id=1,
+            interaction_id=2,
+            selected_entry_id=3,
+            question_count=3,
+        )
+    )
+
+    result = await executor.faq_process_question(make_message("Dúvida"))
+
+    assert result.output == "Resposta\n\n"
+    assert result.data == {"question_count": 3}
 
 
 @pytest.mark.asyncio
@@ -250,17 +270,17 @@ async def test_redis_update_patient_stores_field() -> None:
 
 
 @pytest.mark.parametrize(
-    ("content", "area", "expected_next_node"),
+    ("content", "area", "expected_area"),
     [
-        ("1/1/2000", "Psiquiatria", "paciente_faixa_valor"),
-        ("01/01/2000", "Psicoterapia", "paciente_psico_perfil"),
+        ("1/1/2000", "Psiquiatria", "psiquiatria"),
+        ("01/01/2000", "Psicoterapia", "psicoterapia"),
     ],
 )
 @pytest.mark.asyncio
 async def test_patient_birth_date_accepts_one_or_two_digit_day_and_month(
     content: str,
     area: str,
-    expected_next_node: str,
+    expected_area: str,
 ) -> None:
     executor, _, _, _, patient_stage_repository, _ = make_executor()
     message = make_message(content)
@@ -280,7 +300,7 @@ async def test_patient_birth_date_accepts_one_or_two_digit_day_and_month(
         message,
         {"birth_date": date(2000, 1, 1)},
     )
-    assert result.next_node == expected_next_node
+    assert result.data == {"patient_area": expected_area}
     assert result.output == ""
 
 
@@ -305,7 +325,7 @@ async def test_patient_birth_date_rejects_invalid_values(
     result = await executor.redis_update_patient_birth_date(make_message(content))
 
     patient_stage_repository.update_context.assert_not_awaited()
-    assert result.next_node == "paciente_data_nascimento"
+    assert result.data is None
     assert "Data de nascimento inválida" in result.output
 
 
