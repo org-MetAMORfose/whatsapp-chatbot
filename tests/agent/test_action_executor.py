@@ -1,4 +1,5 @@
 from datetime import date, datetime
+from typing import Any, cast
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
@@ -63,7 +64,7 @@ def make_executor() -> tuple[
 @pytest.mark.asyncio
 async def test_faq_action_exposes_question_count_without_choosing_a_node() -> None:
     executor, *_ = make_executor()
-    executor.faq_flow.process = AsyncMock(
+    cast(Any, executor.faq_flow).process = AsyncMock(
         return_value=FaqFlowResult(
             content="Resposta",
             session_id=1,

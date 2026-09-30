@@ -1,5 +1,6 @@
 from unittest.mock import AsyncMock, MagicMock
 
+import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
@@ -17,7 +18,7 @@ from app.services.chatbot_flow_validation_service import (
 )
 
 
-def client(monkeypatch):
+def client(monkeypatch: pytest.MonkeyPatch) -> tuple[TestClient, MagicMock]:
     monkeypatch.setattr(config, "CHATBOT_API_KEY", "secret")
     service = MagicMock()
     service.publish = AsyncMock()

@@ -1,3 +1,4 @@
+from typing import Any, cast
 from unittest.mock import MagicMock
 
 import pytest
@@ -63,12 +64,14 @@ async def test_cache_miss_loads_postgres_and_publishes_without_ttl() -> None:
     redis = FakeRedis()
     repository = MagicMock()
     repository.load.return_value = (4, make_flow("Banco"))
-    cache = ChatFlowCache(redis, repository)
+    cache = ChatFlowCache(cast(Any, redis), repository)
 
     flow = await cache.get_flow()
     repeated = await cache.get_flow()
 
-    assert flow.get("start").message == "Banco"
+    start = flow.get("start")
+    assert start is not None
+    assert start.message == "Banco"
     assert repeated is flow
     repository.load.assert_called_once()
     assert redis.data[ACTIVE_REVISION_KEY] == "4"
@@ -82,15 +85,19 @@ async def test_revision_change_replaces_the_in_memory_graph() -> None:
     first = make_flow("Primeira")
     second = make_flow("Segunda")
     repository.load.return_value = (1, first)
-    cache = ChatFlowCache(redis, repository)
+    cache = ChatFlowCache(cast(Any, redis), repository)
 
-    assert (await cache.get_flow()).get("start").message == "Primeira"
+    initial = (await cache.get_flow()).get("start")
+    assert initial is not None
+    assert initial.message == "Primeira"
     redis.data[f"{GRAPH_KEY_PREFIX}2"] = second.model_dump_json()
     redis.data[ACTIVE_REVISION_KEY] = "2"
 
     refreshed = await cache.get_flow()
 
-    assert refreshed.get("start").message == "Segunda"
+    refreshed_start = refreshed.get("start")
+    assert refreshed_start is not None
+    assert refreshed_start.message == "Segunda"
     repository.load.assert_called_once()
 
 
@@ -100,9 +107,11 @@ async def test_missing_versioned_payload_recovers_from_postgres() -> None:
     redis.data[ACTIVE_REVISION_KEY] = "99"
     repository = MagicMock()
     repository.load.return_value = (3, make_flow("Recuperado"))
-    cache = ChatFlowCache(redis, repository)
+    cache = ChatFlowCache(cast(Any, redis), repository)
 
     flow = await cache.get_flow()
 
-    assert flow.get("start").message == "Recuperado"
+    start = flow.get("start")
+    assert start is not None
+    assert start.message == "Recuperado"
     assert redis.data[ACTIVE_REVISION_KEY] == "3"

@@ -274,9 +274,12 @@ def test_seeded_chatbot_flow_is_complete_and_loadable(database):
 
     assert revision == 1
     assert len(flow.nodes) == 70
-    assert flow.get("start") is not None
-    assert flow.get("start").type == NodeType.START
-    assert flow.get("paciente_data_nascimento").title == (
+    start = flow.get("start")
+    birth_date = flow.get("paciente_data_nascimento")
+    assert start is not None
+    assert birth_date is not None
+    assert start.type == NodeType.START
+    assert birth_date.title == (
         "Data de nascimento do paciente"
     )
     assert flow.input_error_messages[InputType.EMAIL].startswith(
