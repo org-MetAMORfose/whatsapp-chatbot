@@ -1,3 +1,10 @@
+from app.domain.db.chatbot_flow_model import (
+    FlowInputErrorMessageModel,
+    FlowNodeModel,
+    FlowRevisionModel,
+    FlowTransitionActionModel,
+    FlowTransitionModel,
+)
 from app.domain.db.delivery_model import InboxModel, OutboxModel
 from app.domain.db.faq_interaction_model import FaqInteractionModel
 from app.domain.db.faq_knowledge_entry_model import FaqKnowledgeEntryModel
@@ -9,6 +16,11 @@ from app.domain.db.person_model import PersonModel
 from app.domain.db.professional_model import ProfessionalModel
 
 __all__ = [
+    "FlowInputErrorMessageModel",
+    "FlowNodeModel",
+    "FlowRevisionModel",
+    "FlowTransitionActionModel",
+    "FlowTransitionModel",
     "InboxModel",
     "OutboxModel",
     "FaqInteractionModel",

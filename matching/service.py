@@ -52,9 +52,6 @@ def register_patient(db: Session, data: PatientRegistration) -> int:
 
 
 def allocate(db: Session, patient: Patient) -> MatchResult:
-    existing = db.scalar(select(Slot).where(Slot.patient_id == patient.id))
-    if existing:
-        return MatchResult(patient.id, "matched", existing.id, existing.cycle_id)
     candidates = [candidate_snapshot(c, p, used) for c, p, used in db.execute(candidates_for(patient.area))]
     now = db.scalars(select(func.clock_timestamp())).one()
     for candidate, _ in rank(patient, candidates, now):
@@ -63,6 +60,11 @@ def allocate(db: Session, patient: Patient) -> MatchResult:
         # ORM identity-map state must be refreshed after waiting for another writer.
         fresh = db.execute(candidates_for(patient.area).where(Cycle.id == candidate.id).execution_options(populate_existing=True)).one_or_none()
         if fresh is None:
+            continue
+        existing = db.scalar(select(Slot.id).where(
+            Slot.cycle_id == candidate.id, Slot.patient_id == patient.id,
+        ))
+        if existing is not None:
             continue
         score = score_candidate(patient, candidate_snapshot(*fresh), db.scalars(select(func.clock_timestamp())).one())
         if score is None:
@@ -116,9 +118,13 @@ def match_pending(engine: Engine, limit: int = 100) -> list[MatchResult]:
     available = select(Cycle.id).join(ProfessionalModel, ProfessionalModel.id == Cycle.professional_id).where(
         ProfessionalModel.area == PatientModel.area, Cycle.cancelled_at.is_(None),
         Cycle.starts_at <= func.clock_timestamp(), Cycle.deadline_at > func.clock_timestamp(),
-        used_slots().scalar_subquery() < Cycle.promised_patients).correlate(PatientModel).exists()
-    assigned = select(Slot.id).where(Slot.patient_id == PatientModel.id).exists()
+        used_slots().scalar_subquery() < Cycle.promised_patients,
+        ~select(Slot.id).where(
+            Slot.patient_id == PatientModel.id,
+            Slot.cycle_id == Cycle.id,
+        ).correlate(PatientModel, Cycle).exists(),
+    ).correlate(PatientModel).exists()
     with Session(engine) as db:
-        patients = db.scalars(select(PatientModel.id).where(~assigned, available).order_by(
+        patients = db.scalars(select(PatientModel.id).where(available).order_by(
             PatientModel.created_at, PatientModel.id).limit(min(100, max(0, limit)))).all()
     return [execute(engine, PatientReference(patient_id)) for patient_id in patients]

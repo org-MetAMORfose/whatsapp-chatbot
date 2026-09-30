@@ -83,7 +83,7 @@ def test_last_slot_concurrently(database):
         assert db.scalar(text("SELECT count(*) FROM outbox WHERE kind='matching.completed' AND status='pending'")) == 2
 
 
-def test_same_patient_concurrently(database):
+def test_same_patient_can_be_allocated_once_in_each_cycle(database):
     seed(database, patients=1, cycles=2)
     barrier = Barrier(2)
 
@@ -93,7 +93,21 @@ def test_same_patient_concurrently(database):
 
     with ThreadPoolExecutor(max_workers=2) as pool:
         results = list(pool.map(run, range(2)))
-    assert results[0] == results[1]
+    assert all(result["status"] == "matched" for result in results)
+    assert {result["cycle_id"] for result in results} == {1, 2}
+    with database.connect() as db:
+        assert db.scalar(text("SELECT count(*) FROM matching_slot")) == 2
+        assert db.scalar(text(
+            "SELECT count(*) FROM matching_slot WHERE patient_id=1 AND cycle_id=1"
+        )) == 1
+
+
+def test_same_patient_is_not_allocated_twice_in_one_cycle(database):
+    seed(database, patients=1, capacity=2)
+
+    assert execute(database, {"patient_id": 1})["status"] == "matched"
+    assert execute(database, {"patient_id": 1})["status"] == "no_capacity"
+
     with database.connect() as db:
         assert db.scalar(text("SELECT count(*) FROM matching_slot")) == 1
 
@@ -104,8 +118,10 @@ def test_pending_patient_matched_after_new_capacity(database):
     assert execute(database, {"patient_id": 2})["status"] == "no_capacity"
     with database.begin() as db:
         db.execute(text("""INSERT INTO matching_cycle(professional_id,type,promised_patients,starts_at,deadline_at,created_at)
-            VALUES (1,'REPLACEMENT',1,now(),now()+interval '1 day',now())"""))
-    assert match_pending(database)[0].status == "matched"
+            VALUES (1,'REPLACEMENT',2,now(),now()+interval '1 day',now())"""))
+    results = match_pending(database)
+    assert len(results) == 2
+    assert all(result.status == "matched" for result in results)
     assert match_pending(database) == []
 
 
@@ -140,7 +156,9 @@ def test_registration_reuses_person_and_can_match_by_id(database):
     data = {"name": "Ana", "birth_date": "1990-01-01", "phone_number": "5511999999999", "area": "Psicoterapia"}
     result = execute(database, data)
     assert result["status"] == "matched"
-    assert execute(database, {"patient_id": result["patient_id"]}) == result
+    assert execute(database, {"patient_id": result["patient_id"]}) == {
+        "patient_id": result["patient_id"], "status": "no_capacity",
+    }
     second = execute(database, data)
     assert second["patient_id"] != result["patient_id"]
     with database.connect() as db:
@@ -211,14 +229,59 @@ def test_completed_event_captures_notification_snapshot(database):
     seed(database, patients=1)
     first = execute(database, {"patient_id": 1})
     repeated = execute(database, {"patient_id": 1})
-    assert repeated == first
+    assert repeated == {"patient_id": 1, "status": "no_capacity"}
     assert first == {"status": "matched", "patient_id": 1, "slot_id": first["slot_id"], "cycle_id": first["cycle_id"],
                      "patient_phone": "5511988800000", "professional_name": "Dra. Ana",
                      "professional_area": "Psicoterapia", "professional_phone": "5511977776666"}
     with database.begin() as db:
         db.execute(text("UPDATE person SET name='Changed', phone_number='changed-' || id"))
         payloads = db.execute(text("SELECT payload FROM outbox WHERE kind='matching.completed'")).scalars().all()
-    assert payloads == [first, first]
+    assert payloads == [first, repeated]
+
+
+
+def test_seeded_chatbot_flow_is_complete_and_loadable(database):
+    from sqlalchemy.orm import sessionmaker
+
+    from app.domain.enum.chatbot_flow import InputType, NodeType
+    from app.repository.sql.chatbot_flow_repository import ChatFlowRepository
+
+    with database.connect() as db:
+        assert db.scalar(text("SELECT count(*) FROM chatbot_flow.node")) == 70
+        assert db.scalar(text("SELECT count(*) FROM chatbot_flow.transition")) == 157
+        assert db.scalar(text("SELECT count(*) FROM chatbot_flow.transition_action")) == 172
+        assert db.scalar(text("SELECT count(*) FROM chatbot_flow.input_error_message")) == 8
+        assert db.scalar(text("""
+            SELECT count(*)
+            FROM chatbot_flow.transition transition
+            LEFT JOIN chatbot_flow.node target ON target.id = transition.next_node_id
+            WHERE target.id IS NULL
+        """)) == 0
+        assert db.scalar(text("""
+            SELECT count(*)
+            FROM chatbot_flow.transition_action
+            WHERE action_key LIKE 'sheets_%' AND is_required
+        """)) == 0
+        assert db.scalar(text("""
+            SELECT count(*)
+            FROM chatbot_flow.transition_action
+            WHERE action_key NOT LIKE 'sheets_%' AND NOT is_required
+        """)) == 0
+
+    revision, flow = ChatFlowRepository(
+        sessionmaker(database, expire_on_commit=False)
+    ).load()
+
+    assert revision == 1
+    assert len(flow.nodes) == 70
+    assert flow.get("start") is not None
+    assert flow.get("start").type == NodeType.START
+    assert flow.get("paciente_data_nascimento").title == (
+        "Data de nascimento do paciente"
+    )
+    assert flow.input_error_messages[InputType.EMAIL].startswith(
+        "Envie um e-mail válido"
+    )
 
 
 def test_incomplete_snapshot_rolls_back_allocation_and_event(database):

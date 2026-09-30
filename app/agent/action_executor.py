@@ -9,7 +9,7 @@ from datetime import date, datetime
 from functools import partial
 from typing import Final
 
-from app.agent.chat_flow import Node
+from app.agent.chat_flow import TransitionAction
 from app.agent.faq_flow import FaqFlow
 from app.domain.db.patient_model import PatientModel
 from app.domain.enum.chat_mode import ChatMode
@@ -200,22 +200,37 @@ class ActionExecutor:
             "faq_continue_or_finish": self.faq_continue_or_finish,
         }
 
-    async def run(self, node: Node, message: Message) -> ActionResult:
-        """Execute actions by name."""
+    async def run(
+        self,
+        action_specs: list[TransitionAction],
+        message: Message,
+    ) -> ActionResult:
+        """Execute transition actions in database insertion order."""
         result = ActionResult()
 
-        for name in node.actions:
-            action = self.actions.get(name)
+        for action_spec in action_specs:
+            action = self.actions.get(action_spec.action_key)
 
             logger.debug(
-                f"Executing action: {name} "
-                f"for message {message.message_id}"
+                "Executing action: %s for message %s",
+                action_spec.action_key,
+                message.message_id,
             )
 
             if action is None:
-                raise ValueError(f"Unknown action: {name}")
+                error = ValueError(f"Unknown action: {action_spec.action_key}")
+                if action_spec.is_required:
+                    raise error
+                logger.error("%s; ignoring optional action", error)
+                continue
 
-            action_result = await action(message)
+            try:
+                action_result = await action(message)
+            except Exception:
+                if action_spec.is_required:
+                    raise
+                logger.exception("Optional action %s failed", action_spec.action_key)
+                continue
             if isinstance(action_result, ActionResult):
                 result.output += action_result.output
                 if action_result.next_node is not None:

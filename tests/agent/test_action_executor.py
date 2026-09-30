@@ -4,6 +4,7 @@ from unittest.mock import AsyncMock, MagicMock
 import pytest
 
 from app.agent.action_executor import ActionExecutor
+from app.agent.chat_flow import TransitionAction
 from app.domain.db.patient_model import PatientModel
 from app.domain.enum.channels import Channel
 from app.domain.enum.chat_state import ChatState
@@ -407,3 +408,37 @@ async def test_sheets_register_professional_propagates_outbox_errors() -> None:
 
     with pytest.raises(RuntimeError):
         await executor.sheets_register_professional(message)
+
+
+@pytest.mark.asyncio
+async def test_required_transition_action_propagates_failure() -> None:
+    executor, *_ = make_executor()
+    failing = AsyncMock(side_effect=RuntimeError("boom"))
+    executor.actions["required"] = failing
+
+    with pytest.raises(RuntimeError, match="boom"):
+        await executor.run(
+            [TransitionAction(action_key="required", is_required=True)],
+            make_message(),
+        )
+
+
+@pytest.mark.asyncio
+async def test_optional_transition_action_logs_and_continues() -> None:
+    executor, *_ = make_executor()
+    failing = AsyncMock(side_effect=RuntimeError("boom"))
+    succeeding = AsyncMock(return_value="ok")
+    executor.actions["optional"] = failing
+    executor.actions["required"] = succeeding
+
+    result = await executor.run(
+        [
+            TransitionAction(action_key="optional", is_required=False),
+            TransitionAction(action_key="required", is_required=True),
+        ],
+        make_message(),
+    )
+
+    assert result.output == "ok"
+    failing.assert_awaited_once()
+    succeeding.assert_awaited_once()

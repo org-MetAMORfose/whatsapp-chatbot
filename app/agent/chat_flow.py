@@ -1,145 +1,204 @@
+"""Validated in-memory representation of the database-backed chatbot flow."""
+
 import json
-import logging
-from pathlib import Path
+import re
+import unicodedata
+from datetime import date, datetime
+from decimal import Decimal, InvalidOperation
 from typing import Any
 
-import toml
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
 
-logger = logging.getLogger(__name__)
-DEFAULT_FLOW_PATH = Path(__file__).with_name("flows")
+from app.domain.enum.chatbot_flow import InputType, NodeType
+from app.domain.message import Message
+from app.services.s3_media_service import S3MediaService
+
+EMAIL_PATTERN = re.compile(r"^[^\s@]+@[^\s@]+\.[^\s@]+$")
+DATE_PATTERN = re.compile(r"^\d{1,2}/\d{1,2}/\d{4}$")
 
 
-def _normalize_text(value: str) -> str:
-    return value.strip().lower()
+def normalize_text(value: str) -> str:
+    normalized = unicodedata.normalize("NFKD", value.strip().lower())
+    return "".join(character for character in normalized if not unicodedata.combining(character))
+
+
+class TransitionAction(BaseModel):
+    action_key: str
+    config: dict[str, Any] | None = None
+    is_required: bool = True
 
 
 class Transition(BaseModel):
+    input_type: InputType
+    expected_value: str | None = None
+    button_label: str | None = None
     target: str
-    conditions: list[str] = Field(default_factory=list)
+    position: int
+    actions: list[TransitionAction] = Field(default_factory=list)
 
-    def matches(self, content: str) -> bool:
-        if not self.conditions:
+    def accepts_input(self, message: Message) -> bool:
+        if self.input_type == InputType.AUTO:
             return True
 
-        normalized_content = _normalize_text(content)
-        normalized_conditions = {_normalize_text(
-            condition) for condition in self.conditions}
-        return normalized_content in normalized_conditions
+        if self.input_type in {InputType.IMAGE, InputType.DOCUMENT, InputType.VIDEO}:
+            if message.media is None:
+                return False
+            try:
+                media_type = S3MediaService.get_media_type(message.media)
+            except ValueError:
+                return False
+            expected_media_type = {
+                InputType.IMAGE: "image",
+                InputType.DOCUMENT: "document",
+                InputType.VIDEO: "video",
+            }[self.input_type]
+            return media_type == expected_media_type
+
+        content = (message.content or "").strip()
+        if not content:
+            return False
+        if self.input_type == InputType.TEXT:
+            return True
+        if self.input_type == InputType.EMAIL:
+            return EMAIL_PATTERN.fullmatch(content) is not None
+        if self.input_type == InputType.DATE:
+            return _valid_date(content)
+        if self.input_type == InputType.NUMBER:
+            return _valid_number(content)
+        return False
+
+    def matches(self, message: Message) -> bool:
+        if not self.accepts_input(message):
+            return False
+        if self.expected_value is None:
+            return True
+        return normalize_text(message.content or "") == normalize_text(self.expected_value)
 
 
 class Node(BaseModel):
-    id: str
+    key: str
+    type: NodeType
+    title: str
     description: str | None = None
     message: str
-    end: bool = False
-    input: str | None = None
-    actions: list[str] = Field(default_factory=list)
+    position: int
     transitions: list[Transition] = Field(default_factory=list)
-    buttons: list[str] | None = None
+
+    @property
+    def end(self) -> bool:
+        return self.type == NodeType.END
+
+    @property
+    def buttons(self) -> list[str] | None:
+        labels: list[str] = []
+        for transition in self.transitions:
+            label = transition.button_label
+            if label is not None and label not in labels:
+                labels.append(label)
+        return labels or None
 
     def get(self, key: str, default: Any = None) -> Any:
         return getattr(self, key, default)
 
-    def next_transition(self, content: str) -> Transition | None:
-        for transition in self.transitions:
-            if transition.matches(content):
-                return transition
+    def next_transition(self, message: Message) -> Transition | None:
+        return next((transition for transition in self.transitions if transition.matches(message)), None)
+
+    def input_error_type(self, message: Message) -> InputType | None:
+        fallback_types = {
+            transition.input_type
+            for transition in self.transitions
+            if transition.expected_value is None and transition.input_type != InputType.AUTO
+        }
+        if not fallback_types:
+            return None
+        if any(
+            transition.expected_value is None and transition.accepts_input(message)
+            for transition in self.transitions
+        ):
+            return None
+
+        media_types = fallback_types & {InputType.IMAGE, InputType.DOCUMENT, InputType.VIDEO}
+        if media_types:
+            return sorted(media_types, key=lambda item: item.value)[0]
+
+        for input_type in (InputType.DATE, InputType.EMAIL, InputType.NUMBER, InputType.TEXT):
+            if input_type in fallback_types:
+                return input_type
         return None
 
 
 class ChatFlow(BaseModel):
     nodes: dict[str, Node]
+    input_error_messages: dict[InputType, str] = Field(default_factory=dict)
+
+    @model_validator(mode="after")
+    def validate_graph(self) -> "ChatFlow":
+        start = self.nodes.get("start")
+        if start is None or start.type != NodeType.START:
+            raise ValueError("Flow must contain a START node with key 'start'")
+
+        missing_targets = [
+            (node.key, transition.target)
+            for node in self.nodes.values()
+            for transition in node.transitions
+            if transition.target not in self.nodes
+        ]
+        if missing_targets:
+            raise ValueError(f"Flow contains missing transition targets: {missing_targets}")
+
+        for node in self.nodes.values():
+            positions = [transition.position for transition in node.transitions]
+            if len(positions) != len(set(positions)):
+                raise ValueError(f"Flow node '{node.key}' contains duplicate transition positions")
+        return self
 
     @classmethod
     def from_json(cls, payload: str) -> "ChatFlow":
-        """Build a ChatFlow from a JSON payload string."""
-        data = json.loads(payload)
-        return cls.from_data(data)
+        return cls.model_validate(json.loads(payload))
 
-    @classmethod
-    def from_toml(cls, payload: str) -> "ChatFlow":
-        """Build a ChatFlow from a TOML payload string."""
-        data = toml.loads(payload)
-        return cls.from_data(data)
-
-    @classmethod
-    def from_file(cls, path: Path | str = DEFAULT_FLOW_PATH) -> "ChatFlow":
-        """Load a ChatFlow from a TOML file or from a directory with TOML files."""
-        flow_path = Path(path)
-
-        if flow_path.is_file():
-            with flow_path.open("r", encoding="utf-8") as flow_file:
-                data = toml.load(flow_file)
-
-            return cls.from_data(data)
-
-        if flow_path.is_dir():
-            merged_data: dict[str, Any] = {"nodes": {}}
-
-            for toml_file in sorted(flow_path.glob("*.toml")):
-                with toml_file.open("r", encoding="utf-8") as flow_file:
-                    data = toml.load(flow_file)
-
-                nodes_data = data.get("nodes")
-                if not isinstance(nodes_data, dict):
-                    raise ValueError(f"Flow file '{toml_file}' must contain a 'nodes' object.")
-
-                duplicated_nodes = set(merged_data["nodes"]) & set(nodes_data)
-                if duplicated_nodes:
-                    raise ValueError(
-                        f"Duplicated node ids in '{toml_file}': {sorted(duplicated_nodes)}"
-                    )
-
-                merged_data["nodes"].update(nodes_data)
-
-            return cls.from_data(merged_data)
-
-        raise ValueError(f"Flow path does not exist: {flow_path}")
-
-    @classmethod
-    def from_data(cls, data: Any) -> "ChatFlow":
-        """Validate and normalize the raw JSON data into a ChatFlow."""
-        if not isinstance(data, dict):
-            raise ValueError(
-                "Flow JSON must be an object with a 'nodes' property.")
-
-        nodes_data = data.get("nodes")
-        if not isinstance(nodes_data, dict):
-            raise ValueError("Flow JSON must contain a 'nodes' object.")
-
-        nodes: dict[str, Node] = {}
-
-        for node_id, node_data in nodes_data.items():
-            if not isinstance(node_data, dict):
-                raise ValueError(
-                    f"Flow node '{node_id}' must be a JSON object.")
-
-            try:
-                nodes[node_id] = Node(id=node_id, **node_data)
-            except Exception as err:
-                logger.error(f"Error validating flow node '{node_id}': {err}")
-                raise ValueError(
-                    f"Invalid flow node '{node_id}': {err}") from err
-
-        if "start" not in nodes:
-            raise ValueError("Flow JSON must contain a 'start' node.")
-
-        return cls(nodes=nodes)
-
-    def get(self, node_id: str) -> Node | None:
-        return self.nodes.get(node_id)
+    def get(self, node_key: str) -> Node | None:
+        return self.nodes.get(node_key)
 
     def keys(self) -> list[str]:
-        return list(self.nodes.keys())
+        return list(self.nodes)
 
-    def resolve_next_node(self, node_id: str, content: str) -> Node | None:
-        node = self.get(node_id)
-        if node is None:
+    def error_message(self, node: Node, message: Message) -> str | None:
+        input_type = node.input_error_type(message)
+        if input_type is None:
             return None
 
-        transition = node.next_transition(content)
-        if transition is None:
-            return None
+        fallback_types = {
+            transition.input_type
+            for transition in node.transitions
+            if transition.expected_value is None
+        }
+        if {InputType.IMAGE, InputType.DOCUMENT}.issubset(fallback_types):
+            return "Você deve enviar uma imagem ou um documento."
+        return self.input_error_messages.get(
+            input_type,
+            "Não foi possível validar sua resposta. Tente novamente.",
+        )
 
-        return self.get(transition.target)
+
+def _valid_date(content: str) -> bool:
+    if DATE_PATTERN.fullmatch(content) is None:
+        return False
+    try:
+        parsed = datetime.strptime(content, "%d/%m/%Y").date()
+    except ValueError:
+        return False
+    return parsed <= date.today()
+
+
+def _valid_number(content: str) -> bool:
+    compact = content.strip().replace(" ", "")
+    candidates = [compact]
+    if "," in compact:
+        candidates.append(compact.replace(".", "").replace(",", "."))
+    for candidate in candidates:
+        try:
+            Decimal(candidate)
+            return True
+        except InvalidOperation:
+            continue
+    return False
