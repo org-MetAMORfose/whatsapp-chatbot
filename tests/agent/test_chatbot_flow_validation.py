@@ -26,12 +26,14 @@ def transition(
     target: str,
     *,
     actions: list[TransitionAction] | None = None,
+    button_label: str | None = None,
 ) -> Transition:
     return Transition(
         id=transition_id,
         input_type=InputType.AUTO,
         target=target,
         position=0,
+        button_label=button_label,
         actions=actions or [],
     )
 
@@ -179,3 +181,33 @@ def test_accepts_dependency_that_always_executes_first() -> None:
     )
 
     assert result.valid
+
+
+def test_rejects_button_labels_longer_than_twenty_characters() -> None:
+    result = validate(
+        node(
+            1,
+            "start",
+            NodeType.START,
+            transitions=[transition(1, "end", button_label="123456789012345678901")],
+        ),
+        node(2, "end", NodeType.END),
+    )
+
+    error = next(item for item in result.errors if item.code == "BUTTON_LABEL_TOO_LONG")
+    assert error.transition_id == 1
+    assert error.details == {"max_length": 20, "actual_length": 21}
+
+
+def test_accepts_button_labels_with_twenty_characters() -> None:
+    result = validate(
+        node(
+            1,
+            "start",
+            NodeType.START,
+            transitions=[transition(1, "end", button_label="12345678901234567890")],
+        ),
+        node(2, "end", NodeType.END),
+    )
+
+    assert "BUTTON_LABEL_TOO_LONG" not in {error.code for error in result.errors}

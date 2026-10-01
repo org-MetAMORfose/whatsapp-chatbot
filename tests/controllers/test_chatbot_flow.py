@@ -40,6 +40,27 @@ def test_flow_endpoints_require_authentication(monkeypatch) -> None:
     service.create_draft.assert_not_called()
 
 
+def test_lists_published_revision_and_drafts(monkeypatch) -> None:
+    api, service = client(monkeypatch)
+    service.list_revisions.return_value = {
+        "published": {"id": 3, "status": "PUBLISHED", "version": 2},
+        "drafts": [
+            {
+                "id": 4,
+                "base_revision_id": 3,
+                "status": "DRAFT",
+                "is_stale": False,
+            }
+        ],
+    }
+
+    response = api.get("/chatbot-flow/revisions", headers=headers())
+
+    assert response.status_code == 200
+    assert response.json() == service.list_revisions.return_value
+    service.list_revisions.assert_called_once_with()
+
+
 def test_saves_typed_draft_changes(monkeypatch) -> None:
     api, service = client(monkeypatch)
     service.save_changes.return_value = {"revision_id": 2, "change_count": 1}

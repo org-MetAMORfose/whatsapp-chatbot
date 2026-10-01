@@ -40,6 +40,8 @@ class FlowNodeModel(Base):
     key: Mapped[str] = mapped_column(String, nullable=False, unique=True)
     type: Mapped[NodeType] = mapped_column(Enum(NodeType, name="node_type", schema=SCHEMA), nullable=False)
     title: Mapped[str] = mapped_column(String, nullable=False)
+    position_x: Mapped[int] = mapped_column(Integer, nullable=False, default=0, server_default="0")
+    position_y: Mapped[int] = mapped_column(Integer, nullable=False, default=0, server_default="0")
     description: Mapped[str | None] = mapped_column(Text)
     message: Mapped[str] = mapped_column(Text, nullable=False)
     position: Mapped[int] = mapped_column(Integer, nullable=False)

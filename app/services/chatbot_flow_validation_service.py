@@ -8,6 +8,8 @@ from pydantic import BaseModel, Field, ValidationError
 from app.agent.chat_flow import ActionTransitionConfig, ChatFlow, Node, Transition
 from app.domain.enum.chatbot_flow import NodeType
 
+BUTTON_LABEL_MAX_LENGTH = 20
+
 
 class FlowValidationError(BaseModel):
     code: str
@@ -44,6 +46,19 @@ class ChatFlowValidator:
                     )
                 )
             for transition in node.transitions:
+                if transition.button_label is not None and len(transition.button_label) > BUTTON_LABEL_MAX_LENGTH:
+                    errors.append(
+                        self._error(
+                            "BUTTON_LABEL_TOO_LONG",
+                            f"O botão deve ter no máximo {BUTTON_LABEL_MAX_LENGTH} caracteres.",
+                            node,
+                            transition_id=transition.id,
+                            details={
+                                "max_length": BUTTON_LABEL_MAX_LENGTH,
+                                "actual_length": len(transition.button_label),
+                            },
+                        )
+                    )
                 if transition.target in flow.nodes:
                     adjacency[node.key].add(transition.target)
                 else:

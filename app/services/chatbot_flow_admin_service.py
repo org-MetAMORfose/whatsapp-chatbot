@@ -126,6 +126,22 @@ class ChatFlowAdminService:
             session.flush()
             return self._revision_payload(revision)
 
+    def list_revisions(self) -> dict[str, Any]:
+        with self._session_factory() as session:
+            published = self._latest_published(session)
+            published_id = published.id if published is not None else None
+            drafts = list(
+                session.scalars(
+                    select(FlowGraphRevisionModel)
+                    .where(FlowGraphRevisionModel.status == RevisionStatus.DRAFT)
+                    .order_by(FlowGraphRevisionModel.updated_at.desc(), FlowGraphRevisionModel.id.desc())
+                )
+            )
+            return {
+                "published": self._revision_payload(published) if published is not None else None,
+                "drafts": [{**self._revision_payload(draft), "is_stale": draft.base_revision_id != published_id} for draft in drafts],
+            }
+
     def get_graph(self, revision_id: int) -> dict[str, Any]:
         with self._session_factory() as session:
             revision = self._revision(session, revision_id)
@@ -405,6 +421,8 @@ class ChatFlowAdminService:
                 "description": row.description,
                 "message": row.message,
                 "position": row.position,
+                "position_x": row.position_x,
+                "position_y": row.position_y,
             }
             for row in session.scalars(select(FlowNodeModel).order_by(FlowNodeModel.position, FlowNodeModel.id))
         ]
@@ -545,6 +563,8 @@ class ChatFlowAdminService:
                 description=row.get("description"),
                 message=row["message"],
                 position=row["position"],
+                position_x=row.get("position_x", 0),
+                position_y=row.get("position_y", 0),
                 transitions=transitions.get(row["id"], []),
             )
             for row in snapshot["nodes"]

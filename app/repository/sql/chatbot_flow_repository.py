@@ -92,6 +92,8 @@ class ChatFlowRepository:
                 description=row.description,
                 message=row.message,
                 position=row.position,
+                position_x=row.position_x,
+                position_y=row.position_y,
                 transitions=transitions_by_node.get(row.id, []),
             )
             for row in node_rows

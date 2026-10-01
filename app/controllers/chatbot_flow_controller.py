@@ -48,6 +48,11 @@ class ChatbotFlowController:
             status_code=status.HTTP_201_CREATED,
         )
         self.router.add_api_route(
+            "/revisions",
+            self.list_revisions,
+            methods=["GET"],
+        )
+        self.router.add_api_route(
             "/revisions/{revision_id}",
             self.get_revision,
             methods=["GET"],
@@ -87,6 +92,16 @@ class ChatbotFlowController:
             return self.service.create_draft(body.base_revision_id)
         except FlowDraftConflictError as exc:
             raise self._conflict(exc) from exc
+
+    def list_revisions(
+        self,
+        chatbot_api_key: Annotated[
+            str | None,
+            Header(alias="X-Chatbot-Api-Key"),
+        ] = None,
+    ) -> dict[str, Any]:
+        self._authenticate(chatbot_api_key)
+        return self.service.list_revisions()
 
     def get_revision(
         self,
@@ -147,6 +162,7 @@ class ChatbotFlowController:
                 status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
                 detail={"code": "INVALID_CHANGE", "message": str(exc)},
             ) from exc
+
     def validate_revision(
         self,
         revision_id: int,

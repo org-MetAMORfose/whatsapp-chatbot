@@ -210,3 +210,20 @@ def test_combined_media_error_message() -> None:
     assert flow.error_message(start, message("texto")) == (
         "Você deve enviar uma imagem ou um documento."
     )
+
+
+def test_combined_media_uses_configured_message_from_first_transition() -> None:
+    flow = flow_with(
+        Transition(input_type=InputType.IMAGE, target="end", position=0)
+    )
+    start = flow.get("start")
+    assert start is not None
+    start.transitions.append(
+        Transition(input_type=InputType.DOCUMENT, target="end", position=1)
+    )
+    flow.input_error_messages = {
+        InputType.IMAGE: "Envie a imagem configurada.",
+        InputType.DOCUMENT: "Envie o documento configurado.",
+    }
+
+    assert flow.error_message(start, message("texto")) == "Envie a imagem configurada."

@@ -109,6 +109,8 @@ class Node(BaseModel):
     description: str | None = None
     message: str
     position: int
+    position_x: int = 0
+    position_y: int = 0
     transitions: list[Transition] = Field(default_factory=list)
 
     @property
@@ -141,7 +143,11 @@ class Node(BaseModel):
 
         media_types = fallback_types & {InputType.IMAGE, InputType.DOCUMENT, InputType.VIDEO}
         if media_types:
-            return sorted(media_types, key=lambda item: item.value)[0]
+            return next(
+                transition.input_type
+                for transition in self.transitions
+                if transition.expected_value is None and transition.input_type in media_types
+            )
 
         for input_type in (InputType.DATE, InputType.EMAIL, InputType.NUMBER, InputType.TEXT):
             if input_type in fallback_types:
@@ -194,13 +200,14 @@ class ChatFlow(BaseModel):
         if input_type is None:
             return None
 
+        configured_message = self.input_error_messages.get(input_type)
+        if configured_message is not None:
+            return configured_message
+
         fallback_types = {transition.input_type for transition in node.transitions if transition.expected_value is None}
         if {InputType.IMAGE, InputType.DOCUMENT}.issubset(fallback_types):
             return "Você deve enviar uma imagem ou um documento."
-        return self.input_error_messages.get(
-            input_type,
-            "Não foi possível validar sua resposta. Tente novamente.",
-        )
+        return "Não foi possível validar sua resposta. Tente novamente."
 
 
 def _valid_date(content: str) -> bool:

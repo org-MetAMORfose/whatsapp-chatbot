@@ -55,6 +55,22 @@ async def test_seed_draft_publication_and_required_action_protection() -> None:
         assert validation.valid, validation.model_dump()
         assert len(flow.nodes) == 70
 
+        patient_area = flow.get("paciente_inicio")
+        approach = flow.get("paciente_psico_abordagem")
+        profile = flow.get("paciente_psico_perfil")
+        birth_date = flow.get("paciente_data_nascimento")
+        assert patient_area is not None
+        assert approach is not None
+        assert profile is not None
+        assert birth_date is not None
+        area_targets = {transition.expected_value: transition.target for transition in patient_area.transitions}
+        assert area_targets["psicoterapia"] == "paciente_psico_abordagem"
+        assert {area_targets[value] for value in ("psiquiatria", "nutricao", "clinico geral")} == {"paciente_data_nascimento"}
+        assert {transition.target for transition in approach.transitions} == {"paciente_psico_perfil"}
+        assert {transition.target for transition in profile.transitions} == {"paciente_data_nascimento"}
+        assert {transition.target for transition in birth_date.transitions} == {"paciente_faixa_valor"}
+        assert all(action.config is None for transition in birth_date.transitions for action in transition.actions)
+
         with factory() as session:
             assert session.scalar(select(func.count(FlowTransitionModel.id))) == 157
             assert session.scalar(select(func.count(FlowTransitionActionModel.id))) == 172

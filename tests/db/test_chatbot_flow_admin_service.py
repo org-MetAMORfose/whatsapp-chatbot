@@ -86,6 +86,37 @@ def seed_flow(session_factory: sessionmaker[Session]) -> tuple[int, int]:
         return revision.id, message.id
 
 
+def test_lists_latest_published_revision_and_marks_stale_drafts(
+    session_factory: sessionmaker[Session],
+) -> None:
+    first_published_id, _ = seed_flow(session_factory)
+    service = ChatFlowAdminService(session_factory, AsyncMock())
+    stale_draft = service.create_draft(first_published_id)
+    now = datetime.now(UTC)
+    with session_factory() as session, session.begin():
+        latest = FlowGraphRevisionModel(
+            base_revision_id=first_published_id,
+            status=RevisionStatus.PUBLISHED,
+            version=2,
+            created_at=now,
+            updated_at=now,
+            published_at=now,
+        )
+        session.add(latest)
+        session.flush()
+        latest_id = latest.id
+
+    current_draft = service.create_draft(latest_id)
+
+    result = service.list_revisions()
+
+    assert result["published"]["id"] == latest_id
+    assert result["published"]["version"] == 2
+    drafts = {draft["id"]: draft for draft in result["drafts"]}
+    assert drafts[current_draft["id"]]["is_stale"] is False
+    assert drafts[stale_draft["id"]]["is_stale"] is True
+
+
 def test_updates_required_node_message_and_keeps_single_compacted_change(
     session_factory: sessionmaker[Session],
 ) -> None:
@@ -112,7 +143,11 @@ def test_updates_required_node_message_and_keeps_single_compacted_change(
                 entity_type=ChangeEntityType.NODE,
                 entity_id=message_id,
                 operation=ChangeOperation.UPDATE,
-                new_value={"title": "Título editado"},
+                new_value={
+                    "title": "Título editado",
+                    "position_x": 420,
+                    "position_y": 180,
+                },
             )
         ],
     )
@@ -122,6 +157,8 @@ def test_updates_required_node_message_and_keeps_single_compacted_change(
     assert result["change_count"] == 1
     assert changed["message"] == "Mensagem editada"
     assert changed["title"] == "Título editado"
+    assert changed["position_x"] == 420
+    assert changed["position_y"] == 180
 
 
 def test_cannot_delete_node_with_required_action(
@@ -159,7 +196,11 @@ async def test_publishes_diff_and_keeps_change_history(
                 entity_type=ChangeEntityType.NODE,
                 entity_id=message_id,
                 operation=ChangeOperation.UPDATE,
-                new_value={"message": "Mensagem publicada"},
+                new_value={
+                    "message": "Mensagem publicada",
+                    "position_x": 640,
+                    "position_y": 320,
+                },
             )
         ],
     )
@@ -177,6 +218,7 @@ async def test_publishes_diff_and_keeps_change_history(
         revision = session.get(FlowGraphRevisionModel, draft["id"])
         changes = list(session.scalars(select(FlowGraphChangeModel).where(FlowGraphChangeModel.revision_id == draft["id"])))
     assert node_row is not None and node_row.message == "Mensagem publicada"
+    assert (node_row.position_x, node_row.position_y) == (640, 320)
     assert revision is not None and revision.status == RevisionStatus.PUBLISHED
     assert len(changes) == 1
 
