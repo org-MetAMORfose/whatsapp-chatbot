@@ -74,7 +74,9 @@ class MatchResult:
     slot_id: int | None = None
     cycle_id: int | None = None
 
+    patient_name: str | None = None
     patient_phone: str | None = None
+    patient_area: str | None = None
     professional_name: str | None = None
     professional_area: str | None = None
     professional_phone: str | None = None

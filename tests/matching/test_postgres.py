@@ -75,9 +75,9 @@ def seed(engine: Engine, *, patients: int = 2, capacity: int = 1, cycles: int = 
             )
         for i in range(patients):
             person = db.scalar(
-                text("""INSERT INTO person(phone_number,channel,chat_mode,created_at)
-                VALUES (:phone,'WHATSAPP','AUTOMATIC',now()) RETURNING id"""),
-                {"phone": f"55119888{i:05d}"},
+                text("""INSERT INTO person(phone_number,channel,chat_mode,created_at,name)
+                VALUES (:phone,'WHATSAPP','AUTOMATIC',now(),:name) RETURNING id"""),
+                {"phone": f"55119888{i:05d}", "name": f"Paciente {i}"},
             )
             patient = db.scalar(text("INSERT INTO patient(person_id,area,created_at) VALUES (:p,'Psicoterapia',now()) RETURNING id"), {"p": person})
             assert patient is not None
@@ -253,7 +253,9 @@ def test_completed_event_captures_notification_snapshot(database):
         "patient_id": 1,
         "slot_id": first["slot_id"],
         "cycle_id": first["cycle_id"],
+        "patient_name": "Paciente 0",
         "patient_phone": "5511988800000",
+        "patient_area": "Psicoterapia",
         "professional_name": "Dra. Ana",
         "professional_area": "Psicoterapia",
         "professional_phone": "5511977776666",
@@ -261,8 +263,12 @@ def test_completed_event_captures_notification_snapshot(database):
     with database.begin() as db:
         db.execute(text("UPDATE person SET name='Changed', phone_number='changed-' || id"))
         payloads = db.execute(text("SELECT payload FROM outbox WHERE kind='matching.completed'")).scalars().all()
+        professional_payloads = db.execute(text(
+            "SELECT payload FROM outbox WHERE kind='matching.professional.notification'"
+        )).scalars().all()
     assert payloads == [first, repeated]
 
+    assert professional_payloads == [first]
 
 def test_seeded_chatbot_flow_is_complete_and_loadable(database):
     from sqlalchemy.orm import sessionmaker

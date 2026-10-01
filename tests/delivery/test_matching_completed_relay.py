@@ -89,3 +89,39 @@ async def test_incomplete_professional_contact_is_not_silently_sent(factory, not
     with factory() as db:
         assert db.get(OutboxModel, "notification").status == "pending"
         assert db.get(OutboxModel, "notification").last_error == "ValueError"
+
+
+@pytest.mark.asyncio
+async def test_professional_notification_has_independent_delivery(factory):
+    payload = {
+        "status": "matched",
+        "patient_id": 1,
+        "cycle_id": 2,
+        "slot_id": 3,
+        "patient_name": "Leo",
+        "patient_phone": "5511988887777",
+        "patient_area": "Psicoterapia",
+        "professional_name": "Dra. Ana",
+        "professional_area": "Psicoterapia",
+        "professional_phone": "5511977776666",
+    }
+    with factory() as db, db.begin():
+        db.add(OutboxModel(
+            id="professional-notification",
+            kind="matching.professional.notification",
+            payload=payload,
+        ))
+    repo = OutboxRepository(factory)
+    adapter = MagicMock(spec=WhatsAppAdapter)
+    adapter.send_template = AsyncMock(return_value="wamid.professional")
+    relay = MatchingCompletedRelay(repo, adapter)
+
+    assert await relay.process_next()
+    adapter.send_template.assert_awaited_once_with(
+        to="5511977776666",
+        name="matching_profissional",
+        language="pt_BR",
+        body_parameters=("Leo", "Psicoterapia", "https://wa.me/5511988887777"),
+    )
+    with factory() as db:
+        assert db.get(OutboxModel, "professional-notification").status == "sent"

@@ -82,21 +82,25 @@ def notification_snapshot(db: Session, result: MatchResult) -> MatchResult:
     """Capture notification data in the same transaction as the allocation/event."""
     patient_person = aliased(PersonModel)
     professional_person = aliased(PersonModel)
-    row = db.execute(select(patient_person.phone_number, patient_person.channel,
-        professional_person.name, ProfessionalModel.area, professional_person.phone_number).select_from(Slot).join(
+    row = db.execute(select(
+        patient_person.name, patient_person.phone_number, patient_person.channel, PatientModel.area,
+        professional_person.name, ProfessionalModel.area, professional_person.phone_number, professional_person.channel,
+    ).select_from(Slot).join(
         PatientModel, PatientModel.id == Slot.patient_id).join(patient_person, patient_person.id == PatientModel.person_id).join(
         Cycle, Cycle.id == Slot.cycle_id).join(ProfessionalModel, ProfessionalModel.id == Cycle.professional_id).join(
         professional_person, professional_person.id == ProfessionalModel.person_id).where(
         Slot.id == result.slot_id, Slot.patient_id == result.patient_id, Cycle.id == result.cycle_id)).one_or_none()
     if row is None:
         raise ValueError("Matching allocation or its contacts were not found")
-    phone, channel, name, area, professional_phone = row
-    if channel != Channel.WHATSAPP:
-        raise ValueError("Matching patient does not have a WhatsApp contact")
-    if any(not isinstance(value, str) or not value.strip() for value in (phone, name, area, professional_phone)):
+    patient_name, patient_phone, patient_channel, patient_area, professional_name, professional_area, professional_phone, professional_channel = row
+    if patient_channel != Channel.WHATSAPP or professional_channel != Channel.WHATSAPP:
+        raise ValueError("Matching participants must have WhatsApp contacts")
+    snapshot = (patient_name, patient_phone, patient_area, professional_name, professional_area, professional_phone)
+    if any(not isinstance(value, str) or not value.strip() for value in snapshot):
         raise ValueError("Incomplete matching notification snapshot")
-    return replace(result, patient_phone=phone, professional_name=name,
-                   professional_area=area, professional_phone=professional_phone)
+    return replace(result, patient_name=patient_name, patient_phone=patient_phone, patient_area=patient_area,
+                   professional_name=professional_name, professional_area=professional_area,
+                   professional_phone=professional_phone)
 
 
 def execute(engine: Engine, data: PatientInput) -> MatchResult:
@@ -110,7 +114,12 @@ def execute(engine: Engine, data: PatientInput) -> MatchResult:
             MatchResult(patient_id, "patient_not_found"))
         if result.status == "matched":
             result = notification_snapshot(db, result)
-        db.add(OutboxModel(id=f"matching:result:{uuid4()}", kind="matching.completed", payload=result.as_payload()))
+        event_id = uuid4()
+        payload = result.as_payload()
+        db.add(OutboxModel(id=f"matching:result:{event_id}", kind="matching.completed", payload=payload))
+        if result.status == "matched":
+            db.add(OutboxModel(id=f"matching:professional:{event_id}",
+                               kind="matching.professional.notification", payload=payload))
         return result
 
 

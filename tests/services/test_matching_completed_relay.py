@@ -7,19 +7,21 @@ import pytest
 from app.channel_adapters.whatsapp import WhatsAppAdapter
 from app.domain.db.delivery_model import OutboxModel
 from app.domain.whatsapp.matching_patient_template import MatchingPatientTemplate
+from app.domain.whatsapp.matching_professional_template import MatchingProfessionalTemplate
 from app.repository.sql.outbox_repository import OutboxRepository
 from app.services.matching_completed_relay import MatchingCompletedRelay
 
 
 def matched_payload() -> dict[str, Any]:
     return {"status": "matched", "patient_id": 1, "slot_id": 2, "cycle_id": 3,
-            "patient_phone": "5511988887777", "professional_name": "Dra. Ana",
-            "professional_area": "Psicoterapia", "professional_phone": "5511977776666"}
+            "patient_name": "Leo", "patient_phone": "5511988887777", "patient_area": "Psicoterapia",
+            "professional_name": "Dra. Ana", "professional_area": "Psicoterapia",
+            "professional_phone": "5511977776666"}
 
 
-def dependencies(payload: dict[str, Any]) -> tuple[MatchingCompletedRelay, MagicMock, MagicMock, OutboxModel]:
+def dependencies(payload: dict[str, Any], kind: str = "matching.completed") -> tuple[MatchingCompletedRelay, MagicMock, MagicMock, OutboxModel]:
     repo = MagicMock(spec=OutboxRepository)
-    item = OutboxModel(id="event", kind="matching.completed", payload=payload, attempts=1)
+    item = OutboxModel(id="event", kind=kind, payload=payload, attempts=1)
     repo.claim.return_value = item
     adapter = MagicMock(spec=WhatsAppAdapter)
     adapter.send_template = AsyncMock(return_value="wamid.test")
@@ -42,11 +44,41 @@ async def test_claim_only_completed_and_finish_after_send():
     repo.finish.assert_not_called()
     release.set()
     assert await task is True
-    repo.claim.assert_called_once_with(kinds=("matching.completed",), max_attempts=5)
+    repo.claim.assert_called_once_with(
+        kinds=("matching.completed", "matching.professional.notification"), max_attempts=5)
     adapter.send_template.assert_awaited_once_with(to="5511988887777", name="matching_paciente", language="pt_BR",
         body_parameters=("Dra. Ana", "Psicoterapia", "https://wa.me/5511977776666"))
     adapter.send_message.assert_not_called()
     repo.finish.assert_called_once_with(item, max_attempts=5)
+
+
+@pytest.mark.asyncio
+async def test_professional_notification_sends_matching_professional_template():
+    relay, repo, adapter, item = dependencies(
+        matched_payload(),
+        kind="matching.professional.notification",
+    )
+
+    assert await relay.process_next() is True
+
+    adapter.send_template.assert_awaited_once_with(
+        to="5511977776666",
+        name="matching_profissional",
+        language="pt_BR",
+        body_parameters=("Leo", "Psicoterapia", "https://wa.me/5511988887777"),
+    )
+    repo.finish.assert_called_once_with(item, max_attempts=5)
+
+
+@pytest.mark.parametrize("values", [
+    ("", "Leo", "Psicoterapia", "5511988887777"),
+    ("5511977776666", " ", "Psicoterapia", "5511988887777"),
+    ("5511977776666", "Leo", "", "5511988887777"),
+    ("5511977776666", "Leo", "Psicoterapia", "not a phone"),
+])
+def test_professional_template_rejects_missing_contact_data(values):
+    with pytest.raises(ValueError):
+        MatchingProfessionalTemplate(*values)
 
 
 @pytest.mark.asyncio
