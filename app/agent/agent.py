@@ -4,12 +4,13 @@ import unicodedata
 from dataclasses import dataclass
 
 from app.agent.action_executor import ActionExecutor, ActionResult
-from app.agent.chat_flow import ChatFlow, Node
+from app.agent.chat_flow import Node
 from app.agent.faq_flow import FaqFlow
 from app.context import AppContext
 from app.domain.message import Message
 from app.infra.message_queue import MessageQueue
 from app.repository.redis.chat_repository import ChatRepository
+from app.repository.redis.chatbot_flow_cache import FlowProvider
 from app.repository.redis.patient_stage_repository import PatientStageRepository
 from app.repository.redis.professional_stage_repository import ProfessionalStageRepository
 from app.repository.sql.faq_knowledge_repository import FaqKnowledgeRepository
@@ -18,7 +19,6 @@ from app.repository.sql.outbox_repository import OutboxRepository
 from app.repository.sql.patient_repository import PatientRepository
 from app.repository.sql.person_repository import PersonRepository
 from app.repository.sql.professional_repository import ProfessionalRepository
-from app.services.s3_media_service import MediaType, S3MediaService
 
 logger = logging.getLogger(__name__)
 
@@ -40,7 +40,7 @@ class AgentWorker:
     ctx: AppContext
     inbound_queue: MessageQueue
     outbound_queue: MessageQueue
-    flow: ChatFlow
+    flow_provider: FlowProvider
     _task: asyncio.Task[None] | None
     chat_repository: ChatRepository
     action_executor: ActionExecutor
@@ -59,11 +59,12 @@ class AgentWorker:
         outbox_repository: OutboxRepository,
         faq_knowledge_repository: FaqKnowledgeRepository,
         faq_session_repository: FaqSessionRepository,
+        flow_provider: FlowProvider,
     ):
         self.ctx = ctx
         self.inbound_queue = inbound
         self.outbound_queue = outbound
-        self.flow = ChatFlow.from_file()
+        self.flow_provider = flow_provider
         self.chat_repository = chat_repository
         faq_flow = FaqFlow(
             person_repository=person_repository,
@@ -94,6 +95,7 @@ class AgentWorker:
         else:
             content = ""
 
+        flow = await self.flow_provider.get_flow()
         logger.debug(
             "Processing message content: %s for chat %s",
             content,
@@ -114,7 +116,7 @@ class AgentWorker:
                 message.chat_id,
             )
 
-            node = self.flow.get("start")
+            node = flow.get("start")
 
             if not node or node.get("end"):
                 logger.error("No valid start node found.")
@@ -136,7 +138,7 @@ class AgentWorker:
 
         if current_state is None:
             current_state = "start"
-            node = self.flow.get(current_state)
+            node = flow.get(current_state)
 
             if node and not node.get("end"):
                 await self.chat_repository.create_context(
@@ -145,13 +147,13 @@ class AgentWorker:
                     state=current_state,
                 )
 
-                if node.next_transition(content) is None:
+                if node.next_transition(message) is None:
                     return _response_from_node(node)
 
             else:
                 return Response(content="Erro ao iniciar o fluxo.")
 
-        node = self.flow.get(current_state)
+        node = flow.get(current_state)
 
         if not node:
             logger.error("No node found for state: %s", current_state)
@@ -164,43 +166,29 @@ class AgentWorker:
             )
             return Response(content=str(node.message))
 
-        required_media_types = _required_media_types(node)
-        if required_media_types and not _has_expected_media(
-            message,
-            required_media_types,
-        ):
-            if not _allows_text_without_media(node, content):
-                requirement = (
-                    "um vídeo"
-                    if required_media_types == frozenset({"video"})
-                    else "o comprovante como imagem ou documento"
-                )
-                return Response(
-                    content=f"Você deve enviar {requirement}.",
-                    buttons=node.buttons,
-                )
-
-        action_result = await self.action_executor.run(node, message)
-        if isinstance(action_result, ActionResult):
-            func_output = action_result.output
-            action_next_node = action_result.next_node
-        else:
-            # Allows existing custom executors to keep returning a plain string.
-            func_output = action_result
-            action_next_node = None
-
-        transition = node.next_transition(content)
-
+        transition = node.next_transition(message)
         if transition is None:
+            error_message = flow.error_message(node, message)
+            if error_message is not None:
+                return Response(content=error_message, buttons=node.buttons)
             logger.info(
                 "Invalid response for flow node %s; repeating current node.",
                 current_state,
             )
             return _response_from_node(node)
 
-        next_target = action_next_node or transition.target
+        action_result = await self.action_executor.run(transition.actions, message)
+        if isinstance(action_result, ActionResult):
+            func_output = action_result.output
+            action_data = action_result.data or {}
+        else:
+            # Allows existing custom executors to keep returning a plain string.
+            func_output = action_result
+            action_data = {}
+
+        next_target = transition.target_for(action_data)
         if next_target:
-            next_node = self.flow.get(next_target)
+            next_node = flow.get(next_target)
 
             if next_node:
                 if next_node.get("end"):
@@ -245,34 +233,6 @@ def remove_accents(input_str: str) -> str:
 def normalize_text(text: str) -> str:
     """Normalize text by stripping whitespace, converting to lowercase, and removing accents."""
     return remove_accents(text.strip().lower())
-
-
-def _required_media_types(node: Node) -> frozenset[MediaType]:
-    if node.input == "Imagem ou documento":
-        return frozenset({"image", "document"})
-    if node.input == "Vídeo":
-        return frozenset({"video"})
-    return frozenset()
-
-
-def _has_expected_media(
-    message: Message,
-    expected_types: frozenset[MediaType],
-) -> bool:
-    if message.media is None:
-        return False
-
-    try:
-        return S3MediaService.get_media_type(message.media) in expected_types
-    except ValueError:
-        return False
-
-
-def _allows_text_without_media(node: Node, content: str) -> bool:
-    return any(
-        transition.conditions and transition.matches(content)
-        for transition in node.transitions
-    )
 
 
 def _response_from_node(node: Node) -> Response:

@@ -31,7 +31,7 @@ def factory():
         connection.execute(text("CREATE EXTENSION IF NOT EXISTS vector"))
         connection.execute(text(f'CREATE SCHEMA "{schema}"'))
     engine = create_engine(url, connect_args={"options": f"-csearch_path={schema},public"})
-    engine = engine.execution_options(schema_translate_map={None: schema})
+    engine = engine.execution_options(schema_translate_map={None: schema, "chatbot_flow": schema})
     Base.metadata.create_all(engine)
     yield sessionmaker(engine, expire_on_commit=False)
     engine.dispose()

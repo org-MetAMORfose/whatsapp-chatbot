@@ -121,8 +121,10 @@ async def run() -> None:
     from app.channel_adapters.whatsapp import WhatsAppAdapter
     from app.infra.media_factory import create_media_service
     from app.repository.redis.chat_repository import ChatRepository
+    from app.repository.redis.chatbot_flow_cache import ChatFlowCache
     from app.repository.redis.patient_stage_repository import PatientStageRepository
     from app.repository.redis.professional_stage_repository import ProfessionalStageRepository
+    from app.repository.sql.chatbot_flow_repository import ChatFlowRepository
     from app.repository.sql.faq_knowledge_repository import FaqKnowledgeRepository
     from app.repository.sql.faq_session_repository import FaqSessionRepository
     from app.repository.sql.patient_repository import PatientRepository
@@ -156,6 +158,8 @@ async def run() -> None:
             people = PersonRepository(factory)
             outbox = OutboxRepository(factory)
             media = create_media_service()
+            flow_cache = ChatFlowCache(redis, ChatFlowRepository(factory))
+            await flow_cache.get_flow()
             agent = AgentWorker(
                 ctx=ctx, inbound=inbound, outbound=outbound,
                 chat_repository=ChatRepository(redis), professional_repository=ProfessionalRepository(factory),
@@ -163,6 +167,7 @@ async def run() -> None:
                 patient_repository=PatientRepository(factory), patient_stage_repository=PatientStageRepository(redis),
                 outbox_repository=outbox, faq_knowledge_repository=FaqKnowledgeRepository(factory),
                 faq_session_repository=FaqSessionRepository(factory),
+                flow_provider=flow_cache,
             )
             processor = InboundProcessor(factory, agent, people, inbound, outbound, media)
             dispatcher = MessageDispatcherService(ctx, outbound, people)

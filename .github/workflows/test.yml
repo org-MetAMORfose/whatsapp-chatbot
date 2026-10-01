@@ -37,7 +37,7 @@ jobs:
       - run: uv sync --frozen --dev
       - run: uv run ruff check .
       - run: uv run mypy .
-      - run: uv run pytest -q
+      - run: uv run pytest -q -m "not integration"
       - name: Prepare isolated smoke configuration
         run: |
           cat > .env <<'CONFIG'
@@ -56,3 +56,35 @@ jobs:
       - name: Shutdown
         if: always()
         run: docker compose down -v
+
+  flow-integration:
+    name: Chatbot flow PostgreSQL integration
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: pgvector/pgvector:0.8.6-pg16
+        env:
+          POSTGRES_DB: chatbot
+          POSTGRES_USER: chatbot
+          POSTGRES_PASSWORD: test-only-password
+        ports: ['15432:5432']
+        options: >-
+          --health-cmd "pg_isready -U chatbot -d chatbot"
+          --health-interval 5s --health-timeout 5s --health-retries 10
+    env:
+      PYTHON_DOTENV_DISABLED: '1'
+      DATABASE_URL: postgresql+psycopg://chatbot:test-only-password@localhost:15432/chatbot
+      FLOW_TEST_DATABASE_URL: postgresql+psycopg://chatbot:test-only-password@localhost:15432/chatbot
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v6
+        with:
+          python-version: '3.13'
+      - run: uv sync --frozen --dev
+      - name: Validate migration round trip
+        run: |
+          uv run alembic upgrade head
+          uv run alembic downgrade 0010_matching
+          uv run alembic upgrade head
+      - name: Run chatbot flow PostgreSQL integration tests
+        run: uv run pytest -q -m integration tests/integration/test_chatbot_flow_postgres.py
