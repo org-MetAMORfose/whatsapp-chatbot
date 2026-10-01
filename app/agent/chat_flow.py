@@ -7,7 +7,7 @@ from datetime import date, datetime
 from decimal import Decimal, InvalidOperation
 from typing import Any, Literal
 
-from pydantic import BaseModel, Field, model_validator
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from app.domain.enum.chatbot_flow import InputType, NodeType
 from app.domain.message import Message
@@ -33,6 +33,21 @@ class ActionTransitionConfig(BaseModel):
     operator: Literal["eq", "neq", "gt", "gte", "lt", "lte"]
     value: Any
     target_node_key: str = Field(min_length=1)
+
+
+class SheetsStoreAnswerConfig(BaseModel):
+    model_config = ConfigDict(extra="forbid", str_strip_whitespace=True)
+
+    config_type: Literal["sheets_store_answer"]
+    tab: str = Field(min_length=1, max_length=100)
+    column: str = Field(pattern=r"^[A-Z]{1,3}$")
+
+
+class SheetsFlushConfig(BaseModel):
+    model_config = ConfigDict(extra="forbid", str_strip_whitespace=True)
+
+    config_type: Literal["sheets_flush"]
+    tab: str = Field(min_length=1, max_length=100)
 
 
 class TransitionAction(BaseModel):
@@ -92,7 +107,7 @@ class Transition(BaseModel):
 
     def target_for(self, action_data: dict[str, Any]) -> str:
         for action in self.actions:
-            if action.config is None:
+            if action.config is None or action.config.get("config_type") != "action_transition":
                 continue
             config = ActionTransitionConfig.model_validate(action.config)
             actual = action_data.get(config.source.field)
@@ -144,9 +159,7 @@ class Node(BaseModel):
         media_types = fallback_types & {InputType.IMAGE, InputType.DOCUMENT, InputType.VIDEO}
         if media_types:
             return next(
-                transition.input_type
-                for transition in self.transitions
-                if transition.expected_value is None and transition.input_type in media_types
+                transition.input_type for transition in self.transitions if transition.expected_value is None and transition.input_type in media_types
             )
 
         for input_type in (InputType.DATE, InputType.EMAIL, InputType.NUMBER, InputType.TEXT):
@@ -171,7 +184,7 @@ class ChatFlow(BaseModel):
         for node in self.nodes.values():
             for transition in node.transitions:
                 for action in transition.actions:
-                    if action.config is None:
+                    if action.config is None or action.config.get("config_type") != "action_transition":
                         continue
                     config = ActionTransitionConfig.model_validate(action.config)
                     if config.target_node_key not in self.nodes:
