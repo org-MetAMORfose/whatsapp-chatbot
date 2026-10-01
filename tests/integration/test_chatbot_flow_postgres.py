@@ -125,8 +125,12 @@ async def test_seed_draft_publication_and_required_action_protection() -> None:
                     draft_entity_id=-3,
                     new_value={
                         "transition_id": -2,
-                        "action_key": "postgres_set_question_state",
-                        "config": None,
+                        "action_key": "sheets_store_answer",
+                        "config": {
+                            "config_type": "sheets_store_answer",
+                            "tab": "Pacientes",
+                            "column": "G",
+                        },
                         "is_required": True,
                     },
                 ),

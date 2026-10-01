@@ -40,6 +40,19 @@ def test_flow_endpoints_require_authentication(monkeypatch) -> None:
     service.create_draft.assert_not_called()
 
 
+def test_lists_only_administrator_managed_actions(monkeypatch) -> None:
+    api, _ = client(monkeypatch)
+
+    response = api.get("/chatbot-flow/actions", headers=headers())
+
+    assert response.status_code == 200
+    actions = response.json()["actions"]
+    assert {action["key"] for action in actions} == {
+        "sheets_store_answer",
+        "sheets_flush",
+    }
+
+
 def test_lists_published_revision_and_drafts(monkeypatch) -> None:
     api, service = client(monkeypatch)
     service.list_revisions.return_value = {

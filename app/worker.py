@@ -1,4 +1,5 @@
 """Independent worker process: inbound, outbound and integration delivery loops."""
+
 import asyncio
 import logging
 import signal
@@ -38,7 +39,7 @@ async def consume(queue: MessageQueue, handler: Callable[[Delivery], Awaitable[N
             if delivery.attempts >= 5:
                 await queue.dead_letter(delivery, exc)
             else:
-                await queue.retry(delivery, min(30, 2 ** delivery.attempts))
+                await queue.retry(delivery, min(30, 2**delivery.attempts))
 
 
 async def relay(repository: OutboxRepository, ctx: AppContext) -> None:
@@ -48,7 +49,8 @@ async def relay(repository: OutboxRepository, ctx: AppContext) -> None:
     def deliver() -> bool:
         nonlocal service
         from app.services.google_sheets_service import GoogleSheetsService
-        item = repository.claim(kinds=("sheets.patient.upsert.v1", "sheets.professional.upsert.v1"), max_attempts=5)
+
+        item = repository.claim(kinds=("sheets.patient.upsert.v1", "sheets.professional.upsert.v1", "sheets.dynamic.append.v1"), max_attempts=5)
         if item is None:
             return False
         try:
@@ -88,17 +90,20 @@ async def matching_relay(repository: OutboxRepository, ctx: AppContext) -> None:
         logger.warning("MATCHING_LAMBDA_NAME unset; matching events remain pending")
         await ctx.wait_for_shutdown()
         return
-    client = boto3.client("lambda",
+    client = boto3.client(
+        "lambda",
         region_name=os.environ.get("AWS_REGION") or os.environ.get("AWS_DEFAULT_REGION", "us-east-1"),
-        config=Config(connect_timeout=5, read_timeout=130, retries={"total_max_attempts": 1}))
+        config=Config(connect_timeout=5, read_timeout=130, retries={"total_max_attempts": 1}),
+    )
 
     def deliver() -> bool:
         item = repository.claim(kinds=("matching.requested",), max_attempts=1)
         if item is None:
             return False
         try:
-            response = client.invoke(FunctionName=name, InvocationType="RequestResponse",
-                Payload=json.dumps({"patient_id": item.payload["patient_id"]}).encode())
+            response = client.invoke(
+                FunctionName=name, InvocationType="RequestResponse", Payload=json.dumps({"patient_id": item.payload["patient_id"]}).encode()
+            )
             response["Payload"].close()
             if response["StatusCode"] != 200 or response.get("FunctionError"):
                 raise RuntimeError("Matching Lambda execution failed")
@@ -124,6 +129,7 @@ async def run() -> None:
     from app.repository.redis.chatbot_flow_cache import ChatFlowCache
     from app.repository.redis.patient_stage_repository import PatientStageRepository
     from app.repository.redis.professional_stage_repository import ProfessionalStageRepository
+    from app.repository.redis.sheets_stage_repository import SheetsStageRepository
     from app.repository.sql.chatbot_flow_repository import ChatFlowRepository
     from app.repository.sql.faq_knowledge_repository import FaqKnowledgeRepository
     from app.repository.sql.faq_session_repository import FaqSessionRepository
@@ -161,13 +167,20 @@ async def run() -> None:
             flow_cache = ChatFlowCache(redis, ChatFlowRepository(factory))
             await flow_cache.get_flow()
             agent = AgentWorker(
-                ctx=ctx, inbound=inbound, outbound=outbound,
-                chat_repository=ChatRepository(redis), professional_repository=ProfessionalRepository(factory),
-                professional_stage_repository=ProfessionalStageRepository(redis), person_repository=people,
-                patient_repository=PatientRepository(factory), patient_stage_repository=PatientStageRepository(redis),
-                outbox_repository=outbox, faq_knowledge_repository=FaqKnowledgeRepository(factory),
+                ctx=ctx,
+                inbound=inbound,
+                outbound=outbound,
+                chat_repository=ChatRepository(redis),
+                professional_repository=ProfessionalRepository(factory),
+                professional_stage_repository=ProfessionalStageRepository(redis),
+                person_repository=people,
+                patient_repository=PatientRepository(factory),
+                patient_stage_repository=PatientStageRepository(redis),
+                outbox_repository=outbox,
+                faq_knowledge_repository=FaqKnowledgeRepository(factory),
                 faq_session_repository=FaqSessionRepository(factory),
                 flow_provider=flow_cache,
+                sheets_stage_repository=SheetsStageRepository(redis),
             )
             processor = InboundProcessor(factory, agent, people, inbound, outbound, media)
             dispatcher = MessageDispatcherService(ctx, outbound, people)
@@ -190,10 +203,14 @@ async def run() -> None:
                     HEARTBEAT_FILE.touch()
                     await asyncio.sleep(5)
 
-            tasks = [asyncio.create_task(consume(inbound, processor.process, ctx)),
-                     asyncio.create_task(consume(outbound, send, ctx)),
-                     asyncio.create_task(relay(outbox, ctx)), asyncio.create_task(matching_relay(outbox, ctx)),
-                     asyncio.create_task(matching_notifications.run(ctx)), asyncio.create_task(heartbeat())]
+            tasks = [
+                asyncio.create_task(consume(inbound, processor.process, ctx)),
+                asyncio.create_task(consume(outbound, send, ctx)),
+                asyncio.create_task(relay(outbox, ctx)),
+                asyncio.create_task(matching_relay(outbox, ctx)),
+                asyncio.create_task(matching_notifications.run(ctx)),
+                asyncio.create_task(heartbeat()),
+            ]
             stopping = asyncio.create_task(ctx.wait_for_shutdown())
             done, _ = await asyncio.wait([*tasks, stopping], return_when=asyncio.FIRST_COMPLETED)
             ctx.request_shutdown()

@@ -1,4 +1,5 @@
 """Small authenticated REST client for Sheets; no discovery resource graphs."""
+
 from dataclasses import dataclass
 from hashlib import sha256
 from typing import Any
@@ -49,8 +50,13 @@ class SpreadsheetRef:
 
 
 class GoogleSheetsService:
-    def __init__(self, client: Any | None = None, credentials_info: dict[str, Any] | None = None,
-                 patients_spreadsheet_url: str | None = None, professionals_spreadsheet_url: str | None = None) -> None:
+    def __init__(
+        self,
+        client: Any | None = None,
+        credentials_info: dict[str, Any] | None = None,
+        patients_spreadsheet_url: str | None = None,
+        professionals_spreadsheet_url: str | None = None,
+    ) -> None:
         self._client = client if client is not None else self._build_client(credentials_info)
         self._patients = self._resolve_spreadsheet(patients_spreadsheet_url or settings.GOOGLE_PATIENTS_SPREADSHEET_URL)
         self._professionals = self._resolve_spreadsheet(professionals_spreadsheet_url or settings.GOOGLE_PROFESSIONALS_SPREADSHEET_URL)
@@ -58,14 +64,14 @@ class GoogleSheetsService:
     def _build_client(self, info: dict[str, Any] | None) -> Any:
         try:
             credentials = Credentials.from_service_account_info(  # type: ignore[no-untyped-call]
-                info or settings.load_google_service_account_credentials(), scopes=[SHEETS_SCOPE],
+                info or settings.load_google_service_account_credentials(),
+                scopes=[SHEETS_SCOPE],
             )
         except (KeyError, TypeError, ValueError) as exc:
             raise GoogleSheetsCredentialsError("Invalid Google credentials") from exc
         return AuthorizedSession(credentials, refresh_timeout=30)  # type: ignore[no-untyped-call]
 
-    def _request(self, method: str, path: str, *, params: dict[str, str] | None = None,
-                 body: dict[str, Any] | None = None) -> dict[str, Any]:
+    def _request(self, method: str, path: str, *, params: dict[str, str] | None = None, body: dict[str, Any] | None = None) -> dict[str, Any]:
         try:
             response = self._client.request(method, f"{BASE_URL}/{path}", params=params, json=body, timeout=30)
             response.raise_for_status()
@@ -101,6 +107,10 @@ class GoogleSheetsService:
         self._request("PUT", self._path(sheet, coordinates), params={"valueInputOption": "RAW"}, body={"values": rows})
 
     def deliver(self, operation_id: str, kind: str, payload: dict[str, Any]) -> None:
+        if kind == "sheets.dynamic.append.v1":
+            self._deliver_dynamic(operation_id, payload)
+            return
+
         if kind == "sheets.patient.upsert.v1":
             sheet, end = self._patients, "F"
             row = PatientSheet.model_validate(payload).to_sheet_row()
@@ -111,28 +121,146 @@ class GoogleSheetsService:
             raise ValueError(f"Unsupported delivery kind: {kind}")
         metadata_key = f"outbox:{sheet.gid}"
         metadata_value = sha256(operation_id.encode()).hexdigest()
-        found = self._request("POST", f"{sheet.spreadsheet_id}/developerMetadata:search", body={
-            "dataFilters": [{"developerMetadataLookup": {
-                "metadataKey": metadata_key, "metadataValue": metadata_value, "visibility": "DOCUMENT",
-            }}],
-        })
+        found = self._request(
+            "POST",
+            f"{sheet.spreadsheet_id}/developerMetadata:search",
+            body={
+                "dataFilters": [
+                    {
+                        "developerMetadataLookup": {
+                            "metadataKey": metadata_key,
+                            "metadataValue": metadata_value,
+                            "visibility": "DOCUMENT",
+                        }
+                    }
+                ],
+            },
+        )
         if found.get("matchedDeveloperMetadata"):
             return
         row_index = max(1, len(self._read(sheet, f"A:{end}")))
         location = {"sheetId": sheet.gid, "dimension": "ROWS", "startIndex": row_index, "endIndex": row_index + 1}
         # Metadata and visible values commit in one Google batch. No technical G/O columns.
-        self._request("POST", f"{sheet.spreadsheet_id}:batchUpdate", body={"requests": [
+        self._request(
+            "POST",
+            f"{sheet.spreadsheet_id}:batchUpdate",
+            body={
+                "requests": [
+                    {"insertDimension": {"range": location, "inheritFromBefore": True}},
+                    {
+                        "updateCells": {
+                            "start": {"sheetId": sheet.gid, "rowIndex": row_index, "columnIndex": 0},
+                            "rows": [{"values": [{"userEnteredValue": {"stringValue": cell}} for cell in row]}],
+                            "fields": "userEnteredValue",
+                        }
+                    },
+                    {
+                        "createDeveloperMetadata": {
+                            "developerMetadata": {
+                                "metadataKey": metadata_key,
+                                "metadataValue": metadata_value,
+                                "visibility": "DOCUMENT",
+                                "location": {"dimensionRange": location},
+                            }
+                        }
+                    },
+                ]
+            },
+        )
+
+    def _deliver_dynamic(self, operation_id: str, payload: dict[str, Any]) -> None:
+        tab = payload.get("tab")
+        values = payload.get("values")
+        if not isinstance(tab, str) or not tab.strip():
+            raise ValueError("Dynamic Sheets delivery requires a tab name")
+        if not isinstance(values, dict) or not values:
+            raise ValueError("Dynamic Sheets delivery requires values")
+
+        cells: list[tuple[int, str]] = []
+        for column, value in values.items():
+            if not isinstance(column, str) or not isinstance(value, str):
+                raise ValueError("Dynamic Sheets columns and values must be strings")
+            cells.append((self._column_index(column), value))
+        cells.sort()
+        sheet = self._patient_tab(tab)
+
+        metadata_key = f"outbox:{sheet.gid}"
+        metadata_value = sha256(operation_id.encode()).hexdigest()
+        found = self._request(
+            "POST",
+            f"{sheet.spreadsheet_id}/developerMetadata:search",
+            body={
+                "dataFilters": [
+                    {
+                        "developerMetadataLookup": {
+                            "metadataKey": metadata_key,
+                            "metadataValue": metadata_value,
+                            "visibility": "DOCUMENT",
+                        }
+                    }
+                ],
+            },
+        )
+        if found.get("matchedDeveloperMetadata"):
+            return
+
+        last_column = self._column_name(cells[-1][0])
+        row_index = max(1, len(self._read(sheet, f"A:{last_column}")))
+        location = {"sheetId": sheet.gid, "dimension": "ROWS", "startIndex": row_index, "endIndex": row_index + 1}
+        requests_body: list[dict[str, Any]] = [
             {"insertDimension": {"range": location, "inheritFromBefore": True}},
-            {"updateCells": {
-                "start": {"sheetId": sheet.gid, "rowIndex": row_index, "columnIndex": 0},
-                "rows": [{"values": [{"userEnteredValue": {"stringValue": cell}} for cell in row]}],
-                "fields": "userEnteredValue",
-            }},
-            {"createDeveloperMetadata": {"developerMetadata": {
-                "metadataKey": metadata_key, "metadataValue": metadata_value, "visibility": "DOCUMENT",
-                "location": {"dimensionRange": location},
-            }}},
-        ]})
+        ]
+        requests_body.extend(
+            {
+                "updateCells": {
+                    "start": {"sheetId": sheet.gid, "rowIndex": row_index, "columnIndex": column_index},
+                    "rows": [{"values": [{"userEnteredValue": {"stringValue": value}}]}],
+                    "fields": "userEnteredValue",
+                }
+            }
+            for column_index, value in cells
+        )
+        requests_body.append(
+            {
+                "createDeveloperMetadata": {
+                    "developerMetadata": {
+                        "metadataKey": metadata_key,
+                        "metadataValue": metadata_value,
+                        "visibility": "DOCUMENT",
+                        "location": {"dimensionRange": location},
+                    }
+                }
+            }
+        )
+        self._request("POST", f"{sheet.spreadsheet_id}:batchUpdate", body={"requests": requests_body})
+
+    def _patient_tab(self, title: str) -> SpreadsheetRef:
+        if title == self._patients.sheet_title:
+            return self._patients
+        metadata = self._request("GET", self._patients.spreadsheet_id, params={"fields": "sheets.properties(sheetId,title)"})
+        for item in metadata.get("sheets", []):
+            properties = item.get("properties", {})
+            if properties.get("title") == title and isinstance(properties.get("sheetId"), int):
+                return SpreadsheetRef(self._patients.spreadsheet_id, properties["sheetId"], title)
+        raise SheetTabNotFoundError(f"Google Sheets tab not found: {title}")
+
+    @staticmethod
+    def _column_index(column: str) -> int:
+        if not column or len(column) > 3 or not column.isascii() or not column.isalpha() or column != column.upper():
+            raise ValueError(f"Invalid Google Sheets column: {column}")
+        index = 0
+        for character in column:
+            index = index * 26 + ord(character) - ord("A") + 1
+        return index - 1
+
+    @staticmethod
+    def _column_name(index: int) -> str:
+        result = ""
+        index += 1
+        while index:
+            index, remainder = divmod(index - 1, 26)
+            result = chr(ord("A") + remainder) + result
+        return result
 
     def register_patient(self, patient: PatientSheet) -> None:
         row = max(2, len(self._read(self._patients, "A:F")) + 1)
@@ -156,6 +284,7 @@ class GoogleSheetsService:
                     self._write(self._professionals, f"M{index}", [["1" if active else "0"]])
                     return
         raise ProfessionalNotFoundError("Professional was not found by phone")
+
     def _parse_spreadsheet_url(self, spreadsheet_url: str) -> tuple[str, int]:
         parsed = urlparse(spreadsheet_url.strip())
         if parsed.scheme not in {"http", "https"} or not parsed.netloc:
@@ -165,14 +294,10 @@ class GoogleSheetsService:
         try:
             spreadsheet_id = path_parts[path_parts.index("d") + 1]
         except (ValueError, IndexError) as exc:
-            raise InvalidSpreadsheetUrlError(
-                "Spreadsheet URL does not contain a spreadsheetId."
-            ) from exc
+            raise InvalidSpreadsheetUrlError("Spreadsheet URL does not contain a spreadsheetId.") from exc
 
         if not spreadsheet_id:
-            raise InvalidSpreadsheetUrlError(
-                "Spreadsheet URL does not contain a spreadsheetId."
-            )
+            raise InvalidSpreadsheetUrlError("Spreadsheet URL does not contain a spreadsheetId.")
 
         query_gid = parse_qs(parsed.query).get("gid", [""])[0]
         fragment_gid = parse_qs(parsed.fragment).get("gid", [""])[0]

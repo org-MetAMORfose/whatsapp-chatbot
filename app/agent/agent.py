@@ -13,6 +13,7 @@ from app.repository.redis.chat_repository import ChatRepository
 from app.repository.redis.chatbot_flow_cache import FlowProvider
 from app.repository.redis.patient_stage_repository import PatientStageRepository
 from app.repository.redis.professional_stage_repository import ProfessionalStageRepository
+from app.repository.redis.sheets_stage_repository import SheetsStageRepository
 from app.repository.sql.faq_knowledge_repository import FaqKnowledgeRepository
 from app.repository.sql.faq_session_repository import FaqSessionRepository
 from app.repository.sql.outbox_repository import OutboxRepository
@@ -60,6 +61,7 @@ class AgentWorker:
         faq_knowledge_repository: FaqKnowledgeRepository,
         faq_session_repository: FaqSessionRepository,
         flow_provider: FlowProvider,
+        sheets_stage_repository: SheetsStageRepository | None = None,
     ):
         self.ctx = ctx
         self.inbound_queue = inbound
@@ -79,6 +81,7 @@ class AgentWorker:
             patient_stage_repository,
             outbox_repository,
             faq_flow,
+            sheets_stage_repository,
         )
 
     async def _process_message(self, message: Message) -> Response:
