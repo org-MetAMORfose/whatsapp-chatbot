@@ -2,7 +2,7 @@
 from datetime import datetime
 from typing import Any
 
-from sqlalchemy import CheckConstraint, DateTime, Enum, Float, ForeignKey, Integer, String
+from sqlalchemy import CheckConstraint, DateTime, Enum, Float, ForeignKey, Integer, String, UniqueConstraint
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.domain.db.base import Base
@@ -27,9 +27,12 @@ class MatchingCycleModel(Base):
 
 class MatchingSlotModel(Base):
     __tablename__ = "matching_slot"
+    __table_args__ = (
+        UniqueConstraint("patient_id", "cycle_id", name="uq_matching_slot_patient_cycle"),
+    )
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
     cycle_id: Mapped[int] = mapped_column(ForeignKey("matching_cycle.id"), nullable=False, index=True)
-    patient_id: Mapped[int] = mapped_column(ForeignKey("patient.id"), nullable=False, unique=True)
+    patient_id: Mapped[int] = mapped_column(ForeignKey("patient.id"), nullable=False)
     compatibility_score: Mapped[float] = mapped_column(Float, nullable=False)
     urgency_score: Mapped[float] = mapped_column(Float, nullable=False)
     final_score: Mapped[float] = mapped_column(Float, nullable=False)

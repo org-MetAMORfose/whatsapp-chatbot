@@ -22,6 +22,9 @@ from app.services.registration_service import (
 
 def _service(tmp_path) -> tuple[RegistrationService, sessionmaker[Session]]:
     engine = create_engine(f"sqlite:///{tmp_path / 'registration.db'}")
+    engine = engine.execution_options(
+        schema_translate_map={"chatbot_flow": None}
+    )
     Base.metadata.create_all(engine)
     factory = sessionmaker(bind=engine, expire_on_commit=False)
     return (

@@ -7,9 +7,9 @@ from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
 from datetime import date, datetime
 from functools import partial
-from typing import Final
+from typing import Any, Final
 
-from app.agent.chat_flow import Node
+from app.agent.chat_flow import TransitionAction
 from app.agent.faq_flow import FaqFlow
 from app.domain.db.patient_model import PatientModel
 from app.domain.enum.chat_mode import ChatMode
@@ -31,10 +31,10 @@ from app.repository.sql.professional_repository import ProfessionalRepository
 
 @dataclass
 class ActionResult:
-    """Output emitted by an action, optionally overriding the next flow node."""
+    """Output and named values emitted by actions; navigation remains in the graph."""
 
     output: str = ""
-    next_node: str | None = None
+    data: dict[str, Any] | None = None
 
 
 ActionOutput = str | ActionResult
@@ -52,7 +52,6 @@ PATIENT_PRICE_RANGES: Final[frozenset[str]] = frozenset(
 BIRTH_DATE_PATTERN: Final = re.compile(r"^\d{1,2}/\d{1,2}/\d{4}$")
 FAQ_SATISFIED_OPTION: Final = "estou satisfeito"
 FAQ_HUMAN_SUPPORT_OPTION: Final = "falar com atendente"
-FAQ_HUMAN_SUPPORT_THRESHOLD: Final = 3
 
 
 class ActionExecutor:
@@ -118,9 +117,8 @@ class ActionExecutor:
             "redis_update_professional_birth_date": (
                 self.redis_update_professional_birth_date
             ),
-            "redis_correct_professional_birth_date": partial(
-                self.redis_update_professional_birth_date,
-                retry_node="corrigir_data_nascimento",
+            "redis_correct_professional_birth_date": (
+                self.redis_update_professional_birth_date
             ),
             "redis_get_professional_stage_summary": (
                 self.redis_get_professional_stage_summary
@@ -200,26 +198,41 @@ class ActionExecutor:
             "faq_continue_or_finish": self.faq_continue_or_finish,
         }
 
-    async def run(self, node: Node, message: Message) -> ActionResult:
-        """Execute actions by name."""
+    async def run(
+        self,
+        action_specs: list[TransitionAction],
+        message: Message,
+    ) -> ActionResult:
+        """Execute transition actions in database insertion order."""
         result = ActionResult()
 
-        for name in node.actions:
-            action = self.actions.get(name)
+        for action_spec in action_specs:
+            action = self.actions.get(action_spec.action_key)
 
             logger.debug(
-                f"Executing action: {name} "
-                f"for message {message.message_id}"
+                "Executing action: %s for message %s",
+                action_spec.action_key,
+                message.message_id,
             )
 
             if action is None:
-                raise ValueError(f"Unknown action: {name}")
+                error = ValueError(f"Unknown action: {action_spec.action_key}")
+                if action_spec.is_required:
+                    raise error
+                logger.error("%s; ignoring optional action", error)
+                continue
 
-            action_result = await action(message)
+            try:
+                action_result = await action(message)
+            except Exception:
+                if action_spec.is_required:
+                    raise
+                logger.exception("Optional action %s failed", action_spec.action_key)
+                continue
             if isinstance(action_result, ActionResult):
                 result.output += action_result.output
-                if action_result.next_node is not None:
-                    result.next_node = action_result.next_node
+                if action_result.data:
+                    result.data = {**(result.data or {}), **action_result.data}
             else:
                 result.output += action_result
 
@@ -279,17 +292,12 @@ class ActionExecutor:
     async def redis_update_professional_birth_date(
         self,
         message: Message,
-        *,
-        retry_node: str = "profissional_data_nascimento",
     ) -> ActionResult:
         """Validate and store the professional's birth date before review."""
         try:
             birth_date = self._parse_birth_date(message.content)
         except ValueError:
-            return ActionResult(
-                output="Data de nascimento inválida.\n\n",
-                next_node=retry_node,
-            )
+            return ActionResult(output="Data de nascimento inválida.\n\n")
 
         await self.professional_stage_repository.update_context(
             message,
@@ -442,16 +450,11 @@ class ActionExecutor:
         return ""
 
     async def faq_process_question(self, message: Message) -> ActionResult:
-        """Answer one FAQ question and route according to its session count."""
+        """Answer one FAQ question and expose its count for graph config."""
         result = await self.faq_flow.process(message)
-        next_node = (
-            "faq_resposta_com_atendimento"
-            if result.question_count >= FAQ_HUMAN_SUPPORT_THRESHOLD
-            else "faq_resposta"
-        )
         return ActionResult(
             output=f"{result.content}\n\n",
-            next_node=next_node,
+            data={"question_count": result.question_count},
         )
 
     async def faq_continue_or_satisfy(self, message: Message) -> ActionResult:
@@ -579,7 +582,7 @@ class ActionExecutor:
 
         if not self.patient_repository.exists_by_person_id(person.id):
             await self.patient_stage_repository.get_or_create_context(message)
-            return ActionResult()
+            return ActionResult(data={"patient_is_returning": False})
 
         latest_patient = self.patient_repository.get_latest_by_person_id(person.id)
         if latest_patient is None:
@@ -587,7 +590,7 @@ class ActionExecutor:
                 "Patient request disappeared while routing person_id %s",
                 person.id,
             )
-            return ActionResult()
+            return ActionResult(data={"patient_is_returning": False})
 
         context = await self.patient_stage_repository.update_context(
             message,
@@ -603,7 +606,7 @@ class ActionExecutor:
         )
         return ActionResult(
             output=self._format_patient_summary(context, message.user_id),
-            next_node="paciente_retorno_resumo",
+            data={"patient_is_returning": True},
         )
 
     async def postgres_register_new_patient_request(
@@ -639,14 +642,11 @@ class ActionExecutor:
                 "Patient stage not found while updating preferences for user_id %s",
                 message.user_id,
             )
-            return ActionResult()
+            return ActionResult(data={"patient_area": None})
 
-        next_node = (
-            "paciente_retorno_campos_psicoterapia"
-            if self._normalize_content(context.area) == "psicoterapia"
-            else "paciente_retorno_campos_geral"
+        return ActionResult(
+            data={"patient_area": self._normalize_content(context.area)}
         )
-        return ActionResult(next_node=next_node)
 
     async def request_matching(self, message: Message, *, patient_id: int | None = None) -> str:
         """Publish only a newly committed registration, within its SQL transaction."""
@@ -744,22 +744,16 @@ class ActionExecutor:
             birth_date = self._parse_birth_date(message.content)
         except ValueError:
             return ActionResult(
-                output=(
-                    "Data de nascimento inválida.\n\n"
-                ),
-                next_node="paciente_data_nascimento",
+                output=("Data de nascimento inválida.\n\n"),
             )
 
         context = await self.patient_stage_repository.update_context(
             message,
             {"birth_date": birth_date},
         )
-        next_node = (
-            "paciente_psico_perfil"
-            if self._normalize_content(context.area) == "psicoterapia"
-            else "paciente_faixa_valor"
+        return ActionResult(
+            data={"patient_area": self._normalize_content(context.area)}
         )
-        return ActionResult(next_node=next_node)
 
     async def redis_get_patient_stage_summary(
         self,

@@ -23,6 +23,9 @@ from app.domain.enum.chat_state import ChatState
 def engine(tmp_path) -> Iterator[Engine]:
     db_path = tmp_path / "test.db"
     engine = create_engine(f"sqlite:///{db_path}")
+    engine = engine.execution_options(
+        schema_translate_map={"chatbot_flow": None}
+    )
 
     Base.metadata.create_all(engine)
     yield engine
