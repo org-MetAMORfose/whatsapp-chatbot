@@ -85,6 +85,7 @@ def notification_snapshot(db: Session, result: MatchResult) -> MatchResult:
     row = db.execute(select(
         patient_person.name, patient_person.phone_number, patient_person.channel, PatientModel.area,
         professional_person.name, ProfessionalModel.area, professional_person.phone_number, professional_person.channel,
+        ProfessionalModel.email,
     ).select_from(Slot).join(
         PatientModel, PatientModel.id == Slot.patient_id).join(patient_person, patient_person.id == PatientModel.person_id).join(
         Cycle, Cycle.id == Slot.cycle_id).join(ProfessionalModel, ProfessionalModel.id == Cycle.professional_id).join(
@@ -92,15 +93,17 @@ def notification_snapshot(db: Session, result: MatchResult) -> MatchResult:
         Slot.id == result.slot_id, Slot.patient_id == result.patient_id, Cycle.id == result.cycle_id)).one_or_none()
     if row is None:
         raise ValueError("Matching allocation or its contacts were not found")
-    patient_name, patient_phone, patient_channel, patient_area, professional_name, professional_area, professional_phone, professional_channel = row
+    (patient_name, patient_phone, patient_channel, patient_area, professional_name, professional_area,
+     professional_phone, professional_channel, professional_email) = row
     if patient_channel != Channel.WHATSAPP or professional_channel != Channel.WHATSAPP:
         raise ValueError("Matching participants must have WhatsApp contacts")
-    snapshot = (patient_name, patient_phone, patient_area, professional_name, professional_area, professional_phone)
+    snapshot = (patient_name, patient_phone, patient_area, professional_name, professional_area,
+                professional_phone, professional_email)
     if any(not isinstance(value, str) or not value.strip() for value in snapshot):
         raise ValueError("Incomplete matching notification snapshot")
     return replace(result, patient_name=patient_name, patient_phone=patient_phone, patient_area=patient_area,
                    professional_name=professional_name, professional_area=professional_area,
-                   professional_phone=professional_phone)
+                   professional_phone=professional_phone, professional_email=professional_email)
 
 
 def execute(engine: Engine, data: PatientInput) -> MatchResult:
@@ -120,6 +123,8 @@ def execute(engine: Engine, data: PatientInput) -> MatchResult:
         if result.status == "matched":
             db.add(OutboxModel(id=f"matching:professional:{event_id}",
                                kind="matching.professional.notification", payload=payload))
+            db.add(OutboxModel(id=f"matching:professional-email:{event_id}",
+                               kind="matching.professional.email", payload=payload))
         return result
 
 

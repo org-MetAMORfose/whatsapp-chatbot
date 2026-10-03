@@ -38,7 +38,7 @@ def migrated_engine():
         subprocess.run(  # noqa: S603
             [sys.executable, "-m", "alembic", "upgrade", "head"],
             check=True,
-            env={**os.environ, "DATABASE_URL": test_url, "PYTHON_DOTENV_DISABLED": "1"},
+            env={**os.environ, "DATABASE_URL": test_url.replace("%", "%%"), "PYTHON_DOTENV_DISABLED": "1"},
             capture_output=True,
         )
         yield engine
@@ -63,8 +63,8 @@ def seed(engine: Engine, *, patients: int = 2, capacity: int = 1, cycles: int = 
             VALUES ('5511977776666','WHATSAPP','AUTOMATIC',now(),'Dra. Ana') RETURNING id""")
         )
         professional = db.scalar(
-            text("""INSERT INTO professional(person_id,area,professional_register,register_type,created_at)
-            VALUES (:person,'Psicoterapia','123','CRP',now()) RETURNING id"""),
+            text("""INSERT INTO professional(person_id,area,professional_register,register_type,email,created_at)
+            VALUES (:person,'Psicoterapia','123','CRP','ana@example.com',now()) RETURNING id"""),
             {"person": person},
         )
         for i in range(cycles):
@@ -259,6 +259,7 @@ def test_completed_event_captures_notification_snapshot(database):
         "professional_name": "Dra. Ana",
         "professional_area": "Psicoterapia",
         "professional_phone": "5511977776666",
+        "professional_email": "ana@example.com",
     }
     with database.begin() as db:
         db.execute(text("UPDATE person SET name='Changed', phone_number='changed-' || id"))
@@ -266,9 +267,13 @@ def test_completed_event_captures_notification_snapshot(database):
         professional_payloads = db.execute(text(
             "SELECT payload FROM outbox WHERE kind='matching.professional.notification'"
         )).scalars().all()
+        email_payloads = db.execute(text(
+            "SELECT payload FROM outbox WHERE kind='matching.professional.email'"
+        )).scalars().all()
     assert payloads == [first, repeated]
 
     assert professional_payloads == [first]
+    assert email_payloads == [first]
 
 def test_seeded_chatbot_flow_is_complete_and_loadable(database):
     from sqlalchemy.orm import sessionmaker
@@ -333,6 +338,19 @@ def test_incomplete_snapshot_rolls_back_allocation_and_event(database):
         db.execute(text("UPDATE person SET name=NULL"))
     with pytest.raises(ValueError, match="Incomplete matching notification snapshot"):
         execute(database, {"patient_id": 1})
+    with database.connect() as db:
+        assert db.scalar(text("SELECT count(*) FROM matching_slot")) == 0
+        assert db.scalar(text("SELECT count(*) FROM outbox")) == 0
+
+
+def test_missing_professional_email_rolls_back_allocation_and_events(database):
+    seed(database, patients=1)
+    with database.begin() as db:
+        db.execute(text("UPDATE professional SET email=NULL"))
+
+    with pytest.raises(ValueError, match="Incomplete matching notification snapshot"):
+        execute(database, {"patient_id": 1})
+
     with database.connect() as db:
         assert db.scalar(text("SELECT count(*) FROM matching_slot")) == 0
         assert db.scalar(text("SELECT count(*) FROM outbox")) == 0

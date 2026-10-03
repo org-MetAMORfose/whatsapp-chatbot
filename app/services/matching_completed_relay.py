@@ -1,4 +1,5 @@
 """Direct WhatsApp delivery of matching results, with no Redis or outbound messages."""
+
 import asyncio
 import logging
 from typing import Any
@@ -35,6 +36,7 @@ class MatchingCompletedRelay:
         )
         if item is None:
             return False
+        awaiting_receipt = False
         try:
             status = item.payload.get("status")
             if item.kind == "matching.professional.notification":
@@ -52,7 +54,9 @@ class MatchingCompletedRelay:
                     name=professional_template.name,
                     language=professional_template.language,
                     body_parameters=professional_template.body_parameters,
+                    callback_data=f"{item.id}|{item.attempts}",
                 )
+                awaiting_receipt = True
             elif item.kind == "matching.completed":
                 if status == "matched":
                     self._validate_matched_payload(item.payload)
@@ -67,7 +71,9 @@ class MatchingCompletedRelay:
                         name=patient_template.name,
                         language=patient_template.language,
                         body_parameters=patient_template.body_parameters,
+                        callback_data=f"{item.id}|{item.attempts}",
                     )
+                    awaiting_receipt = True
                 elif status not in ("no_capacity", "patient_not_found"):
                     raise ValueError("Unknown matching completion status")
             else:
@@ -76,9 +82,14 @@ class MatchingCompletedRelay:
             logger.error("Matching notification failed: id=%s attempt=%s error=%s", item.id, item.attempts, type(exc).__name__)
             await asyncio.to_thread(self.repository.finish, item, exc, max_attempts=MAX_ATTEMPTS)
         else:
-            # Never mark success before WhatsApp confirms the request. A DB failure
-            # here leaves the lease recoverable; it must not masquerade as success.
-            await asyncio.to_thread(self.repository.finish, item, max_attempts=MAX_ATTEMPTS)
+            if awaiting_receipt:
+                # API acceptance is not delivery. The webhook completes this item.
+                await asyncio.to_thread(
+                    self.repository.await_whatsapp_delivery,
+                    item,
+                )
+            else:
+                await asyncio.to_thread(self.repository.finish, item, max_attempts=MAX_ATTEMPTS)
         return True
 
     @staticmethod

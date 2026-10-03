@@ -13,10 +13,18 @@ from app.services.matching_completed_relay import MatchingCompletedRelay
 
 
 def matched_payload() -> dict[str, Any]:
-    return {"status": "matched", "patient_id": 1, "slot_id": 2, "cycle_id": 3,
-            "patient_name": "Leo", "patient_phone": "5511988887777", "patient_area": "Psicoterapia",
-            "professional_name": "Dra. Ana", "professional_area": "Psicoterapia",
-            "professional_phone": "5511977776666"}
+    return {
+        "status": "matched",
+        "patient_id": 1,
+        "slot_id": 2,
+        "cycle_id": 3,
+        "patient_name": "Leo",
+        "patient_phone": "5511988887777",
+        "patient_area": "Psicoterapia",
+        "professional_name": "Dra. Ana",
+        "professional_area": "Psicoterapia",
+        "professional_phone": "5511977776666",
+    }
 
 
 def dependencies(payload: dict[str, Any], kind: str = "matching.completed") -> tuple[MatchingCompletedRelay, MagicMock, MagicMock, OutboxModel]:
@@ -44,12 +52,17 @@ async def test_claim_only_completed_and_finish_after_send():
     repo.finish.assert_not_called()
     release.set()
     assert await task is True
-    repo.claim.assert_called_once_with(
-        kinds=("matching.completed", "matching.professional.notification"), max_attempts=5)
-    adapter.send_template.assert_awaited_once_with(to="5511988887777", name="matching_paciente", language="pt_BR",
-        body_parameters=("Dra. Ana", "Psicoterapia", "https://wa.me/5511977776666"))
+    repo.claim.assert_called_once_with(kinds=("matching.completed", "matching.professional.notification"), max_attempts=5)
+    adapter.send_template.assert_awaited_once_with(
+        to="5511988887777",
+        name="matching_paciente",
+        language="pt_BR",
+        body_parameters=("Dra. Ana", "Psicoterapia", "https://wa.me/5511977776666"),
+        callback_data="event|1",
+    )
     adapter.send_message.assert_not_called()
-    repo.finish.assert_called_once_with(item, max_attempts=5)
+    repo.await_whatsapp_delivery.assert_called_once_with(item)
+    repo.finish.assert_not_called()
 
 
 @pytest.mark.asyncio
@@ -66,16 +79,21 @@ async def test_professional_notification_sends_matching_professional_template():
         name="matching_profissional",
         language="pt_BR",
         body_parameters=("Leo", "Psicoterapia", "https://wa.me/5511988887777"),
+        callback_data="event|1",
     )
-    repo.finish.assert_called_once_with(item, max_attempts=5)
+    repo.await_whatsapp_delivery.assert_called_once_with(item)
+    repo.finish.assert_not_called()
 
 
-@pytest.mark.parametrize("values", [
-    ("", "Leo", "Psicoterapia", "5511988887777"),
-    ("5511977776666", " ", "Psicoterapia", "5511988887777"),
-    ("5511977776666", "Leo", "", "5511988887777"),
-    ("5511977776666", "Leo", "Psicoterapia", "not a phone"),
-])
+@pytest.mark.parametrize(
+    "values",
+    [
+        ("", "Leo", "Psicoterapia", "5511988887777"),
+        ("5511977776666", " ", "Psicoterapia", "5511988887777"),
+        ("5511977776666", "Leo", "", "5511988887777"),
+        ("5511977776666", "Leo", "Psicoterapia", "not a phone"),
+    ],
+)
 def test_professional_template_rejects_missing_contact_data(values):
     with pytest.raises(ValueError):
         MatchingProfessionalTemplate(*values)
@@ -91,8 +109,10 @@ async def test_non_matched_statuses_are_consumed_without_sending(status):
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize("payload", [{"status": "unknown"}, {"status": "matched"},
-    {"status": "matched", "patient_id": True}, {"status": "matched", "patient_id": 1, "slot_id": -1}])
+@pytest.mark.parametrize(
+    "payload",
+    [{"status": "unknown"}, {"status": "matched"}, {"status": "matched", "patient_id": True}, {"status": "matched", "patient_id": 1, "slot_id": -1}],
+)
 async def test_invalid_event_is_processing_error(payload):
     relay, repo, adapter, item = dependencies(payload)
     await relay.process_next()
@@ -125,12 +145,15 @@ async def test_http_failure_does_not_mark_sent():
     repo.finish.assert_called_once_with(item, error, max_attempts=5)
 
 
-@pytest.mark.parametrize("values", [
-    ("", "Ana", "Psicoterapia", "5511977776666"),
-    ("5511988887777", " ", "Psicoterapia", "5511977776666"),
-    ("5511988887777", "Ana", "", "5511977776666"),
-    ("5511988887777", "Ana", "Psicoterapia", "not a phone"),
-])
+@pytest.mark.parametrize(
+    "values",
+    [
+        ("", "Ana", "Psicoterapia", "5511977776666"),
+        ("5511988887777", " ", "Psicoterapia", "5511977776666"),
+        ("5511988887777", "Ana", "", "5511977776666"),
+        ("5511988887777", "Ana", "Psicoterapia", "not a phone"),
+    ],
+)
 def test_template_rejects_missing_contact_data(values):
     with pytest.raises(ValueError):
         MatchingPatientTemplate(*values)

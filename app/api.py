@@ -43,14 +43,20 @@ def create_app() -> FastAPI:
             await redis.aclose()  # type: ignore[attr-defined]
             engine.dispose()
 
+    people = PersonRepository(factory)
+    outbox = OutboxRepository(factory)
     app = FastAPI(lifespan=lifespan)
-    app.include_router(WhatsAppController(MessageReceiverService(MessageQueue(redis, "inbound"), PersonRepository(factory))).router)
+    app.include_router(
+        WhatsAppController(
+            MessageReceiverService(MessageQueue(redis, "inbound"), people),
+            outbox,
+        ).router
+    )
     app.include_router(SendMessageController(MessageQueue(redis, "outbound")).router)
     app.include_router(HealthController(redis).router)
     app.include_router(FaqKnowledgeController(FaqKnowledgeRepository(factory)).router)
     flow_repository = ChatFlowRepository(factory)
     app.include_router(ChatbotFlowController(ChatFlowAdminService(factory, ChatFlowCache(redis, flow_repository))).router)
-    people = PersonRepository(factory)
     patients = PatientRepository(factory)
     professionals = ProfessionalRepository(factory)
     app.include_router(
@@ -60,15 +66,11 @@ def create_app() -> FastAPI:
                 people,
                 patients,
                 professionals,
-                OutboxRepository(factory),
+                outbox,
             )
         ).router
     )
-    app.include_router(
-        MatchingFollowUpController(
-            people, patients, professionals, WhatsAppAdapter()
-        ).router
-    )
+    app.include_router(MatchingFollowUpController(people, patients, professionals, WhatsAppAdapter()).router)
     media = create_media_service()
     if media is not None:
         app.include_router(UploadMediaController(media).router)

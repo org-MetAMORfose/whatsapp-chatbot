@@ -47,6 +47,8 @@ jobs:
           REDIS_HOST=redis
           DATABASE_URL=postgresql+psycopg://chatbot:test-only-password@postgres:5432/chatbot
           LOKI_ENABLED=false
+          GMAIL_ID_CLIENT=ci@example.invalid
+          GMAIL_SECRET_CLIENT=test-only-app-password
           CONFIG
       - name: Build and start API and worker
         run: docker compose up -d --build --wait
