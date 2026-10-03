@@ -235,21 +235,39 @@ async def test_send_image_with_caption(mock_async_client_cls: MagicMock) -> None
 @patch("app.channel_adapters.whatsapp.httpx.AsyncClient")
 async def test_send_template_uses_cloud_api_body_order(mock_client_cls):
     from app.domain.whatsapp.matching_patient_template import MatchingPatientTemplate
+
     adapter = WhatsAppAdapter(access_token="fake-token", phone_number_id="123456")
     template = MatchingPatientTemplate("+55 (11) 98888-7777", "Dra. Ana", "Psicoterapia", "+55 (11) 97777-6666")
     client, response, context = _make_mock_client()
     response.json.return_value = {"messages": [{"id": "wamid.template"}]}
     mock_client_cls.return_value = context
-    assert await adapter.send_template(template.patient_phone, template.name, template.language, template.body_parameters) == "wamid.template"
+    assert (
+        await adapter.send_template(template.patient_phone, template.name, template.language, template.body_parameters, "matching:result:event")
+        == "wamid.template"
+    )
     client.post.assert_awaited_once_with(
         f"{adapter.base_url}/messages",
         headers={"Authorization": "Bearer fake-token", "Content-Type": "application/json"},
-        json={"messaging_product": "whatsapp", "to": "5511988887777", "type": "template", "template": {
-            "name": "matching_paciente", "language": {"code": "pt_BR"}, "components": [{"type": "body", "parameters": [
-                {"type": "text", "text": "Dra. Ana"}, {"type": "text", "text": "Psicoterapia"},
-                {"type": "text", "text": "https://wa.me/5511977776666"},
-            ]}],
-        }},
+        json={
+            "messaging_product": "whatsapp",
+            "to": "5511988887777",
+            "type": "template",
+            "biz_opaque_callback_data": "matching:result:event",
+            "template": {
+                "name": "matching_paciente",
+                "language": {"code": "pt_BR"},
+                "components": [
+                    {
+                        "type": "body",
+                        "parameters": [
+                            {"type": "text", "text": "Dra. Ana"},
+                            {"type": "text", "text": "Psicoterapia"},
+                            {"type": "text", "text": "https://wa.me/5511977776666"},
+                        ],
+                    }
+                ],
+            },
+        },
     )
     response.raise_for_status.assert_called_once()
 
@@ -259,6 +277,7 @@ async def test_send_template_uses_cloud_api_body_order(mock_client_cls):
 @patch("app.channel_adapters.whatsapp.httpx.AsyncClient")
 async def test_template_api_error_is_propagated(mock_client_cls, status):
     import httpx
+
     client, _, context = _make_mock_client()
     client.post.return_value = httpx.Response(status, request=httpx.Request("POST", "https://example.test/messages"))
     mock_client_cls.return_value = context

@@ -131,8 +131,10 @@ async def run() -> None:
     from app.repository.sql.person_repository import PersonRepository
     from app.repository.sql.professional_repository import ProfessionalRepository
     from app.services.dispatcher_service import MessageDispatcherService
+    from app.services.email_service import GmailSmtpAdapter
     from app.services.inbound_processor import InboundProcessor
     from app.services.matching_completed_relay import MatchingCompletedRelay
+    from app.services.matching_email_relay import MatchingEmailRelay
 
     ctx = AppContext()
     loop = asyncio.get_running_loop()
@@ -174,6 +176,7 @@ async def run() -> None:
             whatsapp = WhatsAppAdapter(s3_service=media)
             dispatcher.register_adapter(WhatsAppAdapter.channel, whatsapp)
             matching_notifications = MatchingCompletedRelay(outbox, whatsapp)
+            matching_emails = MatchingEmailRelay(outbox, GmailSmtpAdapter())
 
             async def send(delivery: Delivery) -> None:
                 await dispatcher.dispatch(delivery.message)
@@ -193,7 +196,8 @@ async def run() -> None:
             tasks = [asyncio.create_task(consume(inbound, processor.process, ctx)),
                      asyncio.create_task(consume(outbound, send, ctx)),
                      asyncio.create_task(relay(outbox, ctx)), asyncio.create_task(matching_relay(outbox, ctx)),
-                     asyncio.create_task(matching_notifications.run(ctx)), asyncio.create_task(heartbeat())]
+                     asyncio.create_task(matching_notifications.run(ctx)), asyncio.create_task(matching_emails.run(ctx)),
+                     asyncio.create_task(heartbeat())]
             stopping = asyncio.create_task(ctx.wait_for_shutdown())
             done, _ = await asyncio.wait([*tasks, stopping], return_when=asyncio.FIRST_COMPLETED)
             ctx.request_shutdown()

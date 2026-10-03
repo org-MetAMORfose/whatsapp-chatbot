@@ -28,36 +28,20 @@ def _text_message(to: str, content: str) -> dict[str, Any]:
     return payload
 
 
-def _button_message(to: str, content: str, buttons: list[MessageButton],
-                     image_id: str | None = None) -> dict[str, Any]:
+def _button_message(to: str, content: str, buttons: list[MessageButton], image_id: str | None = None) -> dict[str, Any]:
     payload: dict[str, Any] = {
         "messaging_product": "whatsapp",
         "to": to,
         "type": "interactive",
         "interactive": {
             "type": "button",
-            "body": {
-                "text": content
-            },
-            "action": {
-                "buttons": [{
-                    "type": "reply",
-                    "reply": {
-                        "id": button["id"],
-                        "title": button["title"]
-                    }
-                } for button in buttons]
-            }
-        }
+            "body": {"text": content},
+            "action": {"buttons": [{"type": "reply", "reply": {"id": button["id"], "title": button["title"]}} for button in buttons]},
+        },
     }
 
     if image_id:
-        payload["interactive"]["header"] = {
-            "type": "image",
-            "image": {
-                "id": image_id
-            }
-        }
+        payload["interactive"]["header"] = {"type": "image", "image": {"id": image_id}}
 
     return payload
 
@@ -189,26 +173,34 @@ class WhatsAppAdapter(BotAdapter):
             )
             raise
         except Exception as e:
-            logger.error("Error sending WhatsApp message: %s",
-                         e, exc_info=True)
+            logger.error("Error sending WhatsApp message: %s", e, exc_info=True)
             raise
 
-    async def send_template(self, to: str, name: str, language: str, body_parameters: Sequence[str]) -> str:
+    async def send_template(
+        self,
+        to: str,
+        name: str,
+        language: str,
+        body_parameters: Sequence[str],
+        callback_data: str | None = None,
+    ) -> str:
         """Send an approved Cloud API template directly; return the accepted message ID."""
         if not to or not name or not language or any(not value for value in body_parameters):
             raise ValueError("Template recipient, name, language and parameters must be present")
-        payload = {
+        if callback_data is not None and not callback_data:
+            raise ValueError("Template callback data cannot be empty")
+        payload: dict[str, Any] = {
             "messaging_product": "whatsapp",
             "to": to,
             "type": "template",
             "template": {
                 "name": name,
                 "language": {"code": language},
-                "components": [{"type": "body", "parameters": [
-                    {"type": "text", "text": value} for value in body_parameters
-                ]}],
+                "components": [{"type": "body", "parameters": [{"type": "text", "text": value} for value in body_parameters]}],
             },
         }
+        if callback_data is not None:
+            payload["biz_opaque_callback_data"] = callback_data
         headers = {"Authorization": f"Bearer {self.access_token}", "Content-Type": "application/json"}
         async with httpx.AsyncClient(timeout=30.0) as client:
             response = await client.post(f"{self.base_url}/messages", headers=headers, json=payload)
@@ -240,9 +232,7 @@ class WhatsAppAdapter(BotAdapter):
             }
 
             async with httpx.AsyncClient(timeout=60.0) as client:
-                response = await client.post(
-                    media_url_endpoint, headers=headers, data=data, files=files
-                )
+                response = await client.post(media_url_endpoint, headers=headers, data=data, files=files)
                 if response.status_code != 200:
                     logger.error(
                         "WhatsApp media upload returned %s: %s",

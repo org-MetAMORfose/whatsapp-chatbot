@@ -1,3 +1,4 @@
+import logging
 from datetime import UTC, datetime, timedelta
 from unittest.mock import AsyncMock, MagicMock, patch
 
@@ -94,6 +95,58 @@ async def test_receive_webhook_keeps_delayed_messages_for_recovery() -> None:
     assert result == {"status": "ok"}
 
 
+@pytest.mark.asyncio
+async def test_receive_webhook_logs_failed_delivery_status(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    outbox = MagicMock()
+    outbox.finish_whatsapp_delivery.return_value = True
+    controller = WhatsAppController(
+        message_handler=MagicMock(),
+        outbox_repository=outbox,
+    )
+    request = MagicMock()
+    request.json = AsyncMock(
+        return_value={
+            "entry": [
+                {
+                    "changes": [
+                        {
+                            "value": {
+                                "statuses": [
+                                    {
+                                        "id": "wamid.failed",
+                                        "status": "failed",
+                                        "recipient_id": "5511974527717",
+                                        "timestamp": "1790978400",
+                                        "biz_opaque_callback_data": "matching:result:event|1",
+                                        "errors": [{"code": 131000, "title": "Delivery failed"}],
+                                    }
+                                ]
+                            }
+                        }
+                    ]
+                }
+            ]
+        }
+    )
+
+    with caplog.at_level(logging.WARNING, logger="app.controllers.whatsapp_controller"):
+        result = await controller.receive_webhook(request)
+
+    assert result == {"status": "ok"}
+    assert "message_id=wamid.failed status=failed" in caplog.text
+    assert "recipient_id=5511974527717" in caplog.text
+    assert "131000" in caplog.text
+    outbox.finish_whatsapp_delivery.assert_called_once_with(
+        "matching:result:event",
+        1,
+        "failed",
+        "[{'code': 131000, 'title': 'Delivery failed'}]",
+        max_attempts=5,
+    )
+
+
 def test_parse_message_text_returns_expected_message() -> None:
     controller = WhatsAppController(message_handler=MagicMock())
 
@@ -141,8 +194,7 @@ def test_parse_message_button_sets_button_text_as_content() -> None:
     assert parsed.media is None
     assert parsed.created_at == datetime.fromtimestamp(1710000001, tz=UTC)
     assert isinstance(parsed.message_id, int)
-    assert parsed.message_id == controller._to_int_message_id(
-        "wamid.button123")
+    assert parsed.message_id == controller._to_int_message_id("wamid.button123")
 
 
 def test_parse_message_interactive_button_reply_sets_title_as_content() -> None:
@@ -170,8 +222,7 @@ def test_parse_message_interactive_button_reply_sets_title_as_content() -> None:
     assert parsed.media is None
     assert parsed.created_at == datetime.fromtimestamp(1710000002, tz=UTC)
     assert isinstance(parsed.message_id, int)
-    assert parsed.message_id == controller._to_int_message_id(
-        "wamid.interactive123")
+    assert parsed.message_id == controller._to_int_message_id("wamid.interactive123")
 
 
 @pytest.mark.asyncio
@@ -193,7 +244,6 @@ async def test_parse_image_keeps_reference_for_worker() -> None:
     assert parsed.message.media is None
     assert parsed.media_id == "whatsapp-image"
     assert parsed.media_type == "image"
-
 
 
 @pytest.mark.asyncio
@@ -218,7 +268,6 @@ async def test_parse_video_keeps_reference_for_worker() -> None:
     assert parsed.message.content == "Vídeo de qualificação"
     assert parsed.media_id == "whatsapp-video"
     assert parsed.media_type == "video"
-
 
 
 def test_parse_media_without_media_id_is_ignored() -> None:

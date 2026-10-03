@@ -9,6 +9,7 @@ from fastapi import APIRouter, HTTPException, Query, Request
 import app.config.settings as config
 from app.domain.enum.channels import Channel
 from app.domain.message import Message
+from app.repository.sql.outbox_repository import OutboxRepository
 from app.services.receiver_service import MessageReceiverService
 from app.services.s3_media_service import MediaType
 
@@ -26,8 +27,10 @@ class WhatsAppController:
     def __init__(
         self,
         message_handler: MessageReceiverService,
+        outbox_repository: OutboxRepository | None = None,
     ) -> None:
         self.message_handler = message_handler
+        self.outbox_repository = outbox_repository
         self.router = APIRouter()
 
         self.router.add_api_route(
@@ -44,15 +47,10 @@ class WhatsAppController:
     async def verify_webhook(
         self,
         hub_mode: str | None = Query(default=None, alias="hub.mode"),
-        hub_verify_token: str | None = Query(
-            default=None, alias="hub.verify_token"),
+        hub_verify_token: str | None = Query(default=None, alias="hub.verify_token"),
         hub_challenge: str | None = Query(default=None, alias="hub.challenge"),
     ) -> int:
-        if (
-            hub_mode == "subscribe"
-            and hub_verify_token == config.WHATSAPP_VERIFY_TOKEN
-            and hub_challenge is not None
-        ):
+        if hub_mode == "subscribe" and hub_verify_token == config.WHATSAPP_VERIFY_TOKEN and hub_challenge is not None:
             return int(hub_challenge)
 
         raise HTTPException(status_code=403, detail="Verification failed")
@@ -61,17 +59,58 @@ class WhatsAppController:
         data = await request.json()
 
         logger.debug("Received WhatsApp webhook payload: %s", data)
+        self._log_delivery_statuses(data)
 
         parsed_messages = self._extract_messages(data)
 
         for parsed in parsed_messages:
             message = parsed.message
-            message = message.model_copy(update={
-                "media_id": parsed.media_id, "media_type": parsed.media_type,
-            })
+            message = message.model_copy(
+                update={
+                    "media_id": parsed.media_id,
+                    "media_type": parsed.media_type,
+                }
+            )
             await self.message_handler.handle(message)
 
         return {"status": "ok"}
+
+    def _log_delivery_statuses(self, data: dict[str, Any]) -> None:
+        """Record asynchronous delivery results returned by WhatsApp."""
+        for entry in data.get("entry", []):
+            for change in entry.get("changes", []):
+                value = change.get("value", {})
+                for delivery in value.get("statuses", []):
+                    status = delivery.get("status")
+                    log = logger.warning if status == "failed" else logger.info
+                    log(
+                        "WhatsApp delivery status: message_id=%s status=%s recipient_id=%s timestamp=%s errors=%s",
+                        delivery.get("id"),
+                        status,
+                        delivery.get("recipient_id"),
+                        delivery.get("timestamp"),
+                        delivery.get("errors") or [],
+                    )
+                    callback_data = delivery.get("biz_opaque_callback_data")
+                    if self.outbox_repository is not None and isinstance(callback_data, str) and isinstance(status, str):
+                        operation_id, separator, attempt_text = callback_data.rpartition("|")
+                        if not separator or not attempt_text.isdigit():
+                            continue
+                        errors = delivery.get("errors") or []
+                        completed = self.outbox_repository.finish_whatsapp_delivery(
+                            operation_id,
+                            int(attempt_text),
+                            status,
+                            str(errors) if errors else None,
+                            max_attempts=5,
+                        )
+                        if completed:
+                            logger.info(
+                                "WhatsApp outbox receipt applied: id=%s attempt=%s status=%s",
+                                operation_id,
+                                attempt_text,
+                                status,
+                            )
 
     def _extract_messages(self, data: dict[str, Any]) -> list[_ParsedWhatsAppMessage]:
         extracted_messages: list[_ParsedWhatsAppMessage] = []
@@ -90,8 +129,7 @@ class WhatsAppController:
                             extracted_messages.append(parsed)
 
         except Exception as e:
-            logger.error(
-                "Error parsing WhatsApp webhook payload: %s", e, exc_info=True)
+            logger.error("Error parsing WhatsApp webhook payload: %s", e, exc_info=True)
 
         return extracted_messages
 
@@ -148,8 +186,7 @@ class WhatsAppController:
                 content = video.get("caption")
 
             else:
-                logger.info(
-                    "Ignoring unsupported WhatsApp message type: %s", message_type)
+                logger.info("Ignoring unsupported WhatsApp message type: %s", message_type)
                 return None
 
             if media_type is not None and not media_id:
@@ -175,8 +212,7 @@ class WhatsAppController:
             )
 
         except Exception as e:
-            logger.error("Error parsing WhatsApp message: %s",
-                         e, exc_info=True)
+            logger.error("Error parsing WhatsApp message: %s", e, exc_info=True)
             return None
 
     def _to_int_message_id(self, raw_message_id: str) -> int:
