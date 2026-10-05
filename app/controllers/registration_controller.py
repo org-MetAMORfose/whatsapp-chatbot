@@ -1,17 +1,20 @@
 """HTTP endpoints for patient and professional registrations."""
 
+import secrets
 from datetime import date, datetime
 from typing import Annotated
 
-from fastapi import APIRouter, HTTPException, status
+from fastapi import APIRouter, Header, HTTPException, status
 from pydantic import AfterValidator, BaseModel, ConfigDict, field_validator
 from sqlalchemy.exc import IntegrityError
 
+import app.config.settings as config
 from app.domain.sheets.professional import normalize_phone
 from app.domain.whatsapp.matching_patient_template import whatsapp_phone
 from app.services.registration_service import (
     PatientRegistrationData,
     ProfessionalRegistrationData,
+    ProfessionalUpdateData,
     RegistrationService,
 )
 
@@ -107,6 +110,30 @@ class ProfessionalRegistrationRequest(RegistrationRequest):
         return ProfessionalRegistrationData(**self.model_dump())
 
 
+class ProfessionalUpdateRequest(RegistrationRequest):
+    email: NonEmptyString
+    gender: str | None = None
+    minority_group: str | None = None
+    background: str | None = None
+    video_platform: str | None = None
+
+    @field_validator(
+        "gender",
+        "minority_group",
+        "background",
+        "video_platform",
+        mode="before",
+    )
+    @classmethod
+    def blank_optional_text_as_none(cls, value: object) -> object:
+        if isinstance(value, str):
+            return value.strip() or None
+        return value
+
+    def to_service_data(self) -> ProfessionalUpdateData:
+        return ProfessionalUpdateData(**self.model_dump())
+
+
 class PatientRegistrationResponse(BaseModel):
     id: int
     person_id: int
@@ -140,6 +167,12 @@ class RegistrationController:
             response_model=ProfessionalRegistrationResponse,
             status_code=status.HTTP_201_CREATED,
         )
+        self.router.add_api_route(
+            "/professionals/{professional_id}",
+            self.update_professional,
+            methods=["PATCH"],
+            response_model=ProfessionalRegistrationResponse,
+        )
 
     def register_patients(
         self,
@@ -152,19 +185,44 @@ class RegistrationController:
                 detail="Send between 1 and 100 patients.",
             )
         try:
-            registered = self._service.register_patients(
-                [request.to_service_data() for request in requests]
-            )
+            registered = self._service.register_patients([request.to_service_data() for request in requests])
         except IntegrityError as exc:
             raise HTTPException(
                 status_code=status.HTTP_409_CONFLICT,
                 detail="A patient registration conflicts with an existing record.",
             ) from exc
         return PatientBatchRegistrationResponse(
-            patients=[
-                PatientRegistrationResponse(id=patient.id, person_id=patient.person_id)
-                for patient in registered
-            ]
+            patients=[PatientRegistrationResponse(id=patient.id, person_id=patient.person_id) for patient in registered]
+        )
+
+    def update_professional(
+        self,
+        professional_id: int,
+        body: ProfessionalUpdateRequest,
+        chatbot_api_key: Annotated[
+            str | None,
+            Header(alias="X-Chatbot-Api-Key"),
+        ] = None,
+    ) -> ProfessionalRegistrationResponse:
+        self._authenticate(chatbot_api_key)
+        try:
+            professional = self._service.update_professional(
+                professional_id,
+                body.to_service_data(),
+            )
+        except IntegrityError as exc:
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail="The professional update conflicts with an existing record.",
+            ) from exc
+        if professional is None:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Professional not found.",
+            )
+        return ProfessionalRegistrationResponse(
+            id=professional.id,
+            person_id=professional.person_id,
         )
 
     def register_professional(
@@ -182,3 +240,20 @@ class RegistrationController:
             id=professional.id,
             person_id=professional.person_id,
         )
+
+    @staticmethod
+    def _authenticate(provided_key: str | None) -> None:
+        expected_key = config.CHATBOT_API_KEY
+        if not expected_key:
+            raise HTTPException(
+                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                detail="Chatbot API authentication is not configured.",
+            )
+        if provided_key is None or not secrets.compare_digest(
+            provided_key,
+            expected_key,
+        ):
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Invalid chatbot API key.",
+            )
