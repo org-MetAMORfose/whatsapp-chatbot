@@ -16,15 +16,14 @@ from app.repository.sql.professional_repository import ProfessionalRepository
 from app.services.registration_service import (
     PatientRegistrationData,
     ProfessionalRegistrationData,
+    ProfessionalUpdateData,
     RegistrationService,
 )
 
 
 def _service(tmp_path) -> tuple[RegistrationService, sessionmaker[Session]]:
     engine = create_engine(f"sqlite:///{tmp_path / 'registration.db'}")
-    engine = engine.execution_options(
-        schema_translate_map={"chatbot_flow": None}
-    )
+    engine = engine.execution_options(schema_translate_map={"chatbot_flow": None})
     Base.metadata.create_all(engine)
     factory = sessionmaker(bind=engine, expire_on_commit=False)
     return (
@@ -62,14 +61,10 @@ def test_register_patient_batch_persists_matching_requests_atomically(tmp_path) 
     with factory() as session:
         assert session.query(PersonModel).count() == 2
         assert session.query(PatientModel).count() == 2
-        requests = session.scalars(
-            select(OutboxModel).order_by(OutboxModel.id)
-        ).all()
+        requests = session.scalars(select(OutboxModel).order_by(OutboxModel.id)).all()
         assert len(requests) == 2
         assert {request.kind for request in requests} == {"matching.requested"}
-        assert {request.payload["patient_id"] for request in requests} == {
-            patient.id for patient in result
-        }
+        assert {request.payload["patient_id"] for request in requests} == {patient.id for patient in result}
 
 
 def test_register_professional_persists_optional_profile(tmp_path) -> None:
@@ -93,6 +88,54 @@ def test_register_professional_persists_optional_profile(tmp_path) -> None:
         assert person is not None
         assert person.name == "Carla"
         assert professional.email == "carla@example.com"
+        assert professional.approach == "TCC"
+        assert professional.register_type == "PENDING_REVIEW"
+        assert professional.professional_register == f"PENDING-{person.id}"
+
+
+def test_update_professional_changes_editable_profile_and_preserves_registration(tmp_path) -> None:
+    service, factory = _service(tmp_path)
+    registered = service.register_professional(
+        ProfessionalRegistrationData(
+            name="Carla",
+            phone="5511988887777",
+            email="carla@example.com",
+            area="Psicoterapia",
+            approach="TCC",
+            gender="Feminino",
+        )
+    )
+
+    result = service.update_professional(
+        registered.id,
+        ProfessionalUpdateData(
+            name="Carla Atualizada",
+            phone="5511977776666",
+            email="carla.nova@example.com",
+            area="Nutrição",
+            birth_date=date(1991, 2, 3),
+            gender="Não binário",
+            minority_group="LGBTQIA+",
+            background="Formação atualizada",
+            video_platform="Meet",
+        ),
+    )
+
+    assert result == registered
+    with factory() as session:
+        professional = session.get(ProfessionalModel, registered.id)
+        person = session.get(PersonModel, registered.person_id)
+        assert professional is not None
+        assert person is not None
+        assert person.name == "Carla Atualizada"
+        assert person.phone_number == "5511977776666"
+        assert person.birth_date == date(1991, 2, 3)
+        assert professional.area == "Nutrição"
+        assert professional.email == "carla.nova@example.com"
+        assert professional.gender == "Não binário"
+        assert professional.minority_group == "LGBTQIA+"
+        assert professional.background == "Formação atualizada"
+        assert professional.video_platform == "Meet"
         assert professional.approach == "TCC"
         assert professional.register_type == "PENDING_REVIEW"
         assert professional.professional_register == f"PENDING-{person.id}"

@@ -46,6 +46,19 @@ class ProfessionalRegistrationData:
 
 
 @dataclass(frozen=True)
+class ProfessionalUpdateData:
+    name: str
+    phone: str
+    email: str
+    area: str
+    birth_date: date | None = None
+    gender: str | None = None
+    minority_group: str | None = None
+    background: str | None = None
+    video_platform: str | None = None
+
+
+@dataclass(frozen=True)
 class RegisteredProfessional:
     id: int
     person_id: int
@@ -78,9 +91,7 @@ class RegistrationService:
                     channel=Channel.WHATSAPP,
                     name=data.name,
                 )
-                if person.name != data.name or (
-                    data.birth_date is not None and person.birth_date != data.birth_date
-                ):
+                if person.name != data.name or (data.birth_date is not None and person.birth_date != data.birth_date):
                     person.name = data.name
                     if data.birth_date is not None:
                         person.birth_date = data.birth_date
@@ -101,6 +112,31 @@ class RegistrationService:
                 registered.append(RegisteredPatient(patient.id, person.id))
         return registered
 
+    def update_professional(
+        self,
+        professional_id: int,
+        data: ProfessionalUpdateData,
+    ) -> RegisteredProfessional | None:
+        with transaction(self._session_factory):
+            professional = self._professionals.get_by_id(professional_id)
+            if professional is None:
+                return None
+
+            person = professional.person
+            person.name = data.name
+            person.phone_number = data.phone
+            person.birth_date = data.birth_date
+            self._people.update(person)
+
+            professional.area = data.area
+            professional.email = data.email
+            professional.gender = data.gender
+            professional.minority_group = data.minority_group
+            professional.background = data.background
+            professional.video_platform = data.video_platform
+            professional = self._professionals.update(professional)
+            return RegisteredProfessional(professional.id, professional.person_id)
+
     def register_professional(
         self,
         data: ProfessionalRegistrationData,
@@ -111,9 +147,7 @@ class RegistrationService:
                 channel=Channel.WHATSAPP,
                 name=data.name,
             )
-            if person.name != data.name or (
-                data.birth_date is not None and person.birth_date != data.birth_date
-            ):
+            if person.name != data.name or (data.birth_date is not None and person.birth_date != data.birth_date):
                 person.name = data.name
                 if data.birth_date is not None:
                     person.birth_date = data.birth_date
