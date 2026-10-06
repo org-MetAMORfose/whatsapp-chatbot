@@ -8,6 +8,7 @@ from app.channel_adapters.whatsapp import WhatsAppAdapter
 from app.context import AppContext
 from app.domain.whatsapp.matching_patient_template import MatchingPatientTemplate
 from app.domain.whatsapp.matching_professional_template import MatchingProfessionalTemplate
+from app.domain.whatsapp.template_history import template_history_content
 from app.repository.sql.outbox_repository import OutboxRepository
 
 logger = logging.getLogger(__name__)
@@ -36,7 +37,6 @@ class MatchingCompletedRelay:
         )
         if item is None:
             return False
-        awaiting_receipt = False
         try:
             status = item.payload.get("status")
             if item.kind == "matching.professional.notification":
@@ -56,7 +56,18 @@ class MatchingCompletedRelay:
                     body_parameters=professional_template.body_parameters,
                     callback_data=f"{item.id}|{item.attempts}",
                 )
-                awaiting_receipt = True
+                recorded = await asyncio.to_thread(
+                    self.repository.record_accepted_whatsapp_template,
+                    item,
+                    phone_number=professional_template.professional_phone,
+                    content=template_history_content(
+                        professional_template.name,
+                        professional_template.language,
+                        professional_template.body_parameters,
+                    ),
+                )
+                if not recorded:
+                    raise RuntimeError("Accepted template lost its outbox lease")
             elif item.kind == "matching.completed":
                 if status == "matched":
                     self._validate_matched_payload(item.payload)
@@ -73,7 +84,18 @@ class MatchingCompletedRelay:
                         body_parameters=patient_template.body_parameters,
                         callback_data=f"{item.id}|{item.attempts}",
                     )
-                    awaiting_receipt = True
+                    recorded = await asyncio.to_thread(
+                        self.repository.record_accepted_whatsapp_template,
+                        item,
+                        phone_number=patient_template.patient_phone,
+                        content=template_history_content(
+                            patient_template.name,
+                            patient_template.language,
+                            patient_template.body_parameters,
+                        ),
+                    )
+                    if not recorded:
+                        raise RuntimeError("Accepted template lost its outbox lease")
                 elif status not in ("no_capacity", "patient_not_found"):
                     raise ValueError("Unknown matching completion status")
             else:
@@ -82,13 +104,7 @@ class MatchingCompletedRelay:
             logger.error("Matching notification failed: id=%s attempt=%s error=%s", item.id, item.attempts, type(exc).__name__)
             await asyncio.to_thread(self.repository.finish, item, exc, max_attempts=MAX_ATTEMPTS)
         else:
-            if awaiting_receipt:
-                # API acceptance is not delivery. The webhook completes this item.
-                await asyncio.to_thread(
-                    self.repository.await_whatsapp_delivery,
-                    item,
-                )
-            else:
+            if status != "matched":
                 await asyncio.to_thread(self.repository.finish, item, max_attempts=MAX_ATTEMPTS)
         return True
 

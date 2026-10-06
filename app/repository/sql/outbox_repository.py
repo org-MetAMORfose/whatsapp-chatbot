@@ -8,6 +8,9 @@ from sqlalchemy import and_, delete, or_, select, true, update
 from sqlalchemy.orm import Session
 
 from app.domain.db.delivery_model import OutboxModel
+from app.domain.db.message_history_model import MessageHistoryModel
+from app.domain.db.person_model import PersonModel
+from app.domain.enum.channels import Channel
 from app.repository.sql.transaction import current_session
 
 
@@ -96,6 +99,62 @@ class OutboxRepository:
             if current is None:
                 return False
             current.locked_until = datetime.now(UTC) + timeout
+            current.last_error = None
+            return True
+
+    def record_accepted_whatsapp_template(
+        self,
+        item: OutboxModel,
+        *,
+        phone_number: str,
+        content: str,
+        timeout: timedelta = timedelta(hours=1),
+    ) -> bool:
+        """Persist an accepted template and its outbox lease atomically."""
+        if timeout <= timedelta(0):
+            raise ValueError("WhatsApp delivery timeout must be positive")
+        if not phone_number or not content:
+            raise ValueError("Accepted WhatsApp template requires recipient and content")
+
+        with self.factory() as session, session.begin():
+            current = session.scalar(
+                select(OutboxModel)
+                .where(
+                    OutboxModel.id == item.id,
+                    OutboxModel.status == "processing",
+                    OutboxModel.attempts == item.attempts,
+                )
+                .with_for_update()
+            )
+            if current is None:
+                return False
+
+            person = session.scalar(
+                select(PersonModel).where(
+                    PersonModel.phone_number == phone_number,
+                    PersonModel.channel == Channel.WHATSAPP,
+                )
+            )
+            now = datetime.now(UTC)
+            if person is None:
+                person = PersonModel(
+                    phone_number=phone_number,
+                    channel=Channel.WHATSAPP,
+                    created_at=now.replace(tzinfo=None),
+                )
+                session.add(person)
+                session.flush()
+
+            session.add(
+                MessageHistoryModel(
+                    person_id=person.id,
+                    created_at=now.replace(tzinfo=None),
+                    content=content,
+                    media_path=None,
+                    is_from_user=False,
+                )
+            )
+            current.locked_until = now + timeout
             current.last_error = None
             return True
 

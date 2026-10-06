@@ -6,6 +6,8 @@ import pytest
 
 from app.channel_adapters.whatsapp import WhatsAppAdapter
 from app.domain.db.delivery_model import OutboxModel
+from app.domain.db.message_history_model import MessageHistoryModel
+from app.domain.db.person_model import PersonModel
 from app.repository.sql.outbox_repository import OutboxRepository
 from app.services.matching_completed_relay import MatchingCompletedRelay
 
@@ -49,6 +51,14 @@ async def test_snapshot_without_business_records_waits_for_sent_receipt(factory,
     with factory() as db:
         assert db.get(OutboxModel, "notification").status == "processing"
         assert db.get(OutboxModel, "other-event").status == "pending"
+        history = db.query(MessageHistoryModel).one()
+        person = db.get(PersonModel, history.person_id)
+        assert person is not None and person.phone_number == "5511988887777"
+        assert history.is_from_user is False
+        assert history.content == (
+            "[template:matching_paciente:pt_BR] "
+            "Dra. Ana | Psicoterapia | https://wa.me/5511977776666"
+        )
 
     assert not repo.finish_whatsapp_delivery("notification", 0, "sent")
     with factory() as db:
@@ -173,6 +183,14 @@ async def test_professional_notification_has_independent_delivery(factory):
     )
     with factory() as db:
         assert db.get(OutboxModel, "professional-notification").status == "processing"
+        history = db.query(MessageHistoryModel).one()
+        person = db.get(PersonModel, history.person_id)
+        assert person is not None and person.phone_number == "5511977776666"
+        assert history.is_from_user is False
+        assert history.content == (
+            "[template:matching_profissional:pt_BR] "
+            "Leo | Psicoterapia | https://wa.me/5511988887777"
+        )
 
     assert repo.finish_whatsapp_delivery("professional-notification", 1, "read")
     with factory() as db:

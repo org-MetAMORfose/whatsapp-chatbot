@@ -1,16 +1,19 @@
 """Send the acompanhamento_emparelhamento WhatsApp template."""
 
 import logging
+from datetime import UTC, datetime
 
 import httpx
 from fastapi import APIRouter, HTTPException, status
 from pydantic import BaseModel, ConfigDict, field_validator
 
 from app.channel_adapters.whatsapp import WhatsAppAdapter
+from app.domain.db.message_history_model import MessageHistoryModel
 from app.domain.enum.channels import Channel
 from app.domain.sheets.professional import normalize_phone
 from app.domain.whatsapp.matching_follow_up_template import MatchingFollowUpTemplate
 from app.domain.whatsapp.matching_patient_template import whatsapp_phone
+from app.domain.whatsapp.template_history import template_history_content
 from app.repository.sql.patient_repository import PatientRepository
 from app.repository.sql.person_repository import PersonRepository
 from app.repository.sql.professional_repository import ProfessionalRepository
@@ -94,6 +97,19 @@ class MatchingFollowUpController:
                 name=template.name,
                 language=template.language,
                 body_parameters=template.body_parameters,
+            )
+            self._people.create_message(
+                MessageHistoryModel(
+                    person_id=patient_person.id,
+                    created_at=datetime.now(UTC).replace(tzinfo=None),
+                    content=template_history_content(
+                        template.name,
+                        template.language,
+                        template.body_parameters,
+                    ),
+                    media_path=None,
+                    is_from_user=False,
+                )
             )
         except ValueError as exc:
             raise HTTPException(

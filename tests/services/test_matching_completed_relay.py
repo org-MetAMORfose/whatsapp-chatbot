@@ -61,7 +61,11 @@ async def test_claim_only_completed_and_finish_after_send():
         callback_data="event|1",
     )
     adapter.send_message.assert_not_called()
-    repo.await_whatsapp_delivery.assert_called_once_with(item)
+    repo.record_accepted_whatsapp_template.assert_called_once_with(
+        item,
+        phone_number="5511988887777",
+        content="[template:matching_paciente:pt_BR] Dra. Ana | Psicoterapia | https://wa.me/5511977776666",
+    )
     repo.finish.assert_not_called()
 
 
@@ -81,7 +85,11 @@ async def test_professional_notification_sends_matching_professional_template():
         body_parameters=("Leo", "Psicoterapia", "https://wa.me/5511988887777"),
         callback_data="event|1",
     )
-    repo.await_whatsapp_delivery.assert_called_once_with(item)
+    repo.record_accepted_whatsapp_template.assert_called_once_with(
+        item,
+        phone_number="5511977776666",
+        content="[template:matching_profissional:pt_BR] Leo | Psicoterapia | https://wa.me/5511988887777",
+    )
     repo.finish.assert_not_called()
 
 
