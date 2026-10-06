@@ -2,6 +2,7 @@
 
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
+from typing import Any
 
 from fastapi import FastAPI
 
@@ -25,6 +26,7 @@ from app.repository.sql.patient_repository import PatientRepository
 from app.repository.sql.person_repository import PersonRepository
 from app.repository.sql.professional_repository import ProfessionalRepository
 from app.services.chatbot_flow_admin_service import ChatFlowAdminService
+from app.services.google_sheets_service import GoogleSheetsService
 from app.services.receiver_service import MessageReceiverService
 from app.services.registration_service import RegistrationService
 
@@ -56,7 +58,22 @@ def create_app() -> FastAPI:
     app.include_router(HealthController(redis).router)
     app.include_router(FaqKnowledgeController(FaqKnowledgeRepository(factory)).router)
     flow_repository = ChatFlowRepository(factory)
-    app.include_router(ChatbotFlowController(ChatFlowAdminService(factory, ChatFlowCache(redis, flow_repository))).router)
+
+    def patient_sheet_tabs() -> list[dict[str, Any]]:
+        return [
+            {"title": tab.sheet_title, "gid": tab.gid}
+            for tab in GoogleSheetsService().list_patient_tabs()
+        ]
+
+    app.include_router(
+        ChatbotFlowController(
+            ChatFlowAdminService(
+                factory,
+                ChatFlowCache(redis, flow_repository),
+                sheet_tabs_provider=patient_sheet_tabs,
+            )
+        ).router
+    )
     patients = PatientRepository(factory)
     professionals = ProfessionalRepository(factory)
     app.include_router(

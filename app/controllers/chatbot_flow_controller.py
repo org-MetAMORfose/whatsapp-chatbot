@@ -7,6 +7,7 @@ from fastapi import APIRouter, Header, HTTPException, status
 from pydantic import BaseModel, Field
 
 import app.config.settings as config
+from app.agent.action_catalog import action_catalog
 from app.domain.enum.chatbot_flow import ChangeEntityType, ChangeOperation
 from app.services.chatbot_flow_admin_service import (
     ChatFlowAdminService,
@@ -14,9 +15,9 @@ from app.services.chatbot_flow_admin_service import (
     FlowCachePublishError,
     FlowDraftConflictError,
     FlowDraftNotFoundError,
+    FlowSheetTabsUnavailableError,
     InvalidFlowChangeError,
     InvalidFlowDraftError,
-    ProtectedFlowNodeError,
 )
 from app.services.chatbot_flow_validation_service import FlowValidationResult
 
@@ -41,6 +42,16 @@ class ChatbotFlowController:
     def __init__(self, service: ChatFlowAdminService) -> None:
         self.service = service
         self.router = APIRouter(prefix="/chatbot-flow", tags=["chatbot-flow"])
+        self.router.add_api_route(
+            "/actions",
+            self.list_actions,
+            methods=["GET"],
+        )
+        self.router.add_api_route(
+            "/sheets/tabs",
+            self.list_sheet_tabs,
+            methods=["GET"],
+        )
         self.router.add_api_route(
             "/revisions",
             self.create_draft,
@@ -78,6 +89,29 @@ class ChatbotFlowController:
             self.discard_revision,
             methods=["DELETE"],
         )
+
+    def list_actions(
+        self,
+        chatbot_api_key: Annotated[
+            str | None,
+            Header(alias="X-Chatbot-Api-Key"),
+        ] = None,
+    ) -> dict[str, Any]:
+        self._authenticate(chatbot_api_key)
+        return action_catalog()
+
+    def list_sheet_tabs(
+        self,
+        chatbot_api_key: Annotated[
+            str | None,
+            Header(alias="X-Chatbot-Api-Key"),
+        ] = None,
+    ) -> dict[str, Any]:
+        self._authenticate(chatbot_api_key)
+        try:
+            return self.service.list_sheet_tabs()
+        except FlowSheetTabsUnavailableError as exc:
+            raise self._sheet_tabs_unavailable(exc) from exc
 
     def create_draft(
         self,
@@ -147,16 +181,8 @@ class ChatbotFlowController:
             raise self._not_found(exc) from exc
         except FlowDraftConflictError as exc:
             raise self._conflict(exc) from exc
-        except ProtectedFlowNodeError as exc:
-            raise HTTPException(
-                status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
-                detail={
-                    "code": "REQUIRED_ACTION_NODE_DELETE",
-                    "message": str(exc),
-                    "node_id": exc.node_id,
-                    "node_key": exc.node_key,
-                },
-            ) from exc
+        except FlowSheetTabsUnavailableError as exc:
+            raise self._sheet_tabs_unavailable(exc) from exc
         except InvalidFlowChangeError as exc:
             raise HTTPException(
                 status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
@@ -178,6 +204,8 @@ class ChatbotFlowController:
             raise self._not_found(exc) from exc
         except FlowDraftConflictError as exc:
             raise self._conflict(exc) from exc
+        except FlowSheetTabsUnavailableError as exc:
+            raise self._sheet_tabs_unavailable(exc) from exc
 
     async def publish_revision(
         self,
@@ -194,6 +222,8 @@ class ChatbotFlowController:
             raise self._not_found(exc) from exc
         except FlowDraftConflictError as exc:
             raise self._conflict(exc) from exc
+        except FlowSheetTabsUnavailableError as exc:
+            raise self._sheet_tabs_unavailable(exc) from exc
         except InvalidFlowDraftError as exc:
             raise HTTPException(
                 status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
@@ -262,4 +292,15 @@ class ChatbotFlowController:
         return HTTPException(
             status_code=status.HTTP_409_CONFLICT,
             detail={"code": "REVISION_CONFLICT", "message": str(exc)},
+        )
+
+    @staticmethod
+    def _sheet_tabs_unavailable(exc: Exception) -> HTTPException:
+        return HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail={
+                "code": "SHEET_TABS_UNAVAILABLE",
+                "message": str(exc),
+                "retryable": True,
+            },
         )

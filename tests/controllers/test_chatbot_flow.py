@@ -9,8 +9,8 @@ from app.controllers.chatbot_flow_controller import ChatbotFlowController
 from app.domain.enum.chatbot_flow import ChangeEntityType, ChangeOperation
 from app.services.chatbot_flow_admin_service import (
     FlowCachePublishError,
+    FlowSheetTabsUnavailableError,
     InvalidFlowDraftError,
-    ProtectedFlowNodeError,
 )
 from app.services.chatbot_flow_validation_service import (
     FlowValidationError,
@@ -38,6 +38,52 @@ def test_flow_endpoints_require_authentication(monkeypatch) -> None:
 
     assert response.status_code == 401
     service.create_draft.assert_not_called()
+
+
+def test_lists_only_administrator_managed_actions(monkeypatch) -> None:
+    api, _ = client(monkeypatch)
+
+    response = api.get("/chatbot-flow/actions", headers=headers())
+
+    assert response.status_code == 200
+    actions = response.json()["actions"]
+    assert {action["key"] for action in actions} == {
+        "sheets_store_answer",
+        "sheets_flush",
+    }
+    assert all(action["default_is_required"] is False for action in actions)
+
+
+def test_lists_patient_sheet_tabs(monkeypatch) -> None:
+    api, service = client(monkeypatch)
+    service.list_sheet_tabs.return_value = {
+        "tabs": [
+            {"title": "Página1", "gid": 0},
+            {"title": "Página2", "gid": 2125424635},
+        ]
+    }
+
+    response = api.get("/chatbot-flow/sheets/tabs", headers=headers())
+
+    assert response.status_code == 200
+    assert response.json() == service.list_sheet_tabs.return_value
+    service.list_sheet_tabs.assert_called_once_with()
+
+
+def test_reports_unavailable_sheet_tab_catalog(monkeypatch) -> None:
+    api, service = client(monkeypatch)
+    service.list_sheet_tabs.side_effect = FlowSheetTabsUnavailableError(
+        "Não foi possível consultar as abas do Google Sheets."
+    )
+
+    response = api.get("/chatbot-flow/sheets/tabs", headers=headers())
+
+    assert response.status_code == 503
+    assert response.json()["detail"] == {
+        "code": "SHEET_TABS_UNAVAILABLE",
+        "message": "Não foi possível consultar as abas do Google Sheets.",
+        "retryable": True,
+    }
 
 
 def test_lists_published_revision_and_drafts(monkeypatch) -> None:
@@ -110,33 +156,6 @@ def test_validation_returns_node_that_contains_error(monkeypatch) -> None:
     assert response.status_code == 200
     assert response.json()["errors"][0]["node_id"] == 10
     assert response.json()["errors"][0]["node_key"] == "sem_saida"
-
-
-def test_required_action_node_delete_returns_structured_error(monkeypatch) -> None:
-    api, service = client(monkeypatch)
-    service.save_changes.side_effect = ProtectedFlowNodeError(10, "protegido")
-
-    response = api.put(
-        "/chatbot-flow/revisions/2/changes",
-        headers=headers(),
-        json={
-            "changes": [
-                {
-                    "entity_type": "NODE",
-                    "operation": "DELETE",
-                    "entity_id": 10,
-                }
-            ]
-        },
-    )
-
-    assert response.status_code == 422
-    assert response.json()["detail"] == {
-        "code": "REQUIRED_ACTION_NODE_DELETE",
-        "message": "Um nó com action obrigatória não pode ser apagado.",
-        "node_id": 10,
-        "node_key": "protegido",
-    }
 
 
 def test_publish_rejects_invalid_graph_with_validation_errors(monkeypatch) -> None:

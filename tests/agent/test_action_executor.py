@@ -32,9 +32,7 @@ def make_message(
     )
 
 
-def make_executor() -> tuple[
-    ActionExecutor, MagicMock, MagicMock, MagicMock, MagicMock, MagicMock
-]:
+def make_executor() -> tuple[ActionExecutor, MagicMock, MagicMock, MagicMock, MagicMock, MagicMock]:
     stage_repository = MagicMock()
     professional_repository = MagicMock()
     person_repository = MagicMock()
@@ -59,6 +57,57 @@ def make_executor() -> tuple[
         patient_stage_repository,
         outbox_repository,
     )
+
+
+@pytest.mark.asyncio
+async def test_configurable_sheets_action_stores_answer() -> None:
+    executor, *_ = make_executor()
+    stage = MagicMock()
+    stage.store = AsyncMock()
+    executor.sheets_stage_repository = stage
+    message = make_message("Resposta da paciente")
+
+    await executor.run(
+        [
+            TransitionAction(
+                action_key="sheets_store_answer",
+                config={
+                    "config_type": "sheets_store_answer",
+                    "tab": "Aba 1",
+                    "column": "G",
+                },
+            )
+        ],
+        message,
+    )
+
+    stage.store.assert_awaited_once_with(message, "Aba 1", "G", "Resposta da paciente")
+
+
+@pytest.mark.asyncio
+async def test_configurable_sheets_flush_enqueues_then_clears_stage() -> None:
+    executor, *_, outbox = make_executor()
+    stage = MagicMock()
+    stage.get = AsyncMock(return_value={"G": "Ana", "H": "TCC"})
+    stage.delete = AsyncMock()
+    executor.sheets_stage_repository = stage
+    message = make_message("Concluir")
+
+    await executor.run(
+        [
+            TransitionAction(
+                action_key="sheets_flush",
+                config={"config_type": "sheets_flush", "tab": "Aba 1"},
+            )
+        ],
+        message,
+    )
+
+    operation_id, kind, payload = outbox.enqueue.call_args.args
+    assert operation_id.startswith("1:sheets.dynamic:")
+    assert kind == "sheets.dynamic.append.v1"
+    assert payload == {"tab": "Aba 1", "values": {"G": "Ana", "H": "TCC"}}
+    stage.delete.assert_awaited_once_with(message, "Aba 1")
 
 
 @pytest.mark.asyncio
@@ -174,7 +223,9 @@ async def test_register_new_patient_request_persists_preferences_and_sets_state(
     created_patient = executor.patient_repository.create.call_args.args[0]
     assert isinstance(created_patient, PatientModel)
     executor.outbox_repository.enqueue.assert_called_once_with(
-        "matching:patient:123", "matching.requested", {"patient_id": 123, "source": "chatbot"},
+        "matching:patient:123",
+        "matching.requested",
+        {"patient_id": 123, "source": "chatbot"},
     )
     assert created_patient.person_id == 42
     assert created_patient.area == "Psicoterapia"
@@ -190,9 +241,7 @@ async def test_register_new_patient_request_persists_preferences_and_sets_state(
 @pytest.mark.asyncio
 @pytest.mark.parametrize("name", ["Maria", None])
 async def test_register_professional_application_from_stage(name: str | None) -> None:
-    executor, stage_repository, professional_repository, person_repository, _, _ = (
-        make_executor()
-    )
+    executor, stage_repository, professional_repository, person_repository, _, _ = make_executor()
     message = make_message()
     stage_repository.get_context = AsyncMock(
         return_value=ProfessionalStageContext(
@@ -332,9 +381,7 @@ async def test_patient_birth_date_rejects_invalid_values(
 
 @pytest.mark.asyncio
 async def test_sheets_register_patient_writes_stage_data() -> None:
-    executor, _, _, _, patient_stage_repository, outbox_repository = (
-        make_executor()
-    )
+    executor, _, _, _, patient_stage_repository, outbox_repository = make_executor()
     message = make_message("Até R$300")
     patient_stage_repository.get_context = AsyncMock(
         return_value=PatientStageContext(
@@ -359,9 +406,7 @@ async def test_sheets_register_patient_writes_stage_data() -> None:
 
 @pytest.mark.asyncio
 async def test_sheets_register_patient_propagates_outbox_errors() -> None:
-    executor, _, _, _, patient_stage_repository, outbox_repository = (
-        make_executor()
-    )
+    executor, _, _, _, patient_stage_repository, outbox_repository = make_executor()
     message = make_message("Até R$300")
     patient_stage_repository.get_context = AsyncMock(
         return_value=PatientStageContext(
@@ -372,9 +417,7 @@ async def test_sheets_register_patient_propagates_outbox_errors() -> None:
             area="Psicoterapia",
         )
     )
-    outbox_repository.enqueue.side_effect = RuntimeError(
-        "boom"
-    )
+    outbox_repository.enqueue.side_effect = RuntimeError("boom")
 
     with pytest.raises(RuntimeError):
         await executor.sheets_register_patient(message)
@@ -423,9 +466,7 @@ async def test_sheets_register_professional_propagates_outbox_errors() -> None:
             area="Psicoterapia",
         )
     )
-    outbox_repository.enqueue.side_effect = (
-        RuntimeError("boom")
-    )
+    outbox_repository.enqueue.side_effect = RuntimeError("boom")
 
     with pytest.raises(RuntimeError):
         await executor.sheets_register_professional(message)

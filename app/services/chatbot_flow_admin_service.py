@@ -7,9 +7,16 @@ from dataclasses import dataclass
 from datetime import UTC, datetime
 from typing import Any, Protocol
 
+from pydantic import ValidationError
 from sqlalchemy import func, or_, select
 from sqlalchemy.orm import Session
 
+from app.agent.action_catalog import (
+    MANAGED_ACTION_KEYS,
+    SHEETS_FLUSH,
+    SHEETS_STORE_ANSWER,
+    validate_managed_action_config,
+)
 from app.agent.chat_flow import ChatFlow, Node, Transition, TransitionAction
 from app.domain.db.chatbot_flow_model import (
     FlowActionDependencyModel,
@@ -58,11 +65,8 @@ class InvalidFlowChangeError(FlowDraftError):
     pass
 
 
-class ProtectedFlowNodeError(InvalidFlowChangeError):
-    def __init__(self, node_id: int, node_key: str) -> None:
-        super().__init__("Um nó com action obrigatória não pode ser apagado.")
-        self.node_id = node_id
-        self.node_key = node_key
+class FlowSheetTabsUnavailableError(FlowDraftError):
+    pass
 
 
 class InvalidFlowDraftError(FlowDraftError):
@@ -101,11 +105,39 @@ class ChatFlowAdminService:
         session_factory: Callable[[], Session],
         publisher: FlowPublisher,
         validator: ChatFlowValidator | None = None,
+        sheet_tabs_provider: Callable[[], list[dict[str, Any]]] | None = None,
     ) -> None:
         self._session_factory = session_factory
         self._publisher = publisher
         self._validator = validator or ChatFlowValidator()
         self._repository = ChatFlowRepository(session_factory)
+        self._sheet_tabs_provider = sheet_tabs_provider
+
+    def list_sheet_tabs(self) -> dict[str, list[dict[str, Any]]]:
+        if self._sheet_tabs_provider is None:
+            raise FlowSheetTabsUnavailableError(
+                "A consulta de abas do Google Sheets não está configurada."
+            )
+        try:
+            raw_tabs = self._sheet_tabs_provider()
+        except Exception as exc:
+            raise FlowSheetTabsUnavailableError(
+                "Não foi possível consultar as abas do Google Sheets."
+            ) from exc
+        tabs: list[dict[str, Any]] = []
+        seen: set[str] = set()
+        for item in raw_tabs:
+            title = item.get("title")
+            gid = item.get("gid")
+            if (
+                isinstance(title, str)
+                and title
+                and isinstance(gid, int)
+                and title not in seen
+            ):
+                seen.add(title)
+                tabs.append({"title": title, "gid": gid})
+        return {"tabs": tabs}
 
     def create_draft(self, base_revision_id: int | None = None) -> dict[str, Any]:
         with self._session_factory() as session, session.begin():
@@ -169,8 +201,27 @@ class ChatFlowAdminService:
             self._assert_current_base(session, revision)
             base = self._snapshot(session)
             current = self._apply_changes(base, self._changes(session, revision.id))
+            cascade_transition_ids: set[int] = set()
+            for pending_change in changes:
+                if (
+                    pending_change.entity_type == ChangeEntityType.TRANSITION
+                    and pending_change.operation == ChangeOperation.DELETE
+                ):
+                    transition_id = (
+                        pending_change.entity_id
+                        if pending_change.entity_id is not None
+                        else pending_change.draft_entity_id
+                    )
+                    if transition_id is not None:
+                        cascade_transition_ids.add(transition_id)
             for change in changes:
-                self._save_change(session, revision, current, change)
+                self._save_change(
+                    session,
+                    revision,
+                    current,
+                    change,
+                    cascade_transition_ids=cascade_transition_ids,
+                )
                 session.flush()
                 current = self._apply_changes(base, self._changes(session, revision.id))
             revision.updated_at = _now()
@@ -188,10 +239,9 @@ class ChatFlowAdminService:
                 changes = self._changes(session, revision.id)
                 snapshot = self._apply_changes(snapshot, changes)
             flow = self._flow_from_snapshot(snapshot)
-            deleted_required = self._deleted_required_nodes(session, changes)
             return self._validator.validate(
                 flow,
-                deleted_required_nodes=deleted_required,
+                available_sheet_tabs=self._available_sheet_tabs(snapshot),
             )
 
     async def publish(self, revision_id: int) -> dict[str, Any]:
@@ -213,7 +263,7 @@ class ChatFlowAdminService:
                 snapshot = self._apply_changes(self._snapshot(session), changes)
                 result = self._validator.validate(
                     self._flow_from_snapshot(snapshot),
-                    deleted_required_nodes=self._deleted_required_nodes(session, changes),
+                    available_sheet_tabs=self._available_sheet_tabs(snapshot),
                 )
                 if not result.valid:
                     raise InvalidFlowDraftError(result)
@@ -251,6 +301,8 @@ class ChatFlowAdminService:
         revision: FlowGraphRevisionModel,
         current_snapshot: dict[str, Any],
         change: DraftChangeInput,
+        *,
+        cascade_transition_ids: set[int],
     ) -> None:
         self._validate_change_identity(change)
         current = self._find_entity(
@@ -279,12 +331,16 @@ class ChatFlowAdminService:
                 raise InvalidFlowChangeError("CREATE usa um draft_entity_id já existente.")
             desired = {**change.new_value, "id": change.draft_entity_id}
             previous = None
+            if change.entity_type == ChangeEntityType.TRANSITION_ACTION:
+                self._validate_action(desired)
         elif change.operation == ChangeOperation.UPDATE:
             if current is None or change.new_value is None:
                 raise InvalidFlowChangeError("UPDATE exige uma entidade existente e new_value.")
             previous = dict(existing.previous_value) if existing is not None and existing.previous_value is not None else dict(current)
             target_id = change.entity_id if change.entity_id is not None else change.draft_entity_id
             desired = {**current, **change.new_value, "id": target_id}
+            if change.entity_type == ChangeEntityType.TRANSITION_ACTION:
+                self._validate_action(desired)
             if desired == previous and (existing is None or existing.operation != ChangeOperation.CREATE):
                 if existing is not None:
                     session.delete(existing)
@@ -292,11 +348,9 @@ class ChatFlowAdminService:
         else:
             if current is None:
                 raise InvalidFlowChangeError("DELETE exige uma entidade existente.")
-            if change.entity_type == ChangeEntityType.NODE:
-                node_key = str(current["key"])
-                if self._node_has_required_action(session, int(current["id"])):
-                    raise ProtectedFlowNodeError(int(current["id"]), node_key)
             if change.entity_type == ChangeEntityType.TRANSITION_ACTION:
+                if int(current["transition_id"]) not in cascade_transition_ids:
+                    self._validate_action(current)
                 self._assert_action_can_be_deleted(session, int(current["id"]))
             previous = dict(current)
             desired = None
@@ -320,6 +374,18 @@ class ChatFlowAdminService:
             if existing.operation != ChangeOperation.CREATE:
                 existing.operation = change.operation
             existing.new_value = desired
+
+    @staticmethod
+    def _validate_action(value: dict[str, Any]) -> None:
+        action_key = value.get("action_key")
+        if not isinstance(action_key, str) or not action_key.strip():
+            raise InvalidFlowChangeError("A action exige uma action_key válida.")
+        if action_key not in MANAGED_ACTION_KEYS:
+            return
+        try:
+            validate_managed_action_config(action_key, value.get("config"))
+        except (ValidationError, ValueError) as exc:
+            raise InvalidFlowChangeError(f"Config inválido para a action {action_key}.") from exc
 
     @staticmethod
     def _validate_change_identity(change: DraftChangeInput) -> None:
@@ -409,6 +475,22 @@ class ChatFlowAdminService:
         published = self._latest_published(session)
         if published is None or revision.base_revision_id != published.id:
             raise FlowDraftConflictError("O draft está baseado em uma revisão que não é mais a atual.")
+
+    def _available_sheet_tabs(
+        self,
+        snapshot: dict[str, Any],
+    ) -> set[str] | None:
+        if self._sheet_tabs_provider is None:
+            return None
+        if not any(
+            action.get("action_key") in {SHEETS_STORE_ANSWER, SHEETS_FLUSH}
+            for action in snapshot["transition_actions"]
+        ):
+            return None
+        return {
+            item["title"]
+            for item in self.list_sheet_tabs()["tabs"]
+        }
 
     @staticmethod
     def _snapshot(session: Session) -> dict[str, Any]:
@@ -576,23 +658,6 @@ class ChatFlowAdminService:
         )
 
     @staticmethod
-    def _node_has_required_action(session: Session, node_id: int) -> bool:
-        return bool(
-            session.scalar(
-                select(FlowTransitionActionModel.id)
-                .join(
-                    FlowTransitionModel,
-                    FlowTransitionModel.id == FlowTransitionActionModel.transition_id,
-                )
-                .where(
-                    FlowTransitionModel.node_id == node_id,
-                    FlowTransitionActionModel.is_required.is_(True),
-                )
-                .limit(1)
-            )
-        )
-
-    @staticmethod
     def _assert_action_can_be_deleted(session: Session, action_id: int) -> None:
         dependency = session.scalar(
             select(FlowActionDependencyModel.id)
@@ -606,23 +671,6 @@ class ChatFlowAdminService:
         )
         if dependency is not None:
             raise InvalidFlowChangeError("Uma action usada por uma dependência fixa não pode ser apagada.")
-
-    def _deleted_required_nodes(
-        self,
-        session: Session,
-        changes: list[FlowGraphChangeModel],
-    ) -> list[tuple[int, str]]:
-        deleted: list[tuple[int, str]] = []
-        for change in changes:
-            if (
-                change.entity_type == ChangeEntityType.NODE
-                and change.operation == ChangeOperation.DELETE
-                and change.entity_id is not None
-                and self._node_has_required_action(session, change.entity_id)
-            ):
-                previous = change.previous_value or {}
-                deleted.append((change.entity_id, str(previous.get("key", ""))))
-        return deleted
 
     def _apply_publication(
         self,

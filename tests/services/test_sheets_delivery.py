@@ -33,6 +33,49 @@ def test_values_and_metadata_are_written_atomically_without_column_g() -> None:
     assert batch[2]["createDeveloperMetadata"]["developerMetadata"]["metadataValue"]
 
 
+def test_dynamic_values_are_appended_to_the_selected_columns() -> None:
+    sheets = service()
+    sheets._client.request.return_value.json.side_effect = [
+        {"sheets": [{"properties": {"sheetId": 0, "title": "Patients"}}]},
+        {},
+        {"values": [["header"]]},
+        {},
+    ]
+
+    sheets.deliver(
+        "dynamic:1",
+        "sheets.dynamic.append.v1",
+        {"tab": "Patients", "values": {"G": "Ana", "H": "TCC"}},
+    )
+
+    call = sheets._client.request.call_args
+    batch = call.kwargs["json"]["requests"]
+    assert len(batch) == 4
+    assert batch[1]["updateCells"]["start"]["columnIndex"] == 6
+    assert batch[1]["updateCells"]["rows"][0]["values"][0]["userEnteredValue"] == {"stringValue": "Ana"}
+    assert batch[2]["updateCells"]["start"]["columnIndex"] == 7
+
+
+def test_lists_all_patient_spreadsheet_tabs() -> None:
+    sheets = service()
+    sheets._client.request.return_value.json.return_value = {
+        "sheets": [
+            {"properties": {"sheetId": 0, "title": "Página1"}},
+            {"properties": {"sheetId": 2125424635, "title": "Página2"}},
+        ]
+    }
+
+    tabs = sheets.list_patient_tabs()
+
+    assert tabs == [
+        SpreadsheetRef("sheet", 0, "Página1"),
+        SpreadsheetRef("sheet", 2125424635, "Página2"),
+    ]
+    assert sheets._client.request.call_args.kwargs["params"] == {
+        "fields": "sheets.properties(sheetId,title)"
+    }
+
+
 def test_http_failure_propagates_for_outbox_retry() -> None:
     sheets = service()
     sheets._client.request.side_effect = requests.Timeout()
