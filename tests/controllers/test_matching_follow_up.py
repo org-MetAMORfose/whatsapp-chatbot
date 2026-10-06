@@ -65,6 +65,13 @@ def test_send_matching_follow_up_uses_database_data_in_template_order() -> None:
             "https://wa.me/5511988882222",
         ),
     )
+    history = people.create_message.call_args.args[0]
+    assert history.person_id == 1
+    assert history.is_from_user is False
+    assert history.content == (
+        "[template:acompanhamento_emparelhamento:pt_BR] "
+        "Ana | Bruno | Psicoterapia | https://wa.me/5511988882222"
+    )
 
 
 def test_send_matching_follow_up_returns_404_for_unknown_patient() -> None:
@@ -118,3 +125,4 @@ def test_send_matching_follow_up_maps_whatsapp_error_to_bad_gateway() -> None:
     )
 
     assert result.status_code == 502
+    people.create_message.assert_not_called()
