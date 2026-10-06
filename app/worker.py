@@ -127,6 +127,7 @@ async def run() -> None:
     from app.infra.media_factory import create_media_service
     from app.repository.redis.chat_repository import ChatRepository
     from app.repository.redis.chatbot_flow_cache import ChatFlowCache
+    from app.repository.redis.matching_follow_up_repository import MatchingFollowUpRepository
     from app.repository.redis.patient_stage_repository import PatientStageRepository
     from app.repository.redis.professional_stage_repository import ProfessionalStageRepository
     from app.repository.redis.sheets_stage_repository import SheetsStageRepository
@@ -184,7 +185,15 @@ async def run() -> None:
                 flow_provider=flow_cache,
                 sheets_stage_repository=SheetsStageRepository(redis),
             )
-            processor = InboundProcessor(factory, agent, people, inbound, outbound, media)
+            processor = InboundProcessor(
+                factory,
+                agent,
+                people,
+                inbound,
+                outbound,
+                media,
+                MatchingFollowUpRepository(redis),
+            )
             dispatcher = MessageDispatcherService(ctx, outbound, people)
             whatsapp = WhatsAppAdapter(s3_service=media)
             dispatcher.register_adapter(WhatsAppAdapter.channel, whatsapp)

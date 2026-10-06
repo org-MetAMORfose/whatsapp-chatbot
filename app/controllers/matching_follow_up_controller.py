@@ -14,6 +14,7 @@ from app.domain.sheets.professional import normalize_phone
 from app.domain.whatsapp.matching_follow_up_template import MatchingFollowUpTemplate
 from app.domain.whatsapp.matching_patient_template import whatsapp_phone
 from app.domain.whatsapp.template_history import template_history_content
+from app.repository.redis.matching_follow_up_repository import MatchingFollowUpRepository
 from app.repository.sql.patient_repository import PatientRepository
 from app.repository.sql.person_repository import PersonRepository
 from app.repository.sql.professional_repository import ProfessionalRepository
@@ -45,11 +46,13 @@ class MatchingFollowUpController:
         patient_repository: PatientRepository,
         professional_repository: ProfessionalRepository,
         whatsapp: WhatsAppAdapter,
+        follow_ups: MatchingFollowUpRepository,
     ) -> None:
         self._people = person_repository
         self._patients = patient_repository
         self._professionals = professional_repository
         self._whatsapp = whatsapp
+        self._follow_ups = follow_ups
         self.router = APIRouter()
         self.router.add_api_route(
             "/whatsapp/templates/acompanhamento_emparelhamento",
@@ -110,6 +113,10 @@ class MatchingFollowUpController:
                     media_path=None,
                     is_from_user=False,
                 )
+            )
+            await self._follow_ups.mark(
+                template.patient_phone,
+                Channel.WHATSAPP,
             )
         except ValueError as exc:
             raise HTTPException(

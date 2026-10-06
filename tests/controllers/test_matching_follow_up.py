@@ -7,6 +7,7 @@ from fastapi.testclient import TestClient
 from app.controllers.matching_follow_up_controller import MatchingFollowUpController
 from app.domain.db.person_model import PersonModel
 from app.domain.db.professional_model import ProfessionalModel
+from app.domain.enum.channels import Channel
 
 
 def _client(
@@ -14,7 +15,10 @@ def _client(
     patients: MagicMock,
     professionals: MagicMock,
     whatsapp: MagicMock,
+    follow_ups: MagicMock | None = None,
 ) -> TestClient:
+    follow_ups = follow_ups or MagicMock()
+    follow_ups.mark = AsyncMock()
     app = FastAPI()
     app.include_router(
         MatchingFollowUpController(
@@ -22,6 +26,7 @@ def _client(
             patients,
             professionals,
             whatsapp,
+            follow_ups,
         ).router
     )
     return TestClient(app)
@@ -42,7 +47,8 @@ def test_send_matching_follow_up_uses_database_data_in_template_order() -> None:
     professionals.get_by_person_id.return_value = professional
     whatsapp = MagicMock()
     whatsapp.send_template = AsyncMock(return_value="wamid.follow-up")
-    client = _client(people, patients, professionals, whatsapp)
+    follow_ups = MagicMock()
+    client = _client(people, patients, professionals, whatsapp, follow_ups)
 
     response = client.post(
         "/whatsapp/templates/acompanhamento_emparelhamento",
@@ -72,6 +78,7 @@ def test_send_matching_follow_up_uses_database_data_in_template_order() -> None:
         "[template:acompanhamento_emparelhamento:pt_BR] "
         "Ana | Bruno | Psicoterapia | https://wa.me/5511988882222"
     )
+    follow_ups.mark.assert_awaited_once_with("5511999991111", Channel.WHATSAPP)
 
 
 def test_send_matching_follow_up_returns_404_for_unknown_patient() -> None:

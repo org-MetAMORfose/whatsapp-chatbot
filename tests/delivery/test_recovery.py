@@ -13,6 +13,7 @@ from app.domain.db.person_model import PersonModel
 from app.domain.enum.channels import Channel
 from app.domain.message import Message
 from app.infra.message_queue import MessageQueue
+from app.repository.redis.matching_follow_up_repository import MatchingFollowUpRepository
 from app.repository.redis.staged_state import StagedState, stage_state
 from app.repository.sql.outbox_repository import OutboxRepository
 from app.repository.sql.person_repository import PersonRepository
@@ -56,7 +57,7 @@ async def test_committed_result_replays_without_repeating_actions(factory, redis
         return Response(content="done")
 
     agent._process_message = AsyncMock(side_effect=process)
-    processor = InboundProcessor(factory, agent, PersonRepository(factory), inbound, outbound, None)
+    processor = InboundProcessor(factory, agent, PersonRepository(factory), inbound, outbound, None, MatchingFollowUpRepository(redis_client))
     await inbound.publish(msg)
     delivery = await inbound.claim_next()
     assert delivery is not None
