@@ -1,5 +1,6 @@
 """Executes configured agent actions for the chat flow."""
 
+import hashlib
 import logging
 import re
 import unicodedata
@@ -9,7 +10,12 @@ from datetime import date, datetime
 from functools import partial
 from typing import Any, Final
 
-from app.agent.chat_flow import TransitionAction
+from app.agent.action_catalog import SHEETS_FLUSH, SHEETS_STORE_ANSWER
+from app.agent.chat_flow import (
+    SheetsFlushConfig,
+    SheetsStoreAnswerConfig,
+    TransitionAction,
+)
 from app.agent.faq_flow import FaqFlow
 from app.domain.db.patient_model import PatientModel
 from app.domain.enum.chat_mode import ChatMode
@@ -23,6 +29,7 @@ from app.repository.redis.patient_stage_repository import PatientStageRepository
 from app.repository.redis.professional_stage_repository import (
     ProfessionalStageRepository,
 )
+from app.repository.redis.sheets_stage_repository import SheetsStageRepository
 from app.repository.sql.outbox_repository import OutboxRepository
 from app.repository.sql.patient_repository import PatientRepository
 from app.repository.sql.person_repository import PersonRepository
@@ -66,6 +73,7 @@ class ActionExecutor:
         patient_stage_repository: PatientStageRepository,
         outbox_repository: OutboxRepository,
         faq_flow: FaqFlow,
+        sheets_stage_repository: SheetsStageRepository | None = None,
     ) -> None:
         self.professional_stage_repository = professional_stage_repository
         self.professional_repository = professional_repository
@@ -74,11 +82,10 @@ class ActionExecutor:
         self.patient_stage_repository = patient_stage_repository
         self.outbox_repository = outbox_repository
         self.faq_flow = faq_flow
+        self.sheets_stage_repository = sheets_stage_repository
 
         self.actions: Final[dict[str, Action]] = {
-            "redis_create_professional_stage": (
-                self.redis_create_professional_stage
-            ),
+            "redis_create_professional_stage": (self.redis_create_professional_stage),
             "redis_update_professional_name": partial(
                 self.redis_update_professional,
                 field="name",
@@ -111,24 +118,12 @@ class ActionExecutor:
                 self.redis_update_professional,
                 field="council_registration",
             ),
-            "redis_update_professional_council_registration_document": (
-                self.redis_update_professional_council_registration_document
-            ),
-            "redis_update_professional_birth_date": (
-                self.redis_update_professional_birth_date
-            ),
-            "redis_correct_professional_birth_date": (
-                self.redis_update_professional_birth_date
-            ),
-            "redis_get_professional_stage_summary": (
-                self.redis_get_professional_stage_summary
-            ),
-            "postgres_register_professional_application": (
-                self.postgres_register_professional_application
-            ),
-            "postgres_update_professional_qualification": (
-                self.postgres_update_professional_qualification
-            ),
+            "redis_update_professional_council_registration_document": (self.redis_update_professional_council_registration_document),
+            "redis_update_professional_birth_date": (self.redis_update_professional_birth_date),
+            "redis_correct_professional_birth_date": (self.redis_update_professional_birth_date),
+            "redis_get_professional_stage_summary": (self.redis_get_professional_stage_summary),
+            "postgres_register_professional_application": (self.postgres_register_professional_application),
+            "postgres_update_professional_qualification": (self.postgres_update_professional_qualification),
             "postgres_set_professional_registration_state": partial(
                 self.postgres_set_chat_state,
                 chat_state=ChatState.PROFESSIONAL_REGISTRATION,
@@ -145,34 +140,20 @@ class ActionExecutor:
                 self.postgres_set_chat_state,
                 chat_state=ChatState.FEEDBACK,
             ),
-            "postgres_set_professional_support_state": (
-                self.postgres_set_professional_support_state
-            ),
+            "postgres_set_professional_support_state": (self.postgres_set_professional_support_state),
             "postgres_set_manual_chat_mode": self.postgres_set_manual_chat_mode,
             "postgres_set_new_patient_state": self.postgres_set_new_patient_state,
-            "postgres_set_returning_patient_state": (
-                self.postgres_set_returning_patient_state
-            ),
+            "postgres_set_returning_patient_state": (self.postgres_set_returning_patient_state),
             "postgres_update_person_name": self.postgres_update_person_name,
-            "postgres_route_patient_registration": (
-                self.postgres_route_patient_registration
-            ),
-            "postgres_register_new_patient_request": (
-                self.postgres_register_new_patient_request
-            ),
-            "postgres_register_returning_patient_from_last_request": (
-                self.postgres_register_returning_patient_from_last_request
-            ),
-            "postgres_route_patient_preference_update": (
-                self.postgres_route_patient_preference_update
-            ),
+            "postgres_route_patient_registration": (self.postgres_route_patient_registration),
+            "postgres_register_new_patient_request": (self.postgres_register_new_patient_request),
+            "postgres_register_returning_patient_from_last_request": (self.postgres_register_returning_patient_from_last_request),
+            "postgres_route_patient_preference_update": (self.postgres_route_patient_preference_update),
             "redis_update_patient_name": partial(
                 self.redis_update_patient,
                 field="name",
             ),
-            "redis_update_patient_birth_date": (
-                self.redis_update_patient_birth_date
-            ),
+            "redis_update_patient_birth_date": (self.redis_update_patient_birth_date),
             "redis_update_patient_area": partial(
                 self.redis_update_patient,
                 field="area",
@@ -215,7 +196,7 @@ class ActionExecutor:
                 message.message_id,
             )
 
-            if action is None:
+            if action is None and action_spec.action_key not in {SHEETS_STORE_ANSWER, SHEETS_FLUSH}:
                 error = ValueError(f"Unknown action: {action_spec.action_key}")
                 if action_spec.is_required:
                     raise error
@@ -223,7 +204,17 @@ class ActionExecutor:
                 continue
 
             try:
-                action_result = await action(message)
+                action_result: ActionOutput
+                if action_spec.action_key == SHEETS_STORE_ANSWER:
+                    store_config = SheetsStoreAnswerConfig.model_validate(action_spec.config)
+                    action_result = await self.sheets_store_answer(message, store_config)
+                elif action_spec.action_key == SHEETS_FLUSH:
+                    flush_config = SheetsFlushConfig.model_validate(action_spec.config)
+                    action_result = await self.sheets_flush(message, flush_config)
+                else:
+                    if action is None:
+                        raise ValueError(f"Unknown action: {action_spec.action_key}")
+                    action_result = await action(message)
             except Exception:
                 if action_spec.is_required:
                     raise
@@ -238,14 +229,46 @@ class ActionExecutor:
 
         return result
 
+    def _sheets_stage(self) -> SheetsStageRepository:
+        if self.sheets_stage_repository is None:
+            raise RuntimeError("Sheets stage repository is not configured")
+        return self.sheets_stage_repository
+
+    async def sheets_store_answer(
+        self,
+        message: Message,
+        config: SheetsStoreAnswerConfig,
+    ) -> str:
+        value = message.content if message.content is not None else (message.media or "")
+        await self._sheets_stage().store(message, config.tab, config.column, value)
+        return ""
+
+    async def sheets_flush(
+        self,
+        message: Message,
+        config: SheetsFlushConfig,
+    ) -> str:
+        repository = self._sheets_stage()
+        values = await repository.get(message, config.tab)
+        if not values or not any(value.strip() for value in values.values()):
+            return ""
+
+        event_id = message.event_id or str(message.message_id)
+        tab_id = hashlib.sha256(config.tab.encode("utf-8")).hexdigest()[:16]
+        self.outbox_repository.enqueue(
+            f"{event_id}:sheets.dynamic:{tab_id}",
+            "sheets.dynamic.append.v1",
+            {"tab": config.tab, "values": values},
+        )
+        await repository.delete(message, config.tab)
+        return ""
+
     async def redis_create_professional_stage(
         self,
         message: Message,
     ) -> str:
         """Create temporary professional registration context."""
-        await self.professional_stage_repository.get_or_create_context(
-            message
-        )
+        await self.professional_stage_repository.get_or_create_context(message)
         return ""
 
     async def redis_update_professional(
@@ -312,9 +335,7 @@ class ActionExecutor:
         message: Message,
     ) -> str:
         """Return a summary of the professional registration context."""
-        context = await self.professional_stage_repository.get_context(
-            message
-        )
+        context = await self.professional_stage_repository.get_context(message)
 
         if context is None:
             return "Não encontrei os dados preenchidos até agora.\n"
@@ -333,11 +354,7 @@ class ActionExecutor:
 
             return value
 
-        formatted_birth_date = (
-            context.birth_date.strftime("%d/%m/%Y")
-            if context.birth_date is not None
-            else "Não informado"
-        )
+        formatted_birth_date = context.birth_date.strftime("%d/%m/%Y") if context.birth_date is not None else "Não informado"
 
         return (
             "Resumo dos dados informados:\n"
@@ -644,16 +661,15 @@ class ActionExecutor:
             )
             return ActionResult(data={"patient_area": None})
 
-        return ActionResult(
-            data={"patient_area": self._normalize_content(context.area)}
-        )
+        return ActionResult(data={"patient_area": self._normalize_content(context.area)})
 
     async def request_matching(self, message: Message, *, patient_id: int | None = None) -> str:
         """Publish only a newly committed registration, within its SQL transaction."""
         if patient_id is None:
             raise ValueError("Matching requires the newly created patient_id")
         self.outbox_repository.enqueue(
-            f"matching:patient:{patient_id}", "matching.requested",
+            f"matching:patient:{patient_id}",
+            "matching.requested",
             {"patient_id": patient_id, "source": "chatbot"},
         )
         return ""
@@ -715,11 +731,7 @@ class ActionExecutor:
         await self.request_matching(message, patient_id=patient.id)
         await self.postgres_set_chat_state(
             message,
-            chat_state=(
-                ChatState.RETURNING_PATIENT
-                if is_returning
-                else ChatState.NEW_PATIENT
-            ),
+            chat_state=(ChatState.RETURNING_PATIENT if is_returning else ChatState.NEW_PATIENT),
         )
 
     async def redis_update_patient(
@@ -751,9 +763,7 @@ class ActionExecutor:
             message,
             {"birth_date": birth_date},
         )
-        return ActionResult(
-            data={"patient_area": self._normalize_content(context.area)}
-        )
+        return ActionResult(data={"patient_area": self._normalize_content(context.area)})
 
     async def redis_get_patient_stage_summary(
         self,
@@ -775,11 +785,7 @@ class ActionExecutor:
                 return "Não informado"
             return value.strip()
 
-        formatted_birth_date = (
-            context.birth_date.strftime("%d/%m/%Y")
-            if context.birth_date is not None
-            else "Não informado"
-        )
+        formatted_birth_date = context.birth_date.strftime("%d/%m/%Y") if context.birth_date is not None else "Não informado"
 
         summary = (
             "Resumo dos seus dados atuais:\n"
@@ -789,14 +795,10 @@ class ActionExecutor:
             f"- Área: {format_value(context.area)}\n"
         )
         if ActionExecutor._normalize_content(context.area) == "psicoterapia":
-            summary += (
-                "- Abordagem em psicoterapia: "
-                f"{format_value(context.psychotherapy_approach)}\n"
-            )
+            summary += f"- Abordagem em psicoterapia: {format_value(context.psychotherapy_approach)}\n"
 
         return summary + (
-            f"- Perfil profissional: {format_value(context.professional_profile)}\n"
-            f"- Faixa de valor: {format_value(context.price_range)}\n\n"
+            f"- Perfil profissional: {format_value(context.professional_profile)}\n- Faixa de valor: {format_value(context.price_range)}\n\n"
         )
 
     @staticmethod
@@ -805,11 +807,7 @@ class ActionExecutor:
             "NFKD",
             (value or "").strip().lower(),
         )
-        return "".join(
-            character
-            for character in content
-            if not unicodedata.combining(character)
-        )
+        return "".join(character for character in content if not unicodedata.combining(character))
 
     @staticmethod
     def _parse_birth_date(value: str | None) -> date:
@@ -851,12 +849,16 @@ class ActionExecutor:
             return ""
 
         patient = PatientSheet(
-            name=context.name or "", phone=message.user_id, area=context.area or "",
+            name=context.name or "",
+            phone=message.user_id,
+            area=context.area or "",
             birth_date=context.birth_date.strftime("%d/%m/%Y") if context.birth_date else "",
         )
         event_id = message.event_id or str(message.message_id)
         self.outbox_repository.enqueue(
-            f"{event_id}:sheets.patient", "sheets.patient.upsert.v1", patient.model_dump(mode="json"),
+            f"{event_id}:sheets.patient",
+            "sheets.patient.upsert.v1",
+            patient.model_dump(mode="json"),
         )
 
         return ""
@@ -875,13 +877,18 @@ class ActionExecutor:
             return ""
 
         professional = ProfessionalSheet(
-            name=context.name or "", area=context.area or "", phone=message.user_id,
-            email=context.email or "", active=False,
+            name=context.name or "",
+            area=context.area or "",
+            phone=message.user_id,
+            email=context.email or "",
+            active=False,
             birth_date=context.birth_date.strftime("%d/%m/%Y") if context.birth_date else "",
         )
         event_id = message.event_id or str(message.message_id)
         self.outbox_repository.enqueue(
-            f"{event_id}:sheets.professional", "sheets.professional.upsert.v1", professional.model_dump(mode="json"),
+            f"{event_id}:sheets.professional",
+            "sheets.professional.upsert.v1",
+            professional.model_dump(mode="json"),
         )
 
         return ""

@@ -183,6 +183,78 @@ def test_accepts_dependency_that_always_executes_first() -> None:
     assert result.valid
 
 
+def test_accepts_sheets_store_before_flush_for_same_tab() -> None:
+    store = TransitionAction(
+        id=-1,
+        action_key="sheets_store_answer",
+        config={"config_type": "sheets_store_answer", "tab": "Aba 1", "column": "G"},
+    )
+    flush = TransitionAction(
+        id=-2,
+        action_key="sheets_flush",
+        config={"config_type": "sheets_flush", "tab": "Aba 1"},
+    )
+
+    result = validate(
+        node(
+            1,
+            "start",
+            NodeType.START,
+            transitions=[transition(1, "finish", actions=[store])],
+        ),
+        node(
+            2,
+            "finish",
+            NodeType.MESSAGE,
+            transitions=[transition(2, "end", actions=[flush])],
+        ),
+        node(3, "end", NodeType.END),
+    )
+
+    assert result.valid
+
+
+def test_rejects_sheets_flush_without_prior_store_for_same_tab() -> None:
+    store = TransitionAction(
+        id=-1,
+        action_key="sheets_store_answer",
+        config={"config_type": "sheets_store_answer", "tab": "Outra aba", "column": "G"},
+    )
+    flush = TransitionAction(
+        id=-2,
+        action_key="sheets_flush",
+        config={"config_type": "sheets_flush", "tab": "Aba 1"},
+    )
+
+    result = validate(
+        node(
+            1,
+            "start",
+            NodeType.START,
+            transitions=[transition(1, "end", actions=[store, flush])],
+        ),
+        node(2, "end", NodeType.END),
+    )
+
+    error = next(item for item in result.errors if item.code == "SHEETS_STORE_NOT_BEFORE_FLUSH")
+    assert error.action_id == -2
+    assert error.details == {"tab": "Aba 1"}
+
+
+def test_rejects_invalid_sheets_column() -> None:
+    action = TransitionAction(
+        id=-1,
+        action_key="sheets_store_answer",
+        config={"config_type": "sheets_store_answer", "tab": "Aba 1", "column": "g"},
+    )
+    result = codes(
+        node(1, "start", NodeType.START, transitions=[transition(1, "end", actions=[action])]),
+        node(2, "end", NodeType.END),
+    )
+
+    assert "INVALID_ACTION_CONFIG" in result
+
+
 def test_rejects_button_labels_longer_than_twenty_characters() -> None:
     result = validate(
         node(

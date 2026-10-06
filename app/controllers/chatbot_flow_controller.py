@@ -7,6 +7,7 @@ from fastapi import APIRouter, Header, HTTPException, status
 from pydantic import BaseModel, Field
 
 import app.config.settings as config
+from app.agent.action_catalog import action_catalog
 from app.domain.enum.chatbot_flow import ChangeEntityType, ChangeOperation
 from app.services.chatbot_flow_admin_service import (
     ChatFlowAdminService,
@@ -41,6 +42,11 @@ class ChatbotFlowController:
     def __init__(self, service: ChatFlowAdminService) -> None:
         self.service = service
         self.router = APIRouter(prefix="/chatbot-flow", tags=["chatbot-flow"])
+        self.router.add_api_route(
+            "/actions",
+            self.list_actions,
+            methods=["GET"],
+        )
         self.router.add_api_route(
             "/revisions",
             self.create_draft,
@@ -78,6 +84,16 @@ class ChatbotFlowController:
             self.discard_revision,
             methods=["DELETE"],
         )
+
+    def list_actions(
+        self,
+        chatbot_api_key: Annotated[
+            str | None,
+            Header(alias="X-Chatbot-Api-Key"),
+        ] = None,
+    ) -> dict[str, Any]:
+        self._authenticate(chatbot_api_key)
+        return action_catalog()
 
     def create_draft(
         self,

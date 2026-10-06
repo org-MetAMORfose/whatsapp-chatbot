@@ -23,6 +23,7 @@ from app.services.chatbot_flow_admin_service import (
     ChatFlowAdminService,
     DraftChangeInput,
     FlowCachePublishError,
+    InvalidFlowChangeError,
     ProtectedFlowNodeError,
 )
 
@@ -84,6 +85,24 @@ def seed_flow(session_factory: sessionmaker[Session]) -> tuple[int, int]:
         session.add(revision)
         session.flush()
         return revision.id, message.id
+
+
+def test_only_catalog_actions_are_administrator_managed() -> None:
+    with pytest.raises(InvalidFlowChangeError):
+        ChatFlowAdminService._validate_managed_action(
+            {"action_key": "postgres_set_question_state", "config": None}
+        )
+
+    ChatFlowAdminService._validate_managed_action(
+        {
+            "action_key": "sheets_store_answer",
+            "config": {
+                "config_type": "sheets_store_answer",
+                "tab": "Pacientes",
+                "column": "G",
+            },
+        }
+    )
 
 
 def test_lists_latest_published_revision_and_marks_stale_drafts(

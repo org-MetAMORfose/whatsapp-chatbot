@@ -7,9 +7,11 @@ from dataclasses import dataclass
 from datetime import UTC, datetime
 from typing import Any, Protocol
 
+from pydantic import ValidationError
 from sqlalchemy import func, or_, select
 from sqlalchemy.orm import Session
 
+from app.agent.action_catalog import MANAGED_ACTION_KEYS, validate_managed_action_config
 from app.agent.chat_flow import ChatFlow, Node, Transition, TransitionAction
 from app.domain.db.chatbot_flow_model import (
     FlowActionDependencyModel,
@@ -279,12 +281,16 @@ class ChatFlowAdminService:
                 raise InvalidFlowChangeError("CREATE usa um draft_entity_id já existente.")
             desired = {**change.new_value, "id": change.draft_entity_id}
             previous = None
+            if change.entity_type == ChangeEntityType.TRANSITION_ACTION:
+                self._validate_managed_action(desired)
         elif change.operation == ChangeOperation.UPDATE:
             if current is None or change.new_value is None:
                 raise InvalidFlowChangeError("UPDATE exige uma entidade existente e new_value.")
             previous = dict(existing.previous_value) if existing is not None and existing.previous_value is not None else dict(current)
             target_id = change.entity_id if change.entity_id is not None else change.draft_entity_id
             desired = {**current, **change.new_value, "id": target_id}
+            if change.entity_type == ChangeEntityType.TRANSITION_ACTION:
+                self._validate_managed_action(desired)
             if desired == previous and (existing is None or existing.operation != ChangeOperation.CREATE):
                 if existing is not None:
                     session.delete(existing)
@@ -297,6 +303,7 @@ class ChatFlowAdminService:
                 if self._node_has_required_action(session, int(current["id"])):
                     raise ProtectedFlowNodeError(int(current["id"]), node_key)
             if change.entity_type == ChangeEntityType.TRANSITION_ACTION:
+                self._validate_managed_action(current)
                 self._assert_action_can_be_deleted(session, int(current["id"]))
             previous = dict(current)
             desired = None
@@ -320,6 +327,16 @@ class ChatFlowAdminService:
             if existing.operation != ChangeOperation.CREATE:
                 existing.operation = change.operation
             existing.new_value = desired
+
+    @staticmethod
+    def _validate_managed_action(value: dict[str, Any]) -> None:
+        action_key = value.get("action_key")
+        if action_key not in MANAGED_ACTION_KEYS:
+            raise InvalidFlowChangeError("Somente as actions anunciadas em /chatbot-flow/actions podem ser adicionadas, alteradas ou removidas.")
+        try:
+            validate_managed_action_config(str(action_key), value.get("config"))
+        except (ValidationError, ValueError) as exc:
+            raise InvalidFlowChangeError(f"Config inválido para a action {action_key}.") from exc
 
     @staticmethod
     def _validate_change_identity(change: DraftChangeInput) -> None:

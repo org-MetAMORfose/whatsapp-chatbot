@@ -5,7 +5,8 @@ from typing import Any
 
 from pydantic import BaseModel, Field, ValidationError
 
-from app.agent.chat_flow import ActionTransitionConfig, ChatFlow, Node, Transition
+from app.agent.action_catalog import MANAGED_ACTION_KEYS, SHEETS_FLUSH, SHEETS_STORE_ANSWER, validate_managed_action_config
+from app.agent.chat_flow import ActionTransitionConfig, ChatFlow, Node, SheetsFlushConfig, SheetsStoreAnswerConfig, Transition, TransitionAction
 from app.domain.enum.chatbot_flow import NodeType
 
 BUTTON_LABEL_MAX_LENGTH = 20
@@ -73,10 +74,32 @@ class ChatFlowValidator:
                     )
                 for action in transition.actions:
                     if action.config is None:
+                        if action.action_key in MANAGED_ACTION_KEYS:
+                            errors.append(
+                                self._error(
+                                    "INVALID_ACTION_CONFIG",
+                                    "A action configurável exige config.",
+                                    node,
+                                    transition_id=transition.id,
+                                    action_id=action.id,
+                                )
+                            )
                         continue
+                    config_type = action.config.get("config_type")
                     try:
-                        config = ActionTransitionConfig.model_validate(action.config)
-                    except ValidationError as exc:
+                        if config_type == "action_transition":
+                            config = ActionTransitionConfig.model_validate(action.config)
+                        elif action.action_key in MANAGED_ACTION_KEYS:
+                            validate_managed_action_config(action.action_key, action.config)
+                            continue
+                        else:
+                            raise ValueError("config_type não é permitido para esta action")
+                    except (ValidationError, ValueError) as exc:
+                        validation_errors: object
+                        if isinstance(exc, ValidationError):
+                            validation_errors = exc.errors(include_url=False)
+                        else:
+                            validation_errors = [{"msg": str(exc)}]
                         errors.append(
                             self._error(
                                 "INVALID_ACTION_CONFIG",
@@ -84,7 +107,9 @@ class ChatFlowValidator:
                                 node,
                                 transition_id=transition.id,
                                 action_id=action.id,
-                                details={"validation_errors": exc.errors(include_url=False)},
+                                details={
+                                    "validation_errors": validation_errors,
+                                },
                             )
                         )
                         continue
@@ -125,6 +150,7 @@ class ChatFlowValidator:
                 )
 
         errors.extend(self._validate_action_dependencies(flow, adjacency))
+        errors.extend(self._validate_sheets_dependencies(flow))
         for node_id, node_key in deleted_required_nodes or []:
             errors.append(
                 FlowValidationError(
@@ -292,7 +318,7 @@ class ChatFlowValidator:
                         seen = True
                 targets = {transition.target}
                 for transition_action in transition.actions:
-                    if transition_action.config is None:
+                    if transition_action.config is None or transition_action.config.get("config_type") != "action_transition":
                         continue
                     try:
                         config = ActionTransitionConfig.model_validate(transition_action.config)
@@ -302,6 +328,72 @@ class ChatFlowValidator:
                 for target in targets & adjacency.keys():
                     queue.append((target, seen))
         return True
+
+    def _validate_sheets_dependencies(self, flow: ChatFlow) -> list[FlowValidationError]:
+        errors: list[FlowValidationError] = []
+        for node in flow.nodes.values():
+            for transition in node.transitions:
+                for action in transition.actions:
+                    if action.action_key != SHEETS_FLUSH or action.config is None:
+                        continue
+                    try:
+                        config = SheetsFlushConfig.model_validate(action.config)
+                    except ValidationError:
+                        continue
+                    if not self._store_precedes_flush(flow, config.tab, action):
+                        errors.append(
+                            self._error(
+                                "SHEETS_STORE_NOT_BEFORE_FLUSH",
+                                "O envio ao Google Sheets exige que uma resposta da mesma aba seja guardada antes.",
+                                node,
+                                transition_id=transition.id,
+                                action_id=action.id,
+                                details={"tab": config.tab},
+                            )
+                        )
+        return errors
+
+    @staticmethod
+    def _store_precedes_flush(
+        flow: ChatFlow,
+        tab: str,
+        flush: TransitionAction,
+    ) -> bool:
+        starts = [node.key for node in flow.nodes.values() if node.type == NodeType.START]
+        queue = deque((start, False) for start in starts)
+        visited: set[tuple[str, bool]] = set()
+        reached_flush = False
+        while queue:
+            node_key, store_seen = queue.popleft()
+            if (node_key, store_seen) in visited:
+                continue
+            visited.add((node_key, store_seen))
+            node = flow.nodes[node_key]
+            for transition in node.transitions:
+                seen = store_seen
+                for action in transition.actions:
+                    if action is flush:
+                        reached_flush = True
+                        if not seen:
+                            return False
+                    if action.action_key == SHEETS_STORE_ANSWER and action.config is not None:
+                        try:
+                            store = SheetsStoreAnswerConfig.model_validate(action.config)
+                        except ValidationError:
+                            continue
+                        if store.tab == tab:
+                            seen = True
+                targets = {transition.target}
+                for action in transition.actions:
+                    if action.config is None or action.config.get("config_type") != "action_transition":
+                        continue
+                    try:
+                        targets.add(ActionTransitionConfig.model_validate(action.config).target_node_key)
+                    except ValidationError:
+                        continue
+                for target in targets & flow.nodes.keys():
+                    queue.append((target, seen))
+        return reached_flush
 
     @staticmethod
     def _error(
