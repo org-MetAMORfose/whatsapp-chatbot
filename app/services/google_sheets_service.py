@@ -235,13 +235,24 @@ class GoogleSheetsService:
         self._request("POST", f"{sheet.spreadsheet_id}:batchUpdate", body={"requests": requests_body})
 
     def _patient_tab(self, title: str) -> SpreadsheetRef:
-        if title == self._patients.sheet_title:
-            return self._patients
+        for sheet in self.list_patient_tabs():
+            if sheet.sheet_title == title:
+                return sheet
+        return self._missing_patient_tab(title)
+
+    def list_patient_tabs(self) -> list[SpreadsheetRef]:
         metadata = self._request("GET", self._patients.spreadsheet_id, params={"fields": "sheets.properties(sheetId,title)"})
+        tabs: list[SpreadsheetRef] = []
         for item in metadata.get("sheets", []):
             properties = item.get("properties", {})
-            if properties.get("title") == title and isinstance(properties.get("sheetId"), int):
-                return SpreadsheetRef(self._patients.spreadsheet_id, properties["sheetId"], title)
+            title = properties.get("title")
+            sheet_id = properties.get("sheetId")
+            if isinstance(title, str) and isinstance(sheet_id, int):
+                tabs.append(SpreadsheetRef(self._patients.spreadsheet_id, sheet_id, title))
+        return tabs
+
+    @staticmethod
+    def _missing_patient_tab(title: str) -> SpreadsheetRef:
         raise SheetTabNotFoundError(f"Google Sheets tab not found: {title}")
 
     @staticmethod

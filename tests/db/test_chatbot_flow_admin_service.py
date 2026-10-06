@@ -24,7 +24,6 @@ from app.services.chatbot_flow_admin_service import (
     DraftChangeInput,
     FlowCachePublishError,
     InvalidFlowChangeError,
-    ProtectedFlowNodeError,
 )
 
 
@@ -87,13 +86,23 @@ def seed_flow(session_factory: sessionmaker[Session]) -> tuple[int, int]:
         return revision.id, message.id
 
 
-def test_only_catalog_actions_are_administrator_managed() -> None:
+def test_accepts_catalog_and_internal_actions() -> None:
+    ChatFlowAdminService._validate_action(
+        {"action_key": "postgres_set_question_state", "config": None}
+    )
+    ChatFlowAdminService._validate_action(
+        {
+            "action_key": "custom_action",
+            "config": {"config_type": "custom", "mode": "copy"},
+        }
+    )
+
     with pytest.raises(InvalidFlowChangeError):
-        ChatFlowAdminService._validate_managed_action(
-            {"action_key": "postgres_set_question_state", "config": None}
+        ChatFlowAdminService._validate_action(
+            {"action_key": "", "config": None}
         )
 
-    ChatFlowAdminService._validate_managed_action(
+    ChatFlowAdminService._validate_action(
         {
             "action_key": "sheets_store_answer",
             "config": {
@@ -102,6 +111,62 @@ def test_only_catalog_actions_are_administrator_managed() -> None:
                 "column": "G",
             },
         }
+    )
+
+
+def test_can_copy_internal_action_to_a_new_transition(
+    session_factory: sessionmaker[Session],
+) -> None:
+    published_id, _ = seed_flow(session_factory)
+    service = ChatFlowAdminService(session_factory, AsyncMock())
+    draft = service.create_draft(published_id)
+    graph = service.get_graph(draft["id"])
+    source_action = next(
+        action
+        for action in graph["transition_actions"]
+        if action["action_key"] == "required_action"
+    )
+    source_transition = next(
+        transition
+        for transition in graph["transitions"]
+        if transition["id"] == source_action["transition_id"]
+    )
+
+    service.save_changes(
+        draft["id"],
+        [
+            DraftChangeInput(
+                entity_type=ChangeEntityType.TRANSITION,
+                operation=ChangeOperation.CREATE,
+                draft_entity_id=-1,
+                new_value={
+                    **{
+                        key: value
+                        for key, value in source_transition.items()
+                        if key != "id"
+                    },
+                    "position": source_transition["position"] + 1,
+                },
+            ),
+            DraftChangeInput(
+                entity_type=ChangeEntityType.TRANSITION_ACTION,
+                operation=ChangeOperation.CREATE,
+                draft_entity_id=-2,
+                new_value={
+                    "transition_id": -1,
+                    "action_key": source_action["action_key"],
+                    "config": source_action["config"],
+                    "is_required": source_action["is_required"],
+                },
+            ),
+        ],
+    )
+
+    updated = service.get_graph(draft["id"])
+    assert any(
+        action["transition_id"] == -1
+        and action["action_key"] == "required_action"
+        for action in updated["transition_actions"]
     )
 
 
@@ -180,24 +245,55 @@ def test_updates_required_node_message_and_keeps_single_compacted_change(
     assert changed["position_y"] == 180
 
 
-def test_cannot_delete_node_with_required_action(
+def test_can_delete_node_with_required_action_from_draft(
     session_factory: sessionmaker[Session],
 ) -> None:
     published_id, message_id = seed_flow(session_factory)
     service = ChatFlowAdminService(session_factory, AsyncMock())
     draft = service.create_draft(published_id)
+    initial = service.get_graph(draft["id"])
+    transition_ids = {
+        transition["id"]
+        for transition in initial["transitions"]
+        if transition["node_id"] == message_id or transition["next_node_id"] == message_id
+    }
+    action_ids = [
+        action["id"]
+        for action in initial["transition_actions"]
+        if action["transition_id"] in transition_ids
+    ]
 
-    with pytest.raises(ProtectedFlowNodeError):
-        service.save_changes(
-            draft["id"],
-            [
+    service.save_changes(
+        draft["id"],
+        [
+            *[
                 DraftChangeInput(
-                    entity_type=ChangeEntityType.NODE,
-                    entity_id=message_id,
+                    entity_type=ChangeEntityType.TRANSITION_ACTION,
+                    entity_id=action_id,
                     operation=ChangeOperation.DELETE,
                 )
+                for action_id in action_ids
             ],
-        )
+            *[
+                DraftChangeInput(
+                    entity_type=ChangeEntityType.TRANSITION,
+                    entity_id=transition_id,
+                    operation=ChangeOperation.DELETE,
+                )
+                for transition_id in transition_ids
+            ],
+            DraftChangeInput(
+                entity_type=ChangeEntityType.NODE,
+                entity_id=message_id,
+                operation=ChangeOperation.DELETE,
+            )
+        ],
+    )
+
+    graph = service.get_graph(draft["id"])
+    assert all(node["id"] != message_id for node in graph["nodes"])
+    assert all(transition["id"] not in transition_ids for transition in graph["transitions"])
+    assert all(action["id"] not in action_ids for action in graph["transition_actions"])
 
 
 @pytest.mark.asyncio

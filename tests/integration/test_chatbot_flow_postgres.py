@@ -22,7 +22,6 @@ from app.repository.sql.chatbot_flow_repository import ChatFlowRepository
 from app.services.chatbot_flow_admin_service import (
     ChatFlowAdminService,
     DraftChangeInput,
-    ProtectedFlowNodeError,
 )
 from app.services.chatbot_flow_validation_service import ChatFlowValidator
 
@@ -44,7 +43,7 @@ def database_url() -> str:
 
 @pytest.mark.integration
 @pytest.mark.asyncio
-async def test_seed_draft_publication_and_required_action_protection() -> None:
+async def test_seed_draft_publication_and_optional_action_deletion() -> None:
     engine = create_engine(database_url())
     factory = sessionmaker(bind=engine, expire_on_commit=False)
     try:
@@ -131,7 +130,7 @@ async def test_seed_draft_publication_and_required_action_protection() -> None:
                             "tab": "Pacientes",
                             "column": "G",
                         },
-                        "is_required": True,
+                        "is_required": False,
                     },
                 ),
             ],
@@ -153,16 +152,17 @@ async def test_seed_draft_publication_and_required_action_protection() -> None:
             created_id = created.id
 
         second_draft = service.create_draft(draft["id"])
-        with pytest.raises(ProtectedFlowNodeError):
-            service.save_changes(
-                second_draft["id"],
-                [
-                    DraftChangeInput(
-                        entity_type=ChangeEntityType.NODE,
-                        operation=ChangeOperation.DELETE,
-                        entity_id=created_id,
-                    )
-                ],
-            )
+        service.save_changes(
+            second_draft["id"],
+            [
+                DraftChangeInput(
+                    entity_type=ChangeEntityType.NODE,
+                    operation=ChangeOperation.DELETE,
+                    entity_id=created_id,
+                )
+            ],
+        )
+        graph = service.get_graph(second_draft["id"])
+        assert all(node["id"] != created_id for node in graph["nodes"])
     finally:
         engine.dispose()

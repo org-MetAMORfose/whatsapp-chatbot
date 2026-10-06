@@ -38,12 +38,18 @@ def transition(
     )
 
 
-def validate(*nodes: Node):
+def validate(
+    *nodes: Node,
+    available_sheet_tabs: set[str] | None = None,
+):
     flow = ChatFlow.model_construct(
         nodes={item.key: item for item in nodes},
         input_error_messages={},
     )
-    return ChatFlowValidator().validate(flow)
+    return ChatFlowValidator().validate(
+        flow,
+        available_sheet_tabs=available_sheet_tabs,
+    )
 
 
 def codes(*nodes: Node) -> set[str]:
@@ -133,6 +139,25 @@ def test_rejects_invalid_action_config_operator_and_target() -> None:
         "INVALID_ACTION_CONFIG",
         "INVALID_ACTION_CONFIG_TARGET",
     }
+
+
+def test_accepts_config_owned_by_an_internal_action() -> None:
+    action = TransitionAction(
+        id=10,
+        action_key="custom_action",
+        config={"config_type": "custom", "mode": "copy"},
+    )
+    result = validate(
+        node(
+            1,
+            "start",
+            NodeType.START,
+            transitions=[transition(1, "end", actions=[action])],
+        ),
+        node(2, "end", NodeType.END),
+    )
+
+    assert result.valid
 
 
 def test_rejects_circular_action_dependencies() -> None:
@@ -255,6 +280,62 @@ def test_rejects_invalid_sheets_column() -> None:
     assert "INVALID_ACTION_CONFIG" in result
 
 
+def test_rejects_sheets_action_when_tab_does_not_exist() -> None:
+    action = TransitionAction(
+        id=-1,
+        action_key="sheets_store_answer",
+        config={
+            "config_type": "sheets_store_answer",
+            "tab": "Página 2",
+            "column": "G",
+        },
+    )
+
+    result = validate(
+        node(
+            1,
+            "start",
+            NodeType.START,
+            transitions=[transition(1, "end", actions=[action])],
+        ),
+        node(2, "end", NodeType.END),
+        available_sheet_tabs={"Página1", "Página2"},
+    )
+
+    error = next(item for item in result.errors if item.code == "SHEET_TAB_NOT_FOUND")
+    assert error.action_id == -1
+    assert error.transition_id == 1
+    assert error.details == {
+        "tab": "Página 2",
+        "available_tabs": ["Página1", "Página2"],
+    }
+
+
+def test_accepts_exact_sheet_tab_name() -> None:
+    action = TransitionAction(
+        id=-1,
+        action_key="sheets_store_answer",
+        config={
+            "config_type": "sheets_store_answer",
+            "tab": "Página2",
+            "column": "G",
+        },
+    )
+
+    result = validate(
+        node(
+            1,
+            "start",
+            NodeType.START,
+            transitions=[transition(1, "end", actions=[action])],
+        ),
+        node(2, "end", NodeType.END),
+        available_sheet_tabs={"Página1", "Página2"},
+    )
+
+    assert result.valid
+
+
 def test_rejects_button_labels_longer_than_twenty_characters() -> None:
     result = validate(
         node(
@@ -283,3 +364,26 @@ def test_accepts_button_labels_with_twenty_characters() -> None:
     )
 
     assert "BUTTON_LABEL_TOO_LONG" not in {error.code for error in result.errors}
+
+
+def test_rejects_more_than_ten_buttons_in_one_node() -> None:
+    result = validate(
+        node(
+            1,
+            "start",
+            NodeType.START,
+            transitions=[
+                transition(
+                    index,
+                    "end",
+                    button_label=f"Botão {index}",
+                )
+                for index in range(1, 12)
+            ],
+        ),
+        node(2, "end", NodeType.END),
+    )
+
+    error = next(item for item in result.errors if item.code == "TOO_MANY_BUTTONS")
+    assert error.node_id == 1
+    assert error.details == {"max_count": 10, "actual_count": 11}

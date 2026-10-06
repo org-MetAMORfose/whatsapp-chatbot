@@ -1,6 +1,7 @@
 """Structural validation for published and draft chatbot graphs."""
 
 from collections import deque
+from collections.abc import Collection
 from typing import Any
 
 from pydantic import BaseModel, Field, ValidationError
@@ -10,6 +11,7 @@ from app.agent.chat_flow import ActionTransitionConfig, ChatFlow, Node, SheetsFl
 from app.domain.enum.chatbot_flow import NodeType
 
 BUTTON_LABEL_MAX_LENGTH = 20
+BUTTONS_PER_NODE_MAX = 10
 
 
 class FlowValidationError(BaseModel):
@@ -32,12 +34,28 @@ class ChatFlowValidator:
         self,
         flow: ChatFlow,
         *,
-        deleted_required_nodes: list[tuple[int, str]] | None = None,
+        available_sheet_tabs: Collection[str] | None = None,
     ) -> FlowValidationResult:
         errors: list[FlowValidationError] = []
         adjacency: dict[str, set[str]] = {key: set() for key in flow.nodes}
 
         for node in flow.nodes.values():
+            button_count = sum(
+                transition.button_label is not None
+                for transition in node.transitions
+            )
+            if button_count > BUTTONS_PER_NODE_MAX:
+                errors.append(
+                    self._error(
+                        "TOO_MANY_BUTTONS",
+                        f"Um nó pode possuir no máximo {BUTTONS_PER_NODE_MAX} botões.",
+                        node,
+                        details={
+                            "max_count": BUTTONS_PER_NODE_MAX,
+                            "actual_count": button_count,
+                        },
+                    )
+                )
             if node.type == NodeType.END and node.transitions:
                 errors.append(
                     self._error(
@@ -90,10 +108,34 @@ class ChatFlowValidator:
                         if config_type == "action_transition":
                             config = ActionTransitionConfig.model_validate(action.config)
                         elif action.action_key in MANAGED_ACTION_KEYS:
-                            validate_managed_action_config(action.action_key, action.config)
+                            managed_config = validate_managed_action_config(
+                                action.action_key,
+                                action.config,
+                            )
+                            if (
+                                available_sheet_tabs is not None
+                                and isinstance(
+                                    managed_config,
+                                    SheetsStoreAnswerConfig | SheetsFlushConfig,
+                                )
+                                and managed_config.tab not in available_sheet_tabs
+                            ):
+                                errors.append(
+                                    self._error(
+                                        "SHEET_TAB_NOT_FOUND",
+                                        f'A aba "{managed_config.tab}" não existe na planilha de pacientes.',
+                                        node,
+                                        transition_id=transition.id,
+                                        action_id=action.id,
+                                        details={
+                                            "tab": managed_config.tab,
+                                            "available_tabs": sorted(available_sheet_tabs),
+                                        },
+                                    )
+                                )
                             continue
                         else:
-                            raise ValueError("config_type não é permitido para esta action")
+                            continue
                     except (ValidationError, ValueError) as exc:
                         validation_errors: object
                         if isinstance(exc, ValidationError):
@@ -151,15 +193,6 @@ class ChatFlowValidator:
 
         errors.extend(self._validate_action_dependencies(flow, adjacency))
         errors.extend(self._validate_sheets_dependencies(flow))
-        for node_id, node_key in deleted_required_nodes or []:
-            errors.append(
-                FlowValidationError(
-                    code="REQUIRED_ACTION_NODE_DELETE",
-                    message="Um nó com action obrigatória não pode ser apagado.",
-                    node_id=node_id,
-                    node_key=node_key,
-                )
-            )
         return FlowValidationResult(valid=not errors, errors=errors)
 
     @staticmethod

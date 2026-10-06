@@ -32,7 +32,7 @@ def action_catalog() -> dict[str, list[dict[str, Any]]]:
                 "label": "Guardar resposta",
                 "description": "Guarda a resposta desta pergunta em uma coluna do Google Sheets.",
                 "config_type": SHEETS_STORE_ANSWER,
-                "default_is_required": True,
+                "default_is_required": False,
                 "parameters": [
                     {"key": "tab", "label": "Nome da aba", "type": "string", "required": True},
                     {
@@ -49,7 +49,7 @@ def action_catalog() -> dict[str, list[dict[str, Any]]]:
                 "label": "Enviar respostas",
                 "description": "Adiciona uma linha com as respostas acumuladas na aba.",
                 "config_type": SHEETS_FLUSH,
-                "default_is_required": True,
+                "default_is_required": False,
                 "parameters": [
                     {"key": "tab", "label": "Nome da aba", "type": "string", "required": True},
                 ],
