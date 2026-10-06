@@ -10,7 +10,13 @@ from typing import Any
 
 from redis.asyncio import Redis
 
-from app.infra.redis_policy import MAX_RECORD_BYTES, STATE_INDEX, STATE_LUA
+from app.infra.redis_policy import (
+    MAX_RECORD_BYTES,
+    MAX_STATE_TTL_SECONDS,
+    STATE_INDEX,
+    STATE_LUA,
+    TTL_SECONDS,
+)
 
 _changes: ContextVar[dict[str, Any] | None] = ContextVar("redis_changes", default=None)
 
@@ -26,8 +32,11 @@ def stage_state() -> Iterator[dict[str, Any]]:
 
 
 class StagedState:
-    def __init__(self, client: Redis[str]) -> None:
+    def __init__(self, client: Redis[str], max_ttl_seconds: int = TTL_SECONDS) -> None:
+        if not 1 <= max_ttl_seconds <= MAX_STATE_TTL_SECONDS:
+            raise ValueError("Invalid maximum state TTL")
         self.client = client
+        self.max_ttl_seconds = max_ttl_seconds
 
     async def get(self, key: str) -> str | None:
         changes = _changes.get()
@@ -39,7 +48,7 @@ class StagedState:
     async def set(self, key: str, value: str, *, ex: int) -> None:
         if len(value.encode()) > MAX_RECORD_BYTES:
             raise ValueError("Conversation state exceeds Redis payload limit")
-        ex = min(ex, 3600)
+        ex = min(ex, self.max_ttl_seconds)
         changes = _changes.get()
         if changes is None:
             await self.client.eval(  # type: ignore[no-untyped-call]

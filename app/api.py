@@ -19,6 +19,7 @@ from app.controllers.whatsapp_controller import WhatsAppController
 from app.infra.media_factory import create_media_service
 from app.infra.message_queue import MessageQueue
 from app.repository.redis.chatbot_flow_cache import ChatFlowCache
+from app.repository.redis.matching_follow_up_repository import MatchingFollowUpRepository
 from app.repository.sql.chatbot_flow_repository import ChatFlowRepository
 from app.repository.sql.faq_knowledge_repository import FaqKnowledgeRepository
 from app.repository.sql.outbox_repository import OutboxRepository
@@ -87,7 +88,15 @@ def create_app() -> FastAPI:
             )
         ).router
     )
-    app.include_router(MatchingFollowUpController(people, patients, professionals, WhatsAppAdapter()).router)
+    app.include_router(
+        MatchingFollowUpController(
+            people,
+            patients,
+            professionals,
+            WhatsAppAdapter(),
+            MatchingFollowUpRepository(redis),
+        ).router
+    )
     media = create_media_service()
     if media is not None:
         app.include_router(UploadMediaController(media).router)
