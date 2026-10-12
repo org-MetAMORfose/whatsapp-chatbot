@@ -219,7 +219,9 @@ ssh-guilherme.pem
 vps-info.txt
 
 #segredos
-secrets/
+!secrets/
+secrets/*
+!secrets/import_professionals_review.py
 
 # AWS SAM local build output
 .aws-sam/

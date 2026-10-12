@@ -8,6 +8,7 @@ from sqlalchemy.orm import Session
 
 from app.domain.db.patient_model import PatientModel
 from app.domain.enum.channels import Channel
+from app.domain.matching.profile import patient_request, professional_profile
 from app.repository.sql.outbox_repository import OutboxRepository
 from app.repository.sql.patient_repository import PatientRepository
 from app.repository.sql.person_repository import PersonRepository
@@ -21,6 +22,12 @@ class PatientRegistrationData:
     phone: str
     area: str
     birth_date: date | None = None
+    psychotherapy_approach: str | None = None
+    professional_profile: str | None = None
+    psychotherapy_specialties: list[str] | None = None
+    preferred_gender: str | None = None
+    preferred_race: str | None = None
+    prefers_lgbtqiapn_plus: bool | None = None
 
 
 @dataclass(frozen=True)
@@ -43,6 +50,11 @@ class ProfessionalRegistrationData:
     minority_group: str | None = None
     background: str | None = None
     video_platform: str | None = None
+    areas: list[str] | None = None
+    approaches: list[str] | None = None
+    psychotherapy_specialties: list[str] | None = None
+    race: str | None = None
+    lgbtqiapn_plus: bool | None = None
 
 
 @dataclass(frozen=True)
@@ -56,6 +68,12 @@ class ProfessionalUpdateData:
     minority_group: str | None = None
     background: str | None = None
     video_platform: str | None = None
+    areas: list[str] | None = None
+    approaches: list[str] | None = None
+    psychotherapy_specialties: list[str] | None = None
+    race: str | None = None
+    lgbtqiapn_plus: bool | None = None
+    provided_fields: frozenset[str] = frozenset()
 
 
 @dataclass(frozen=True)
@@ -101,6 +119,14 @@ class RegistrationService:
                     PatientModel(
                         person_id=person.id,
                         area=data.area,
+                        psychotherapy_approach=data.psychotherapy_approach,
+                        professional_profile=data.professional_profile,
+                        matching_request=patient_request(
+                            selected_area=data.area, selected_approach=data.psychotherapy_approach,
+                            professional_profile=data.professional_profile, focus=data.psychotherapy_specialties,
+                            preferred_gender=data.preferred_gender, preferred_race=data.preferred_race,
+                            prefers_lgbtqiapn_plus=data.prefers_lgbtqiapn_plus,
+                        ),
                         created_at=datetime.now(UTC),
                     )
                 )
@@ -130,10 +156,42 @@ class RegistrationService:
 
             professional.area = data.area
             professional.email = data.email
-            professional.gender = data.gender
+            track_fields = bool(data.provided_fields)
+            if not track_fields or "gender" in data.provided_fields:
+                professional.gender = data.gender
             professional.minority_group = data.minority_group
             professional.background = data.background
             professional.video_platform = data.video_platform
+            previous = professional.matching_profile or {}
+            previous_psychotherapy = previous.get("psychotherapy") or {}
+            previous_identity = previous.get("profile") or {}
+            areas_provided = "areas" in data.provided_fields or (
+                not track_fields and data.areas is not None
+            )
+            approaches_provided = "approaches" in data.provided_fields or (
+                not track_fields and data.approaches is not None
+            )
+            specialties_provided = "psychotherapy_specialties" in data.provided_fields or (
+                not track_fields and data.psychotherapy_specialties is not None
+            )
+            race_provided = "race" in data.provided_fields or (
+                not track_fields and data.race is not None
+            )
+            lgbtqiapn_plus_provided = "lgbtqiapn_plus" in data.provided_fields or (
+                not track_fields and data.lgbtqiapn_plus is not None
+            )
+            professional.matching_profile = professional_profile(
+                areas=[data.area, *((data.areas or []) if areas_provided
+                                     else (previous.get("areas", []) if data.area in previous.get("areas", []) else []))],
+                approaches=data.approaches if approaches_provided
+                    else previous_psychotherapy.get("approaches", []),
+                focus=data.psychotherapy_specialties if specialties_provided
+                    else previous_psychotherapy.get("specialties", []),
+                gender=professional.gender, minority_group=data.minority_group,
+                race=data.race if race_provided else previous_identity.get("race"),
+                lgbtqiapn_plus=data.lgbtqiapn_plus if lgbtqiapn_plus_provided
+                    else previous_identity.get("lgbtqiapn_plus"),
+            )
             professional = self._professionals.update(professional)
             return RegisteredProfessional(professional.id, professional.person_id)
 
@@ -164,6 +222,13 @@ class RegistrationService:
                 email=data.email,
                 gender=data.gender,
                 minority_group=data.minority_group,
+                matching_profile=professional_profile(
+                    areas=[data.area, *(data.areas or [])],
+                    approaches=data.approaches or ([data.approach] if data.approach else []),
+                    focus=data.psychotherapy_specialties, gender=data.gender,
+                    minority_group=data.minority_group, race=data.race,
+                    lgbtqiapn_plus=data.lgbtqiapn_plus,
+                ),
                 created_at=datetime.now(UTC),
             )
             return RegisteredProfessional(professional.id, person.id)

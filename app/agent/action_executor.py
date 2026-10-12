@@ -22,6 +22,7 @@ from app.domain.enum.chat_mode import ChatMode
 from app.domain.enum.chat_state import ChatState
 from app.domain.enum.faq_answer_status import FaqAnswerStatus
 from app.domain.enum.faq_session_outcome import FaqSessionOutcome
+from app.domain.matching.profile import patient_request, professional_profile, specialties
 from app.domain.message import Message
 from app.domain.redis.patient_stage import PatientStageContext
 from app.domain.sheets import PatientSheet, ProfessionalSheet
@@ -102,6 +103,13 @@ class ActionExecutor:
                 self.redis_update_professional,
                 field="approach",
             ),
+            "redis_update_professional_psychotherapy_specialties": partial(
+                self.redis_update_professional_list, field="psychotherapy_specialties",
+            ),
+            "redis_update_professional_race": partial(self.redis_update_professional, field="race"),
+            "redis_update_professional_lgbtqiapn_plus": partial(
+                self.redis_update_professional_boolean, field="lgbtqiapn_plus",
+            ),
             "redis_update_professional_gender": partial(
                 self.redis_update_professional,
                 field="gender",
@@ -165,6 +173,18 @@ class ActionExecutor:
             "redis_update_patient_professional_profile": partial(
                 self.redis_update_patient,
                 field="professional_profile",
+            ),
+            "redis_update_patient_psychotherapy_specialties": partial(
+                self.redis_update_patient_list, field="psychotherapy_specialties",
+            ),
+            "redis_update_patient_preferred_gender": partial(
+                self.redis_update_patient, field="preferred_gender",
+            ),
+            "redis_update_patient_preferred_race": partial(
+                self.redis_update_patient, field="preferred_race",
+            ),
+            "redis_update_patient_prefers_lgbtqiapn_plus": partial(
+                self.redis_update_patient_boolean, field="prefers_lgbtqiapn_plus",
             ),
             "redis_update_patient_price_range": partial(
                 self.redis_update_patient,
@@ -282,6 +302,16 @@ class ActionExecutor:
             message,
             {field: message.content},
         )
+        return ""
+
+    async def redis_update_professional_list(self, message: Message, *, field: str) -> str:
+        values = specialties([part.strip() for part in (message.content or "").split(",") if part.strip()])
+        await self.professional_stage_repository.update_context(message, {field: values})
+        return ""
+
+    async def redis_update_professional_boolean(self, message: Message, *, field: str) -> str:
+        value = self._parse_optional_boolean(message.content)
+        await self.professional_stage_repository.update_context(message, {field: value})
         return ""
 
     async def redis_update_professional_council_registration_document(
@@ -406,9 +436,17 @@ class ActionExecutor:
         if person_changed:
             self.person_repository.update(person)
 
+        matching_profile = professional_profile(
+            areas=[context.area or "Não informado", *(context.areas or [])],
+            approaches=context.approaches or ([context.approach] if context.approach else []),
+            focus=context.psychotherapy_specialties,
+            gender=context.gender, minority_group=context.minority_group,
+            race=context.race, lgbtqiapn_plus=context.lgbtqiapn_plus,
+        )
         self.professional_repository.create_application(
             person_id=person.id,
             area=context.area or "Não informado",
+            matching_profile=matching_profile,
             professional_register=f"PENDING-{person.id}",
             register_type="PENDING_REVIEW",
             approach=context.approach,
@@ -618,6 +656,10 @@ class ActionExecutor:
                 "psychotherapy_approach": latest_patient.psychotherapy_approach,
                 "professional_profile": latest_patient.professional_profile,
                 "price_range": latest_patient.price_range,
+                "psychotherapy_specialties": (latest_patient.matching_request.get("psychotherapy") or {}).get("specialties"),
+                "preferred_gender": (latest_patient.matching_request.get("professional_preferences") or {}).get("gender"),
+                "preferred_race": (latest_patient.matching_request.get("professional_preferences") or {}).get("race"),
+                "prefers_lgbtqiapn_plus": (latest_patient.matching_request.get("professional_preferences") or {}).get("lgbtqiapn_plus"),
                 "is_returning": True,
             },
         )
@@ -718,12 +760,19 @@ class ActionExecutor:
         if person_changed:
             self.person_repository.update(person)
 
+        request = patient_request(
+            selected_area=context.area, selected_approach=context.psychotherapy_approach,
+            professional_profile=context.professional_profile, focus=context.psychotherapy_specialties,
+            preferred_gender=context.preferred_gender, preferred_race=context.preferred_race,
+            prefers_lgbtqiapn_plus=context.prefers_lgbtqiapn_plus,
+        )
         patient = self.patient_repository.create(
             PatientModel(
                 person_id=person.id,
                 area=context.area,
                 psychotherapy_approach=context.psychotherapy_approach,
                 professional_profile=context.professional_profile,
+                matching_request=request,
                 price_range=context.price_range,
                 created_at=message.created_at or datetime.utcnow(),
             )
@@ -744,8 +793,34 @@ class ActionExecutor:
         data = {field: message.content}
         if field == "area" and self._normalize_content(message.content) != "psicoterapia":
             data["psychotherapy_approach"] = None
+            data["psychotherapy_specialties"] = None
+        if field == "professional_profile":
+            data["preferred_gender"] = None
+            data["preferred_race"] = None
+            data["prefers_lgbtqiapn_plus"] = None
         await self.patient_stage_repository.update_context(message, data)
         return ""
+
+    async def redis_update_patient_list(self, message: Message, *, field: str) -> str:
+        values = specialties([part.strip() for part in (message.content or "").split(",") if part.strip()])
+        await self.patient_stage_repository.update_context(message, {field: values})
+        return ""
+
+    async def redis_update_patient_boolean(self, message: Message, *, field: str) -> str:
+        value = self._parse_optional_boolean(message.content)
+        await self.patient_stage_repository.update_context(message, {field: value})
+        return ""
+
+    @classmethod
+    def _parse_optional_boolean(cls, value: str | None) -> bool | None:
+        normalized = cls._normalize_content(value)
+        if normalized in ("sim", "sou", "quero", "true"):
+            return True
+        if normalized in ("nao", "false"):
+            return False
+        if normalized in ("sem preferencia", "prefiro nao informar", ""):
+            return None
+        raise ValueError("Resposta deve ser Sim, Não ou Sem preferência")
 
     async def redis_update_patient_birth_date(
         self,

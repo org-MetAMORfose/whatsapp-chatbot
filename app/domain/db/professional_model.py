@@ -1,12 +1,13 @@
 from __future__ import annotations
 
 from datetime import datetime
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 from sqlalchemy import DateTime, ForeignKey, Integer, String, Text, UniqueConstraint
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.domain.db.base import Base
+from app.domain.db.delivery_model import JSON_TYPE
 
 if TYPE_CHECKING:
     from app.domain.db.person_model import PersonModel
@@ -36,6 +37,7 @@ class ProfessionalModel(Base):
     approach: Mapped[str | None] = mapped_column(Text, nullable=True)
     gender: Mapped[str | None] = mapped_column(String, nullable=True)
     minority_group: Mapped[str | None] = mapped_column(String, nullable=True)
+    matching_profile: Mapped[dict[str, Any]] = mapped_column(JSON_TYPE, default=dict, nullable=False)
     background: Mapped[str | None] = mapped_column(Text, nullable=True)
     video_platform: Mapped[str | None] = mapped_column(String, nullable=True)
     email: Mapped[str | None] = mapped_column(String, nullable=True)

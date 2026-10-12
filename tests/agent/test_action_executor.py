@@ -192,7 +192,26 @@ async def test_changing_to_non_psychotherapy_clears_only_approach() -> None:
 
     patient_stage_repository.update_context.assert_awaited_once_with(
         message,
-        {"area": "Psiquiatria", "psychotherapy_approach": None},
+        {"area": "Psiquiatria", "psychotherapy_approach": None, "psychotherapy_specialties": None},
+    )
+
+
+@pytest.mark.asyncio
+async def test_updating_combined_profile_clears_old_individual_preferences() -> None:
+    executor, _, _, _, patient_stage_repository, _ = make_executor()
+    patient_stage_repository.update_context = AsyncMock()
+    message = make_message("Homem negro")
+
+    await executor.redis_update_patient(message, field="professional_profile")
+
+    patient_stage_repository.update_context.assert_awaited_once_with(
+        message,
+        {
+            "professional_profile": "Homem negro",
+            "preferred_gender": None,
+            "preferred_race": None,
+            "prefers_lgbtqiapn_plus": None,
+        },
     )
 
 
@@ -268,6 +287,12 @@ async def test_register_professional_application_from_stage(name: str | None) ->
     professional_repository.create_application.assert_called_once_with(
         person_id=42,
         area="Psicoterapia",
+        matching_profile={
+            "schema_version": 1,
+            "areas": ["Psicoterapia"],
+            "psychotherapy": {"approaches": ["TCC"], "specialties": []},
+            "profile": {"gender": None, "race": None, "lgbtqiapn_plus": None},
+        },
         professional_register="PENDING-42",
         register_type="PENDING_REVIEW",
         approach="TCC",
