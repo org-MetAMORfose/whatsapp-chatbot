@@ -270,6 +270,31 @@ async def test_parse_video_keeps_reference_for_worker() -> None:
     assert parsed.media_type == "video"
 
 
+@pytest.mark.asyncio
+async def test_parse_audio_keeps_reference_for_worker() -> None:
+    controller = WhatsAppController(
+        message_handler=MagicMock(),
+    )
+    raw_message = {
+        "id": "wamid.audio123",
+        "from": "5511999999999",
+        "timestamp": "1710000005",
+        "type": "audio",
+        "audio": {
+            "id": "whatsapp-audio",
+            "mime_type": "audio/ogg; codecs=opus",
+            "voice": True,
+        },
+    }
+
+    parsed = controller._parse_message(raw_message)
+
+    assert parsed is not None
+    assert parsed.message.content is None
+    assert parsed.media_id == "whatsapp-audio"
+    assert parsed.media_type == "audio"
+
+
 def test_parse_media_without_media_id_is_ignored() -> None:
     controller = WhatsAppController(message_handler=MagicMock())
 
