@@ -5,8 +5,16 @@ from typing import Any
 from app.domain.matching import Candidate, Patient, Score, ScoreBreakdown
 from app.domain.matching.profile import PSYCHOTHERAPY, area, key, patient_request, professional_profile
 
-ALGORITHM_VERSION = "profile-preferences-v1"
+ALGORITHM_VERSION = "profile-preferences-urgency-v2"
 WINDOW_SECONDS = 7 * 86400
+DAY_SECONDS = 86400
+
+
+def urgency_score(remaining_seconds: float) -> float:
+    """Grow slowly until day seven, then accelerate toward the deadline."""
+    days = remaining_seconds / DAY_SECONDS
+    acceleration = (max(0.0, 7.0 - days) / 6.0) ** 2
+    return float(4 ** ((10.0 - days) / 3.0) * (1000.0 / 64.0) ** acceleration)
 
 
 def _request(patient: Patient) -> dict[str, Any]:
@@ -77,14 +85,14 @@ def score_candidate(patient: Patient, candidate: Candidate, now: datetime) -> Sc
         return None
     if candidate.used >= candidate.promised_patients:
         return None
-    urgency = WINDOW_SECONDS / (WINDOW_SECONDS + remaining)
+    urgency = urgency_score(remaining)
     details = preference_details(patient, candidate)
     score = compatibility(patient, candidate)
     request = _request(patient)
-    return Score(score, urgency, score, ScoreBreakdown(
+    return Score(score, urgency, score + urgency, ScoreBreakdown(
         phase="urgent" if remaining <= WINDOW_SECONDS else "normal", evaluated_at=now.isoformat(),
         area=request["area"], deadline_at=candidate.deadline_at.isoformat(),
-        preferences_enabled=True, tie_break="compatibility,deadline,cycle_id",
+        preferences_enabled=True, tie_break="final_score,deadline,cycle_id",
         preferences={
             "requested": {
                 "specialties": (request.get("psychotherapy") or {}).get("specialties") or [],
@@ -100,4 +108,4 @@ def score_candidate(patient: Patient, candidate: Candidate, now: datetime) -> Sc
 def rank(patient: Patient, candidates: list[Candidate], now: datetime) -> list[tuple[Candidate, Score]]:
     scored = [(candidate, score) for candidate in candidates
               if (score := score_candidate(patient, candidate, now)) is not None]
-    return sorted(scored, key=lambda pair: (-pair[1].compatibility, pair[0].deadline_at, pair[0].id))
+    return sorted(scored, key=lambda pair: (-pair[1].final, pair[0].deadline_at, pair[0].id))

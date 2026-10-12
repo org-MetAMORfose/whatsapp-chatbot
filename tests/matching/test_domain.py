@@ -5,7 +5,7 @@ import pytest
 
 from app.domain.matching import Candidate, Patient
 from app.domain.matching.profile import patient_request, professional_profile
-from matching.domain import compatibility, rank, score_candidate
+from matching.domain import compatibility, rank, score_candidate, urgency_score
 
 REFERENCE_TIME = datetime(2000, 1, 1, tzinfo=UTC)
 
@@ -75,12 +75,31 @@ def test_legacy_specialty_names_are_stored_with_canonical_names():
     ]
 
 
-def test_more_optional_matches_precede_earlier_deadline():
-    patient = Patient(1, "Psicoterapia", "TCC", "Mulher negra")
-    earlier = cycle(id=1, gender="Homem", minority_group=None,
-                    deadline_at=REFERENCE_TIME + timedelta(days=1))
-    later = cycle(id=2, deadline_at=REFERENCE_TIME + timedelta(days=3))
-    assert [c.id for c, _ in rank(patient, [earlier, later], REFERENCE_TIME)] == [2, 1]
+@pytest.mark.parametrize(("days", "expected"), [(10, 1), (7, 4), (1, 1000)])
+def test_urgency_curve_targets(days: int, expected: float):
+    assert urgency_score(days * 86400) == pytest.approx(expected)
+
+
+def test_urgency_overtakes_up_to_four_optional_preferences():
+    request = patient_request(selected_area="Psicoterapia", focus=["Ansiedade"],
+                              preferred_gender="Mulher", preferred_race="Negra",
+                              prefers_lgbtqiapn_plus=True)
+    patient = Patient(1, "Psicoterapia", matching_request=request)
+    full_profile = professional_profile(areas=["Psicoterapia"], focus=["Ansiedade"],
+                                        gender="Mulher", race="Negra", lgbtqiapn_plus=True)
+    empty_profile = professional_profile(areas=["Psicoterapia"])
+    preferred = cycle(id=1, matching_profile=full_profile,
+                      deadline_at=REFERENCE_TIME + timedelta(days=10))
+    urgent = cycle(id=2, matching_profile=empty_profile,
+                   deadline_at=REFERENCE_TIME + timedelta(days=7))
+    assert compatibility(patient, preferred) == 4
+    assert [c.id for c, _ in rank(patient, [preferred, urgent], REFERENCE_TIME)] == [1, 2]
+
+    urgent.deadline_at = REFERENCE_TIME + timedelta(days=5)
+    assert [c.id for c, _ in rank(patient, [preferred, urgent], REFERENCE_TIME)] == [2, 1]
+    scored = score_candidate(patient, urgent, REFERENCE_TIME)
+    assert scored is not None
+    assert scored.final == pytest.approx(scored.urgency + scored.compatibility)
 
 
 @pytest.mark.parametrize("year", [2000, 2020, 2100])

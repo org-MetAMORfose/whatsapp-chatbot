@@ -29,12 +29,17 @@ def test_sends_utf8_plain_text_with_stable_message_id(smtp_class: MagicMock) -> 
     assert message["To"] == "profissional@example.com"
     assert message["Subject"] == "Novo paciente pela MetAMORfose"
     assert message.get_content().strip() == (
-        "Você recebeu um novo paciente pela MetAMORfose.\n"
+        "Olá, tudo bem?\n\n"
+        "Você recebeu uma nova conexão com paciente pela MetAMORfose.\n\n"
         "👤 Paciente: Ana\n"
         "📋 Área: Psicoterapia\n"
         "Contato do paciente:\n"
-        "https://wa.me/5511999999999\n"
-        "Este envio é referente ao seu ciclo de atendimento ativo."
+        "https://wa.me/5511999999999\n\n"
+        "Este envio é referente ao seu ciclo de atendimento ativo.\n\n"
+        "Consulte nosso guia de como conversar com o paciente:\n"
+        "http://orgmetamorfose.com.br/manual-de-uso\n\n"
+        "Caso precise de suporte:\n"
+        "https://wa.me/5511958048414"
     )
     first_message_id = message["Message-ID"]
 
