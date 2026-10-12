@@ -39,12 +39,17 @@ class MatchingProfessionalEmail:
     @property
     def body(self) -> str:
         return (
-            "Você recebeu um novo paciente pela MetAMORfose.\n"
+            "Olá, tudo bem?\n\n"
+            "Você recebeu uma nova conexão com paciente pela MetAMORfose.\n\n"
             f"👤 Paciente: {self.patient_name}\n"
             f"📋 Área: {self.patient_area}\n"
             "Contato do paciente:\n"
-            f"https://wa.me/{self.patient_phone}\n"
-            "Este envio é referente ao seu ciclo de atendimento ativo."
+            f"https://wa.me/{self.patient_phone}\n\n"
+            "Este envio é referente ao seu ciclo de atendimento ativo.\n\n"
+            "Consulte nosso guia de como conversar com o paciente:\n"
+            "http://orgmetamorfose.com.br/manual-de-uso\n\n"
+            "Caso precise de suporte:\n"
+            "https://wa.me/5511958048414"
         )
 
 

@@ -63,9 +63,13 @@ Para pedido específico de TCC ou Psicanálise, a abordagem deve constar no perf
 profissional. Abordagem vazia só atende o pedido sem preferência. Valor é ignorado.
 
 As preferências opcionais de especialidade clínica, gênero, raça e identificação
-LGBTQIAPN+ são contadas, sem eliminar candidatos. Ordena primeiro pelo número de
-preferências atendidas, depois pelo deadline mais próximo e pelo ID do ciclo.
-Mantém scores de urgência e a distinção dos sete dias finais para auditoria.
+LGBTQIAPN+ são contadas (0 a 4), sem eliminar candidatos. O score final soma
+preferências atendidas e urgência. Para `d` dias restantes, a urgência é
+`4**((10-d)/3) * (1000/64)**((max(0, 7-d)/6)**2)`: vale 1 em 10 dias,
+4 em 7 dias e 1000 em 1 dia. Assim cresce devagar antes da janela de sete dias
+e acelera dentro dela. Ordena pelo score final decrescente, depois pelo
+deadline mais próximo e pelo ID do ciclo. Os scores separados e a fase
+(`normal` ou `urgent`) ficam registrados para auditoria.
 Regular e reposição são equivalentes.
 Cada `patient_id` recebe no máximo um slot por ciclo, sem esperar aceite.
 
