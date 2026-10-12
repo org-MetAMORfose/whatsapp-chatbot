@@ -10,8 +10,8 @@ import boto3
 
 logger = logging.getLogger(__name__)
 
-MediaType = Literal["image", "document", "video"]
-MEDIA_TYPES = frozenset({"image", "document", "video"})
+MediaType = Literal["image", "document", "video", "audio"]
+MEDIA_TYPES = frozenset({"image", "document", "video", "audio"})
 
 
 @dataclass(frozen=True)
@@ -50,7 +50,9 @@ class S3MediaService:
     ) -> str:
         """Upload generic media bytes to S3 and return its stable object path."""
         if media_type not in MEDIA_TYPES:
-            raise ValueError("media_type must be 'image', 'document' or 'video'")
+            raise ValueError(
+                "media_type must be 'image', 'document', 'video' or 'audio'"
+            )
 
         extension = ""
         if filename:
@@ -114,10 +116,10 @@ class S3MediaService:
             raise ValueError("invalid media_path")
 
         if not media_path.startswith(
-            ("media/image/", "media/document/", "media/video/")
+            ("media/image/", "media/document/", "media/video/", "media/audio/")
         ):
             raise ValueError(
-                "media_path must point to image, document or video media"
+                "media_path must point to image, document, video or audio media"
             )
 
     @classmethod
@@ -128,4 +130,6 @@ class S3MediaService:
             return "image"
         if media_path.startswith("media/document/"):
             return "document"
-        return "video"
+        if media_path.startswith("media/video/"):
+            return "video"
+        return "audio"

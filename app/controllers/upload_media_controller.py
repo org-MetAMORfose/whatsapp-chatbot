@@ -29,10 +29,12 @@ class UploadMediaController:
         media_type: str = Form(default="image"),
         file: UploadFile = File(...), # noqa: B008 - FastAPI required pattern
     ) -> UploadMediaResponse:
-        if media_type not in {"image", "document", "video"}:
+        if media_type not in {"image", "document", "video", "audio"}:
             raise HTTPException(
                 status_code=400,
-                detail="media_type must be 'image', 'document' or 'video'",
+                detail=(
+                    "media_type must be 'image', 'document', 'video' or 'audio'"
+                ),
             )
 
         file_bytes = await file.read()

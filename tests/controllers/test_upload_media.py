@@ -40,14 +40,14 @@ def test_upload_media_endpoint_returns_400_for_invalid_media_type() -> None:
     client = TestClient(app)
     response = client.post(
         "/upload-media",
-        data={"media_type": "audio"},
-        files={"file": ("test.mp3", b"file-bytes", "audio/mpeg")},
+        data={"media_type": "sticker"},
+        files={"file": ("test.webp", b"file-bytes", "image/webp")},
     )
 
     assert response.status_code == 400
     assert (
         response.json()["detail"]
-        == "media_type must be 'image', 'document' or 'video'"
+        == "media_type must be 'image', 'document', 'video' or 'audio'"
     )
 
 
@@ -73,4 +73,29 @@ def test_upload_media_endpoint_accepts_video() -> None:
         content_type="video/mp4",
         media_type="video",
         filename="test.mp4",
+    )
+
+
+def test_upload_media_endpoint_accepts_audio() -> None:
+    mock_s3_service = MagicMock(spec=S3MediaService)
+    mock_s3_service.upload_file = AsyncMock(return_value="media/audio/test.ogg")
+
+    app = FastAPI()
+    controller = UploadMediaController(s3_service=mock_s3_service)
+    app.include_router(controller.router)
+
+    client = TestClient(app)
+    response = client.post(
+        "/upload-media",
+        data={"media_type": "audio"},
+        files={"file": ("test.ogg", b"audio-bytes", "audio/ogg")},
+    )
+
+    assert response.status_code == 200
+    assert response.json() == {"media": "media/audio/test.ogg"}
+    mock_s3_service.upload_file.assert_awaited_once_with(
+        file_bytes=b"audio-bytes",
+        content_type="audio/ogg",
+        media_type="audio",
+        filename="test.ogg",
     )
