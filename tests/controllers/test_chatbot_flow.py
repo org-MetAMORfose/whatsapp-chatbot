@@ -50,6 +50,13 @@ def test_lists_only_administrator_managed_actions(monkeypatch) -> None:
     assert {action["key"] for action in actions} == {
         "sheets_store_answer",
         "sheets_flush",
+        "redis_update_professional_psychotherapy_specialties",
+        "redis_update_professional_race",
+        "redis_update_professional_lgbtqiapn_plus",
+        "redis_update_patient_psychotherapy_specialties",
+        "redis_update_patient_preferred_gender",
+        "redis_update_patient_preferred_race",
+        "redis_update_patient_prefers_lgbtqiapn_plus",
     }
     assert all(action["default_is_required"] is False for action in actions)
 

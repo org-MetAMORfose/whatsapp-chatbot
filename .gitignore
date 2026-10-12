@@ -219,7 +219,8 @@ ssh-guilherme.pem
 vps-info.txt
 
 #segredos
-secrets/
+!secrets/
+secrets/*
 
 # AWS SAM local build output
 .aws-sam/

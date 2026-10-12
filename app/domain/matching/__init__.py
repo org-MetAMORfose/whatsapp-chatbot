@@ -20,6 +20,7 @@ class PatientRegistration:
     channel: Channel = Channel.WHATSAPP
     psychotherapy_approach: str | None = None
     professional_profile: str | None = None
+    matching_request: dict[str, Any] | None = None
 
 
 PatientInput = PatientReference | PatientRegistration
@@ -31,6 +32,7 @@ class Patient:
     area: str | None
     psychotherapy_approach: str | None = None
     professional_profile: str | None = None
+    matching_request: dict[str, Any] | None = None
 
 
 @dataclass
@@ -47,6 +49,7 @@ class Candidate:
     approach: str | None = None
     gender: str | None = None
     minority_group: str | None = None
+    matching_profile: dict[str, Any] | None = None
 
 
 @dataclass(frozen=True)
@@ -57,6 +60,8 @@ class ScoreBreakdown:
     deadline_at: str
     preferences_enabled: bool = False
     tie_break: str = "deadline,cycle_id"
+    preferences: dict[str, Any] | None = None
+    required: dict[str, Any] | None = None
 
 
 @dataclass(frozen=True)

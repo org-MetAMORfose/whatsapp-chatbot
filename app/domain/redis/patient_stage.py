@@ -19,6 +19,10 @@ class PatientStageContext(BaseModel):
     area: str | None = None
     psychotherapy_approach: str | None = None
     professional_profile: str | None = None
+    psychotherapy_specialties: list[str] | None = None
+    preferred_gender: str | None = None
+    preferred_race: str | None = None
+    prefers_lgbtqiapn_plus: bool | None = None
     price_range: str | None = None
     is_returning: bool = False
 

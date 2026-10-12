@@ -3,8 +3,8 @@ from dataclasses import asdict, replace
 from datetime import UTC, datetime
 from uuid import uuid4
 
-from sqlalchemy import Select, func, select
-from sqlalchemy.dialects.postgresql import insert
+from sqlalchemy import Select, and_, cast, func, or_, select
+from sqlalchemy.dialects.postgresql import JSONB, insert
 from sqlalchemy.engine import Engine
 from sqlalchemy.orm import Session, aliased, lazyload
 
@@ -17,6 +17,8 @@ from app.domain.db.professional_model import ProfessionalModel
 from app.domain.enum.channels import Channel
 from app.domain.enum.chat_mode import ChatMode
 from app.domain.matching import Candidate, MatchResult, Patient, PatientInput, PatientReference, PatientRegistration
+from app.domain.matching.profile import area as normalize_area
+from app.domain.matching.profile import patient_request
 from matching.domain import ALGORITHM_VERSION, rank, score_candidate
 
 
@@ -24,10 +26,13 @@ def used_slots() -> Select[tuple[int]]:
     return select(func.count(Slot.id)).where(Slot.cycle_id == Cycle.id).correlate(Cycle)
 
 
-def candidates_for(area: str | None) -> Select[tuple[Cycle, ProfessionalModel, int]]:
+def candidates_for(requested_area: str | None) -> Select[tuple[Cycle, ProfessionalModel, int]]:
+    matching_areas = cast(ProfessionalModel.matching_profile["areas"], JSONB)
+    has_area = func.jsonb_exists(matching_areas, normalize_area(requested_area))
+    legacy_area = and_(ProfessionalModel.matching_profile == {}, ProfessionalModel.area == requested_area)
     return select(Cycle, ProfessionalModel, used_slots().scalar_subquery().label("used")).join(
         ProfessionalModel, ProfessionalModel.id == Cycle.professional_id,
-    ).where(ProfessionalModel.area == area, Cycle.cancelled_at.is_(None),
+    ).where(or_(has_area, legacy_area), Cycle.cancelled_at.is_(None),
             Cycle.starts_at <= func.clock_timestamp(), Cycle.deadline_at > func.clock_timestamp())
 
 
@@ -35,7 +40,8 @@ def candidate_snapshot(cycle: Cycle, professional: ProfessionalModel, used: int)
     return Candidate(id=cycle.id, professional_id=professional.id, area=professional.area, starts_at=cycle.starts_at,
         deadline_at=cycle.deadline_at, promised_patients=cycle.promised_patients, used=used,
         cancelled_at=cycle.cancelled_at, type=cycle.type, approach=professional.approach,
-        gender=professional.gender, minority_group=professional.minority_group)
+        gender=professional.gender, minority_group=professional.minority_group,
+        matching_profile=professional.matching_profile)
 
 
 def register_patient(db: Session, data: PatientRegistration) -> int:
@@ -44,21 +50,25 @@ def register_patient(db: Session, data: PatientRegistration) -> int:
             index_elements=[PersonModel.phone_number, PersonModel.channel]))
     person_id = db.scalars(select(PersonModel.id).where(
         PersonModel.phone_number == data.phone_number, PersonModel.channel == data.channel).with_for_update()).one()
-    patient = PatientModel(person_id=person_id, area=data.area, psychotherapy_approach=data.psychotherapy_approach,
-        professional_profile=data.professional_profile, created_at=datetime.now(UTC))
+    request = data.matching_request or patient_request(
+        selected_area=data.area, selected_approach=data.psychotherapy_approach,
+        professional_profile=data.professional_profile)
+    patient = PatientModel(person_id=person_id, area=request["area"], psychotherapy_approach=data.psychotherapy_approach,
+        professional_profile=data.professional_profile, matching_request=request, created_at=datetime.now(UTC))
     db.add(patient)
     db.flush()
     return patient.id
 
 
 def allocate(db: Session, patient: Patient) -> MatchResult:
-    candidates = [candidate_snapshot(c, p, used) for c, p, used in db.execute(candidates_for(patient.area))]
+    requested_area = (patient.matching_request or {}).get("area") or normalize_area(patient.area)
+    candidates = [candidate_snapshot(c, p, used) for c, p, used in db.execute(candidates_for(requested_area))]
     now = db.scalars(select(func.clock_timestamp())).one()
     for candidate, _ in rank(patient, candidates, now):
         db.execute(select(Cycle.id).where(Cycle.id == candidate.id).with_for_update()).all()
         db.execute(select(ProfessionalModel.id).where(ProfessionalModel.id == candidate.professional_id).with_for_update(read=True)).all()
         # ORM identity-map state must be refreshed after waiting for another writer.
-        fresh = db.execute(candidates_for(patient.area).where(Cycle.id == candidate.id).execution_options(populate_existing=True)).one_or_none()
+        fresh = db.execute(candidates_for(requested_area).where(Cycle.id == candidate.id).execution_options(populate_existing=True)).one_or_none()
         if fresh is None:
             continue
         existing = db.scalar(select(Slot.id).where(
@@ -84,8 +94,9 @@ def notification_snapshot(db: Session, result: MatchResult) -> MatchResult:
     professional_person = aliased(PersonModel)
     row = db.execute(select(
         patient_person.name, patient_person.phone_number, patient_person.channel, PatientModel.area,
-        professional_person.name, ProfessionalModel.area, professional_person.phone_number, professional_person.channel,
-        ProfessionalModel.email,
+        PatientModel.matching_request,
+        professional_person.name, ProfessionalModel.area, ProfessionalModel.matching_profile,
+        professional_person.phone_number, professional_person.channel, ProfessionalModel.email,
     ).select_from(Slot).join(
         PatientModel, PatientModel.id == Slot.patient_id).join(patient_person, patient_person.id == PatientModel.person_id).join(
         Cycle, Cycle.id == Slot.cycle_id).join(ProfessionalModel, ProfessionalModel.id == Cycle.professional_id).join(
@@ -93,8 +104,13 @@ def notification_snapshot(db: Session, result: MatchResult) -> MatchResult:
         Slot.id == result.slot_id, Slot.patient_id == result.patient_id, Cycle.id == result.cycle_id)).one_or_none()
     if row is None:
         raise ValueError("Matching allocation or its contacts were not found")
-    (patient_name, patient_phone, patient_channel, patient_area, professional_name, professional_area,
+    (patient_name, patient_phone, patient_channel, patient_area, matching_request,
+     professional_name, professional_area, matching_profile,
      professional_phone, professional_channel, professional_email) = row
+    requested_area = (matching_request or {}).get("area") or patient_area
+    if requested_area in (matching_profile or {}).get("areas", []):
+        patient_area = requested_area
+        professional_area = requested_area
     if patient_channel != Channel.WHATSAPP or professional_channel != Channel.WHATSAPP:
         raise ValueError("Matching participants must have WhatsApp contacts")
     snapshot = (patient_name, patient_phone, patient_area, professional_name, professional_area,
@@ -113,7 +129,8 @@ def execute(engine: Engine, data: PatientInput) -> MatchResult:
         patient_id = data.patient_id if isinstance(data, PatientReference) else register_patient(db, data)
         patient = db.scalar(select(PatientModel).options(lazyload(PatientModel.person)).where(
             PatientModel.id == patient_id).with_for_update())
-        result = allocate(db, Patient(patient.id, patient.area, patient.psychotherapy_approach, patient.professional_profile)) if patient else (
+        result = allocate(db, Patient(patient.id, patient.area, patient.psychotherapy_approach,
+                                      patient.professional_profile, patient.matching_request)) if patient else (
             MatchResult(patient_id, "patient_not_found"))
         if result.status == "matched":
             result = notification_snapshot(db, result)
@@ -129,8 +146,16 @@ def execute(engine: Engine, data: PatientInput) -> MatchResult:
 
 
 def match_pending(engine: Engine, limit: int = 100) -> list[MatchResult]:
+    requested_area = func.coalesce(PatientModel.matching_request["area"].as_string(), PatientModel.area)
+    offered_areas = cast(ProfessionalModel.matching_profile["areas"], JSONB)
+    offered_approaches = cast(ProfessionalModel.matching_profile["psychotherapy"]["approaches"], JSONB)
+    requested_approach = PatientModel.matching_request["psychotherapy"]["approach"].as_string()
+    area_available = or_(func.jsonb_exists(offered_areas, requested_area),
+                         and_(ProfessionalModel.matching_profile == {}, ProfessionalModel.area == PatientModel.area))
+    approach_available = or_(requested_approach.is_(None),
+                             func.jsonb_exists(offered_approaches, requested_approach))
     available = select(Cycle.id).join(ProfessionalModel, ProfessionalModel.id == Cycle.professional_id).where(
-        ProfessionalModel.area == PatientModel.area, Cycle.cancelled_at.is_(None),
+        area_available, approach_available, Cycle.cancelled_at.is_(None),
         Cycle.starts_at <= func.clock_timestamp(), Cycle.deadline_at > func.clock_timestamp(),
         used_slots().scalar_subquery() < Cycle.promised_patients,
         ~select(Slot.id).where(

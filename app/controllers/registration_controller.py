@@ -9,6 +9,8 @@ from pydantic import AfterValidator, BaseModel, ConfigDict, field_validator
 from sqlalchemy.exc import IntegrityError
 
 import app.config.settings as config
+from app.domain.matching.profile import approach as normalize_approach
+from app.domain.matching.profile import key, specialties
 from app.domain.sheets.professional import normalize_phone
 from app.domain.whatsapp.matching_patient_template import whatsapp_phone
 from app.services.registration_service import (
@@ -71,13 +73,54 @@ class RegistrationRequest(BaseModel):
 
 
 class PatientRegistrationRequest(RegistrationRequest):
+    psychotherapy_approach: str | None = None
+    professional_profile: str | None = None
+    psychotherapy_specialties: list[str] | None = None
+    preferred_gender: str | None = None
+    preferred_race: str | None = None
+    prefers_lgbtqiapn_plus: bool | None = None
+
+    @field_validator("psychotherapy_approach")
+    @classmethod
+    def validate_approach(cls, value: str | None) -> str | None:
+        if value is None or key(value) in ("", "sem preferencia"):
+            return None
+        canonical = normalize_approach(value)
+        if canonical is None:
+            raise ValueError("psychotherapy_approach must be TCC, Psicanálise or Sem preferência")
+        return canonical
+
+    @field_validator("psychotherapy_specialties")
+    @classmethod
+    def validate_specialties(cls, value: list[str] | None) -> list[str] | None:
+        return specialties(value) if value is not None else None
+
     def to_service_data(self) -> PatientRegistrationData:
         return PatientRegistrationData(
             name=self.name,
             phone=self.phone,
             area=self.area,
             birth_date=self.birth_date,
+            psychotherapy_approach=self.psychotherapy_approach,
+            professional_profile=self.professional_profile,
+            psychotherapy_specialties=self.psychotherapy_specialties,
+            preferred_gender=self.preferred_gender,
+            preferred_race=self.preferred_race,
+            prefers_lgbtqiapn_plus=self.prefers_lgbtqiapn_plus,
         )
+
+
+def _normalize_approaches(values: list[str] | None) -> list[str] | None:
+    if values is None:
+        return None
+    normalized = []
+    for value in values:
+        canonical = normalize_approach(value)
+        if canonical is None:
+            raise ValueError("approaches accepts only TCC or Psicanálise")
+        if canonical not in normalized:
+            normalized.append(canonical)
+    return normalized
 
 
 class ProfessionalRegistrationRequest(RegistrationRequest):
@@ -89,6 +132,21 @@ class ProfessionalRegistrationRequest(RegistrationRequest):
     minority_group: str | None = None
     background: str | None = None
     video_platform: str | None = None
+    areas: list[str] | None = None
+    approaches: list[str] | None = None
+    psychotherapy_specialties: list[str] | None = None
+    race: str | None = None
+    lgbtqiapn_plus: bool | None = None
+
+    @field_validator("psychotherapy_specialties")
+    @classmethod
+    def validate_specialties(cls, value: list[str] | None) -> list[str] | None:
+        return specialties(value) if value is not None else None
+
+    @field_validator("approaches")
+    @classmethod
+    def validate_approaches(cls, value: list[str] | None) -> list[str] | None:
+        return _normalize_approaches(value)
 
     @field_validator(
         "professional_register",
@@ -116,6 +174,21 @@ class ProfessionalUpdateRequest(RegistrationRequest):
     minority_group: str | None = None
     background: str | None = None
     video_platform: str | None = None
+    areas: list[str] | None = None
+    approaches: list[str] | None = None
+    psychotherapy_specialties: list[str] | None = None
+    race: str | None = None
+    lgbtqiapn_plus: bool | None = None
+
+    @field_validator("psychotherapy_specialties")
+    @classmethod
+    def validate_specialties(cls, value: list[str] | None) -> list[str] | None:
+        return specialties(value) if value is not None else None
+
+    @field_validator("approaches")
+    @classmethod
+    def validate_approaches(cls, value: list[str] | None) -> list[str] | None:
+        return _normalize_approaches(value)
 
     @field_validator(
         "gender",
@@ -131,7 +204,10 @@ class ProfessionalUpdateRequest(RegistrationRequest):
         return value
 
     def to_service_data(self) -> ProfessionalUpdateData:
-        return ProfessionalUpdateData(**self.model_dump())
+        return ProfessionalUpdateData(
+            **self.model_dump(),
+            provided_fields=frozenset(self.model_fields_set),
+        )
 
 
 class PatientRegistrationResponse(BaseModel):

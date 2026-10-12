@@ -2,11 +2,13 @@ from __future__ import annotations
 
 from collections.abc import Callable
 from datetime import datetime
+from typing import Any
 
 from sqlalchemy import select
 from sqlalchemy.orm import Session, joinedload
 
 from app.domain.db.professional_model import ProfessionalModel
+from app.domain.matching.profile import professional_profile
 from app.repository.sql.transaction import commit, session_scope
 
 
@@ -37,6 +39,7 @@ class ProfessionalRepository:
         gender: str | None = None,
         minority_group: str | None = None,
         created_at: datetime | None = None,
+        matching_profile: dict[str, Any] | None = None,
     ) -> ProfessionalModel:
         """Create a professional application unless one already exists."""
         with session_scope(self._session_factory) as session:
@@ -59,6 +62,10 @@ class ProfessionalRepository:
                 email=email,
                 gender=gender,
                 minority_group=minority_group,
+                matching_profile=matching_profile or professional_profile(
+                    areas=[area], approaches=[approach] if approach else [],
+                    gender=gender, minority_group=minority_group,
+                ),
                 created_at=created_at or datetime.utcnow(),
             )
             session.add(professional)

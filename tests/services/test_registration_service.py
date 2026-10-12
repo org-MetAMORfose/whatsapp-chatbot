@@ -93,6 +93,30 @@ def test_register_professional_persists_optional_profile(tmp_path) -> None:
         assert professional.professional_register == f"PENDING-{person.id}"
 
 
+def test_update_professional_preserves_multiple_areas_when_primary_area_is_unchanged(tmp_path) -> None:
+    service, factory = _service(tmp_path)
+    registered = service.register_professional(
+        ProfessionalRegistrationData(
+            name="Carla", phone="5511988887777", email="carla@example.com",
+            area="Psicoterapia", areas=["Psiquiatria"], approaches=["TCC"],
+            psychotherapy_specialties=["Ansiedade"],
+        )
+    )
+    service.update_professional(
+        registered.id,
+        ProfessionalUpdateData(
+            name="Carla", phone="5511988887777", email="nova@example.com", area="Psicoterapia",
+        ),
+    )
+    with factory() as session:
+        professional = session.get(ProfessionalModel, registered.id)
+        assert professional is not None
+        assert professional.matching_profile["areas"] == ["Psicoterapia", "Psiquiatria"]
+        assert professional.matching_profile["psychotherapy"] == {
+            "approaches": ["TCC"], "specialties": ["Ansiedade"],
+        }
+
+
 def test_update_professional_changes_editable_profile_and_preserves_registration(tmp_path) -> None:
     service, factory = _service(tmp_path)
     registered = service.register_professional(
@@ -139,3 +163,30 @@ def test_update_professional_changes_editable_profile_and_preserves_registration
         assert professional.approach == "TCC"
         assert professional.register_type == "PENDING_REVIEW"
         assert professional.professional_register == f"PENDING-{person.id}"
+
+
+def test_update_professional_distinguishes_omitted_profile_fields_from_explicit_null(tmp_path) -> None:
+    service, factory = _service(tmp_path)
+    registered = service.register_professional(
+        ProfessionalRegistrationData(
+            name="Carla", phone="5511988887777", email="carla@example.com",
+            area="Psicoterapia", gender="Mulher", race="Negra",
+            lgbtqiapn_plus=True,
+        )
+    )
+
+    service.update_professional(
+        registered.id,
+        ProfessionalUpdateData(
+            name="Carla", phone="5511988887777", email="carla@example.com",
+            area="Psicoterapia", race=None, lgbtqiapn_plus=None,
+            provided_fields=frozenset({"race", "lgbtqiapn_plus"}),
+        ),
+    )
+
+    with factory() as session:
+        professional = session.get(ProfessionalModel, registered.id)
+        assert professional is not None
+        assert professional.matching_profile["profile"]["race"] is None
+        assert professional.matching_profile["profile"]["lgbtqiapn_plus"] is None
+        assert professional.matching_profile["profile"]["gender"] == "Mulher"

@@ -27,7 +27,8 @@ Novo cadastro:
 Nome, telefone, nascimento (ISO YYYY-MM-DD) e área são obrigatórios no cadastro.
 Telefone é necessário porque `person.phone_number` é obrigatório no esquema atual;
 um nome sozinho não identifica uma pessoa. O channel padrão é WHATSAPP; não se
-altera o enum existente. Abordagem e perfil são opcionais e apenas persistidos.
+altera o enum existente. Abordagem e perfil são opcionais na entrada, mas passam a
+participar do matching conforme o contrato em [matching-json.md](matching-json.md).
 A pessoa é reaproveitada por telefone/channel, sem sobrescrever seu cadastro;
 cada envio de dados completos cria uma nova inscrição (`patient`). Para repetir
 uma avaliação sem criar outra inscrição, envie o `patient_id` retornado.
@@ -56,15 +57,17 @@ O relay de Sheets e o relay de solicitações do chatbot não consomem esses eve
 
 ## Regras e concorrência
 
-Algoritmo guloso: área exatamente igual, ciclo iniciado, não cancelado, dentro do
-prazo e com vaga. Psicanálise continua separada de Psicoterapia. Valor é ignorado.
-A função `compatibility` é um ponto de extensão futuro e retorna sempre zero.
-Nenhum gênero, perfil ou abordagem influencia a escolha nesta versão.
+Algoritmo guloso: área solicitada contida nas áreas do profissional, ciclo iniciado,
+não cancelado, dentro do prazo e com vaga. Psicanálise é abordagem de Psicoterapia.
+Para pedido específico de TCC ou Psicanálise, a abordagem deve constar no perfil do
+profissional. Abordagem vazia só atende o pedido sem preferência. Valor é ignorado.
 
-Prioriza o deadline mais próximo, com desempate pelo ID do ciclo. Mantém scores de
-urgência e a distinção dos sete dias finais para auditoria; com preferências
-zeradas, a ordem efetiva é sempre por prazo. Regular e reposição são equivalentes.
-Cada `patient_id` recebe no máximo um slot, sem esperar aceite.
+As preferências opcionais de especialidade clínica, gênero, raça e identificação
+LGBTQIAPN+ são contadas, sem eliminar candidatos. Ordena primeiro pelo número de
+preferências atendidas, depois pelo deadline mais próximo e pelo ID do ciclo.
+Mantém scores de urgência e a distinção dos sete dias finais para auditoria.
+Regular e reposição são equivalentes.
+Cada `patient_id` recebe no máximo um slot por ciclo, sem esperar aceite.
 
 Sem capacidade, o paciente permanece sem slot. O agendamento horário processa
 até **100 pacientes**, mais antigos primeiro, com capacidade potencial disponível.
@@ -73,7 +76,8 @@ Esse limite é da varredura horária, não um bloqueio global das chamadas diret
 
 Validações de negócio ficam no código. A transação bloqueia paciente/ciclo e
 revalida a capacidade após esperar os locks. Unicidade e FKs permanecem no banco.
-A migration `0010_matching` concentra o schema; não há migration 0011 nem triggers.
+O schema de ciclos nasceu em `0010_matching`; os JSONB de perfil e pedido são
+adicionados por `0015_matching_json_profiles`. Não há triggers de matching.
 Escritas SQL externas não validam área/capacidade automaticamente; devem seguir o
 mesmo serviço e protocolo de locks. Alterações futuras de capacidade também devem
 bloquear o ciclo e impedir capacidade menor que a ocupação.

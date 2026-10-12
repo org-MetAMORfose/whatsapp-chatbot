@@ -23,6 +23,11 @@ class ProfessionalStageContext(BaseModel):
     gender: str | None = None
     minority_group: str | None = None
     approach: str | None = None
+    areas: list[str] | None = None
+    approaches: list[str] | None = None
+    psychotherapy_specialties: list[str] | None = None
+    race: str | None = None
+    lgbtqiapn_plus: bool | None = None
     council_registration_document: str | None = None
 
     created_at: datetime = Field(default_factory=datetime.utcnow)
