@@ -85,6 +85,17 @@ def test_arbitrary_specialties_and_aliases_match_existing_json_without_rewriting
     assert profile["psychotherapy"]["specialties"] == ["borderline", "  LUTO   PROLONGADO "]
 
 
+def test_specialties_accept_free_text_and_deduplicate_without_a_catalog():
+    request = patient_request(selected_area="Psicoterapia", focus=[
+        "  Atenção   à família ", "atencao a FAMILIA", "", "ansiedade", "Boderline", "Borderline",
+    ])
+    assert request["psychotherapy"]["specialties"] == [
+        "Atenção à família", "ansiedade", "Transtorno de Personalidade Borderline",
+    ]
+    profile = professional_profile(areas=["Psicoterapia"], focus=["ATENCAO A FAMILIA"])
+    assert compatibility(Patient(1, "Psicoterapia", matching_request=request), cycle(matching_profile=profile)) == 1
+
+
 @pytest.mark.parametrize("legacy_preference", [True, False, None])
 def test_lgbt_identity_is_ignored_even_in_existing_requests(legacy_preference):
     request = patient_request(selected_area="Psicoterapia", prefers_lgbtqiapn_plus=legacy_preference)

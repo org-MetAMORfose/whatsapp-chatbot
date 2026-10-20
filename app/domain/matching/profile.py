@@ -8,24 +8,6 @@ from typing import Any
 SCHEMA_VERSION = 1
 PSYCHOTHERAPY = "Psicoterapia"
 APPROACHES = ("TCC", "Psicanálise")
-SPECIALTIES = (
-    "LGBTQIAPN+",
-    "Burnout",
-    "Orientação Profissional",
-    "Casal",
-    "Família",
-    "Crianças",
-    "Adolescentes",
-    "Saúde 60+",
-    "Imigrantes",
-    "Autismo",
-    "TDAH",
-    "Transtorno Bipolar",
-    "Transtorno de Personalidade Borderline",
-    "Ansiedade",
-    "Depressão",
-    "Supervisão de Psicoterapia (Psi para psi)",
-)
 
 
 def key(value: str | None) -> str:
@@ -59,15 +41,15 @@ def approach(value: str | None) -> str | None:
 
 
 def specialties(values: list[str] | None) -> list[str]:
-    lookup = {key(value): value for value in SPECIALTIES}
-    lookup.update({
+    """Accept free text, preserving only aliases needed by existing registrations."""
+    aliases = {
         "bipolaridade": "Transtorno Bipolar",
         "borderline": "Transtorno de Personalidade Borderline",
         "boderline": "Transtorno de Personalidade Borderline",
-    })
+    }
     result: list[str] = []
     for value in values or []:
-        canonical = lookup.get(key(value), " ".join(value.split()))
+        canonical = aliases.get(key(value), " ".join(value.split()))
         if canonical and key(canonical) not in {key(item) for item in result}:
             result.append(canonical)
     return result
