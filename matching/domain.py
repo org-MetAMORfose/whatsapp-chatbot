@@ -3,9 +3,9 @@ from datetime import datetime
 from typing import Any
 
 from app.domain.matching import Candidate, Patient, Score, ScoreBreakdown
-from app.domain.matching.profile import PSYCHOTHERAPY, area, key, patient_request, professional_profile
+from app.domain.matching.profile import PSYCHOTHERAPY, area, declaration, key, normalize_gender, patient_request, professional_profile, specialties
 
-ALGORITHM_VERSION = "profile-preferences-urgency-v2"
+ALGORITHM_VERSION = "specialty-preferences-urgency-v3"
 WINDOW_SECONDS = 7 * 86400
 DAY_SECONDS = 86400
 
@@ -51,22 +51,20 @@ def preference_details(patient: Patient, candidate: Candidate) -> dict[str, bool
     profile = _profile(candidate)
     wanted = request.get("professional_preferences") or {}
     actual = profile.get("profile") or {}
-    requested_focus = (request.get("psychotherapy") or {}).get("specialties") or []
-    offered_focus = (profile.get("psychotherapy") or {}).get("specialties") or []
+    requested_focus = {key(value) for value in specialties((request.get("psychotherapy") or {}).get("specialties"))}
+    offered_focus = {key(value) for value in specialties((profile.get("psychotherapy") or {}).get("specialties"))}
     details: dict[str, bool | None] = {
-        "specialties": bool(set(requested_focus) & set(offered_focus)) if requested_focus else None,
+        "specialties": bool(requested_focus & offered_focus) if requested_focus else None,
     }
-    for field in ("gender", "race", "lgbtqiapn_plus"):
-        preferred = wanted.get(field)
-        value = actual.get(field)
+    for field, normalize in (("gender", normalize_gender), ("race", declaration)):
+        preferred = normalize(wanted.get(field))
+        value = normalize(actual.get(field))
         if preferred is None:
             details[field] = None
         elif value is None:
             details[field] = False
         elif field == "gender" and key(preferred) in ("mulher", "homem"):
             details[field] = key(value) in (key(preferred), key(preferred) + " trans")
-        elif field == "lgbtqiapn_plus":
-            details[field] = preferred is value
         else:
             details[field] = key(str(preferred)) == key(str(value))
     return details
@@ -96,7 +94,7 @@ def score_candidate(patient: Patient, candidate: Candidate, now: datetime) -> Sc
         preferences={
             "requested": {
                 "specialties": (request.get("psychotherapy") or {}).get("specialties") or [],
-                **(request.get("professional_preferences") or {}),
+                **{field: (request.get("professional_preferences") or {}).get(field) for field in ("gender", "race")},
             },
             "matched": details,
         },

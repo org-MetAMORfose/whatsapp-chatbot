@@ -9,18 +9,28 @@ SCHEMA_VERSION = 1
 PSYCHOTHERAPY = "Psicoterapia"
 APPROACHES = ("TCC", "Psicanálise")
 SPECIALTIES = (
+    "LGBTQIAPN+",
+    "Burnout",
+    "Orientação Profissional",
+    "Casal",
+    "Família",
+    "Crianças",
+    "Adolescentes",
+    "Saúde 60+",
+    "Imigrantes",
     "Autismo",
     "TDAH",
     "Transtorno Bipolar",
     "Transtorno de Personalidade Borderline",
     "Ansiedade",
     "Depressão",
+    "Supervisão de Psicoterapia (Psi para psi)",
 )
 
 
 def key(value: str | None) -> str:
     normalized = unicodedata.normalize("NFKD", (value or "").strip().casefold())
-    return "".join(character for character in normalized if not unicodedata.combining(character))
+    return " ".join("".join(character for character in normalized if not unicodedata.combining(character)).split())
 
 
 def area(value: str | None) -> str | None:
@@ -53,15 +63,26 @@ def specialties(values: list[str] | None) -> list[str]:
     lookup.update({
         "bipolaridade": "Transtorno Bipolar",
         "borderline": "Transtorno de Personalidade Borderline",
+        "boderline": "Transtorno de Personalidade Borderline",
     })
     result: list[str] = []
     for value in values or []:
-        canonical = lookup.get(key(value))
-        if canonical is None:
-            raise ValueError(f"Unknown psychotherapy specialty: {value}")
-        if canonical not in result:
+        canonical = lookup.get(key(value), " ".join(value.split()))
+        if canonical and key(canonical) not in {key(item) for item in result}:
             result.append(canonical)
     return result
+
+
+def normalize_gender(value: str | None) -> str | None:
+    aliases = {"feminino": "Mulher", "mulher": "Mulher", "masculino": "Homem", "homem": "Homem",
+               "nao binario": "Não binário", "nao binaria": "Não binário", "nao-binario": "Não binário"}
+    return None if key(value) in ("", "prefiro nao informar", "sem preferencia") else aliases.get(key(value), value)
+
+
+def declaration(value: str | None) -> str | None:
+    aliases = {"negro": "Negra", "negra": "Negra", "branco": "Branca", "branca": "Branca",
+               "indigena": "Indígena", "asiatico": "Asiática", "asiatica": "Asiática", "imigrante": "Imigrante"}
+    return None if key(value) in ("", "prefiro nao informar", "sem preferencia") else aliases.get(key(value), value)
 
 
 def identity(gender: str | None = None, minority_group: str | None = None, *, race: str | None = None,
@@ -69,10 +90,10 @@ def identity(gender: str | None = None, minority_group: str | None = None, *, ra
     group = key(minority_group)
     inferred_race = "Negra" if "negr" in group else None
     inferred_lgbt = True if "lgbt" in group else None
-    normalized_gender = {"feminino": "Mulher", "masculino": "Homem"}.get(key(gender), gender)
+    normalized_gender = normalize_gender(gender)
     return {
         "gender": None if key(gender) in ("", "prefiro nao informar", "sem preferencia") else normalized_gender,
-        "race": race or inferred_race,
+        "race": declaration(race or inferred_race),
         "lgbtqiapn_plus": lgbtqiapn_plus if lgbtqiapn_plus is not None else inferred_lgbt,
     }
 
@@ -124,9 +145,9 @@ def patient_request(*, selected_area: str | None, selected_approach: str | None 
                     prefers_lgbtqiapn_plus: bool | None = None) -> dict[str, Any]:
     preference = profile_preference(professional_profile)
     if preferred_gender is not None:
-        preference["gender"] = preferred_gender
+        preference["gender"] = normalize_gender(preferred_gender)
     if preferred_race is not None:
-        preference["race"] = preferred_race
+        preference["race"] = declaration(preferred_race)
     if prefers_lgbtqiapn_plus is not None:
         preference["lgbtqiapn_plus"] = prefers_lgbtqiapn_plus
     actual_approach = approach(selected_approach)

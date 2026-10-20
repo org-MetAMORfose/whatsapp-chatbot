@@ -82,13 +82,13 @@ def test_patient_approach_and_specialties_are_validated() -> None:
     base = {"name": "Ana", "phone": "5511999999999", "area": "Psicoterapia"}
 
     assert client.post("/patients", json={**base, "psychotherapy_approach": "Outra"}).status_code == 422
-    assert client.post("/patients", json={**base, "psychotherapy_specialties": ["Inexistente"]}).status_code == 422
+    assert client.post("/patients", json={**base, "psychotherapy_specialties": [42]}).status_code == 422
     response = client.post("/patients", json={**base, "psychotherapy_approach": "Psicanálise",
-                                               "psychotherapy_specialties": ["Ansiedade"]})
+                                               "psychotherapy_specialties": ["Ansiedade", "LGBTQIAPN+", "Luto"]})
     assert response.status_code == 201
     data = service.register_patients.call_args.args[0][0]
     assert data.psychotherapy_approach == "Psicanálise"
-    assert data.psychotherapy_specialties == ["Ansiedade"]
+    assert data.psychotherapy_specialties == ["Ansiedade", "LGBTQIAPN+", "Luto"]
 
 
 def test_register_professional_with_pending_register_defaults() -> None:

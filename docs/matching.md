@@ -62,8 +62,13 @@ não cancelado, dentro do prazo e com vaga. Psicanálise é abordagem de Psicote
 Para pedido específico de TCC ou Psicanálise, a abordagem deve constar no perfil do
 profissional. Abordagem vazia só atende o pedido sem preferência. Valor é ignorado.
 
-As preferências opcionais de especialidade clínica, gênero, raça e identificação
-LGBTQIAPN+ são contadas (0 a 4), sem eliminar candidatos. O score final soma
+As preferências opcionais de especialidade, gênero e autodeclaração são contadas
+(0 a 3), sem eliminar candidatos. Especialidades aceitam texto livre; uma ou mais
+especialidades em comum somam um único ponto. A comparação normaliza acentos,
+maiúsculas, espaços e aliases conhecidos (incluindo Boderline/Borderline e
+Bipolaridade). LGBTQIAPN+ é uma especialidade de atendimento. Os campos antigos de
+identidade LGBTQIAPN+ permanecem armazenados, mas não participam da pontuação nem
+da explicação do matching, inclusive em solicitações antigas. O score final soma
 preferências atendidas e urgência. Para `d` dias restantes, a urgência é
 `4**((10-d)/3) * (1000/64)**((max(0, 7-d)/6)**2)`: vale 1 em 10 dias,
 4 em 7 dias e 1000 em 1 dia. Assim cresce devagar antes da janela de sete dias
