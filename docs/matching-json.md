@@ -31,9 +31,15 @@ O JSON acima é o perfil de um profissional. Uma solicitação de paciente usa:
 
 `approach: null` significa que o paciente aceita Psicoterapia sem preferência de
 abordagem. Profissional com `approaches: []` também pode atendê-lo; não atende uma
-solicitação que exija especificamente TCC ou Psicanálise. Especialidades, gênero,
-raça e identificação LGBTQIAPN+ são preferências que influenciam a ordem, sem
-eliminar candidatos. Os seis focos só se aplicam a Psicoterapia.
+solicitação que exija especificamente TCC ou Psicanálise. Especialidades, gênero e
+autodeclaração são preferências que influenciam a ordem, sem eliminar candidatos.
+Especialidades aceitam qualquer texto e só se aplicam a Psicoterapia; a lista
+sugerida nos formulários não restringe a API. LGBTQIAPN+ participa como especialidade
+de atendimento, sem inferência pela identidade do profissional. Os campos legados
+`profile.lgbtqiapn_plus` e `professional_preferences.lgbtqiapn_plus` continuam no
+contrato de armazenamento, mas são ignorados na pontuação e na explicação do
+resultado. Não há alteração do banco nem conversão dos registros existentes nesta
+mudança.
 
 ## Migração e compatibilidade
 
