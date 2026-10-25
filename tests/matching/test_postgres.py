@@ -315,8 +315,24 @@ def test_seeded_chatbot_flow_is_complete_and_loadable(database):
             WHERE action_key NOT LIKE 'sheets_%' AND NOT is_required
         """)
             )
-            == 0
+            == 153
         )
+        required_actions = dict(db.execute(text("""
+            SELECT action_key, count(*)
+            FROM chatbot_flow.transition_action
+            WHERE is_required
+            GROUP BY action_key
+        """)).tuples().all())
+        assert required_actions == {
+            "faq_continue_or_finish": 3,
+            "faq_continue_or_satisfy": 2,
+            "faq_process_question": 1,
+            "postgres_set_feedback_state": 1,
+            "postgres_set_manual_chat_mode": 1,
+            "postgres_set_payment_renewal_state": 2,
+            "postgres_set_professional_support_state": 4,
+        }
+        assert db.scalar(text("SELECT count(*) FROM chatbot_flow.action_dependency")) == 0
 
     revision, flow = ChatFlowRepository(sessionmaker(database, expire_on_commit=False)).load()
 

@@ -24,6 +24,7 @@ from app.services.chatbot_flow_admin_service import (
     DraftChangeInput,
     FlowCachePublishError,
     InvalidFlowChangeError,
+    InvalidFlowDraftError,
 )
 
 
@@ -357,3 +358,153 @@ async def test_can_retry_cache_after_database_publication(
 
     assert result["version"] == 2
     assert publisher.publish.await_count == 2
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("scenario", ["replace", "swap", "insert", "move"])
+async def test_publishes_transition_position_changes(
+    session_factory: sessionmaker[Session],
+    scenario: str,
+) -> None:
+    published_id, message_id = seed_flow(session_factory)
+    with session_factory() as session, session.begin():
+        original = session.scalar(select(FlowTransitionModel).where(FlowTransitionModel.node_id == message_id))
+        assert original is not None
+        sibling = FlowTransitionModel(
+            node_id=message_id,
+            input_type=InputType.TEXT,
+            expected_value="outra opção",
+            next_node_id=original.next_node_id,
+            position=1,
+        )
+        session.add(sibling)
+
+    publisher = AsyncMock()
+    service = ChatFlowAdminService(session_factory, publisher)
+    draft = service.create_draft(published_id)
+    graph = service.get_graph(draft["id"])
+    transitions = sorted(
+        (item for item in graph["transitions"] if item["node_id"] == message_id),
+        key=lambda item: item["position"],
+    )
+    original_value, sibling_value = transitions
+    changes = []
+    if scenario in {"replace", "insert"}:
+        if scenario == "replace":
+            action = next(item for item in graph["transition_actions"] if item["transition_id"] == original_value["id"])
+            changes.extend([
+                DraftChangeInput(ChangeEntityType.TRANSITION_ACTION, ChangeOperation.DELETE, entity_id=action["id"]),
+                DraftChangeInput(ChangeEntityType.TRANSITION, ChangeOperation.DELETE, entity_id=original_value["id"]),
+            ])
+        else:
+            changes.append(DraftChangeInput(
+                ChangeEntityType.TRANSITION,
+                ChangeOperation.UPDATE,
+                entity_id=original_value["id"],
+                new_value={"position": 2},
+            ))
+        changes.append(DraftChangeInput(
+            ChangeEntityType.TRANSITION,
+            ChangeOperation.CREATE,
+            draft_entity_id=-1,
+            new_value={**original_value, "expected_value": "nova opção"},
+        ))
+    else:
+        destination = message_id
+        if scenario == "move":
+            destination = next(item["id"] for item in graph["nodes"] if item["key"] == "start")
+            other = next(item for item in graph["transitions"] if item["node_id"] == destination)
+            changes.append(DraftChangeInput(
+                ChangeEntityType.TRANSITION,
+                ChangeOperation.UPDATE,
+                entity_id=other["id"],
+                new_value={"position": 1},
+            ))
+        changes.extend([
+            DraftChangeInput(
+                ChangeEntityType.TRANSITION,
+                ChangeOperation.UPDATE,
+                entity_id=original_value["id"],
+                new_value={"node_id": destination, "position": 1 if scenario == "swap" else 0},
+            ),
+            DraftChangeInput(
+                ChangeEntityType.TRANSITION,
+                ChangeOperation.UPDATE,
+                entity_id=sibling_value["id"],
+                new_value={"position": 0},
+            ),
+        ])
+    service.save_changes(draft["id"], changes)
+    expected = service.get_graph(draft["id"])
+    assert service.validate(draft["id"]).valid
+
+    result = await service.publish(draft["id"])
+
+    assert result["version"] == 2
+    actual = service.get_graph(draft["id"])
+    # Ignore generated IDs; compare the complete persisted routes and their final order.
+    fields = ("node_id", "next_node_id", "position", "input_type", "expected_value", "button_label")
+    assert sorted(tuple(str(item[field]) for field in fields) for item in actual["transitions"]) == sorted(
+        tuple(str(item[field]) for field in fields) for item in expected["transitions"]
+    )
+    publisher.publish.assert_awaited_once()
+
+
+@pytest.mark.asyncio
+async def test_rejects_duplicate_transition_positions_before_publication(
+    session_factory: sessionmaker[Session],
+) -> None:
+    published_id, message_id = seed_flow(session_factory)
+    publisher = AsyncMock()
+    service = ChatFlowAdminService(session_factory, publisher)
+    draft = service.create_draft(published_id)
+    original_graph = service.get_graph(published_id)
+    original = next(item for item in original_graph["transitions"] if item["node_id"] == message_id)
+    service.save_changes(draft["id"], [DraftChangeInput(
+        ChangeEntityType.TRANSITION,
+        ChangeOperation.CREATE,
+        draft_entity_id=-1,
+        new_value=original,
+    )])
+
+    assert "DUPLICATE_TRANSITION_POSITION" in {error.code for error in service.validate(draft["id"]).errors}
+    with pytest.raises(InvalidFlowDraftError):
+        await service.publish(draft["id"])
+
+    assert service.get_graph(published_id) == original_graph
+    publisher.publish.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_rolls_back_temporary_positions_if_publication_fails(
+    session_factory: sessionmaker[Session],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    published_id, message_id = seed_flow(session_factory)
+    publisher = AsyncMock()
+    service = ChatFlowAdminService(session_factory, publisher)
+    draft = service.create_draft(published_id)
+    original_graph = service.get_graph(published_id)
+    original = next(item for item in original_graph["transitions"] if item["node_id"] == message_id)
+    service.save_changes(draft["id"], [DraftChangeInput(
+        ChangeEntityType.TRANSITION,
+        ChangeOperation.UPDATE,
+        entity_id=original["id"],
+        new_value={"position": 1},
+    )])
+    update = service._update_entity
+
+    def fail_after_update(*args, **kwargs):
+        update(*args, **kwargs)
+        args[0].flush()
+        raise RuntimeError("publication interrupted")
+
+    monkeypatch.setattr(service, "_update_entity", fail_after_update)
+    with pytest.raises(RuntimeError, match="publication interrupted"):
+        await service.publish(draft["id"])
+
+    assert service.get_graph(published_id) == original_graph
+    with session_factory() as session:
+        revision = session.get(FlowGraphRevisionModel, draft["id"])
+        assert revision is not None and revision.status == RevisionStatus.DRAFT
+    publisher.publish.assert_not_awaited()

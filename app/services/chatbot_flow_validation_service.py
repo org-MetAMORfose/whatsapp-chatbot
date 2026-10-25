@@ -64,7 +64,19 @@ class ChatFlowValidator:
                         node,
                     )
                 )
+            positions: set[int] = set()
             for transition in node.transitions:
+                if transition.position in positions:
+                    errors.append(
+                        self._error(
+                            "DUPLICATE_TRANSITION_POSITION",
+                            "As transições de um mesmo nó devem possuir posições distintas.",
+                            node,
+                            transition_id=transition.id,
+                            details={"position": transition.position},
+                        )
+                    )
+                positions.add(transition.position)
                 if transition.button_label is not None and len(transition.button_label) > BUTTON_LABEL_MAX_LENGTH:
                     errors.append(
                         self._error(

@@ -267,7 +267,7 @@ class ChatFlowAdminService:
                 )
                 if not result.valid:
                     raise InvalidFlowDraftError(result)
-                self._apply_publication(session, changes)
+                self._apply_publication(session, changes, snapshot)
                 published_version = (published.version or 0) + 1
                 now = _now()
                 revision.status = RevisionStatus.PUBLISHED
@@ -676,7 +676,9 @@ class ChatFlowAdminService:
         self,
         session: Session,
         changes: list[FlowGraphChangeModel],
+        snapshot: dict[str, Any],
     ) -> None:
+        parked = self._park_transition_positions(session, changes, snapshot["transitions"])
         creates = [change for change in changes if change.operation == ChangeOperation.CREATE]
         updates = [change for change in changes if change.operation == ChangeOperation.UPDATE]
         deletes = [change for change in changes if change.operation == ChangeOperation.DELETE]
@@ -697,6 +699,40 @@ class ChatFlowAdminService:
             for change in deletes:
                 if change.entity_type == entity_type:
                     self._delete_entity(session, change)
+        session.flush()
+        final_positions = {transition["id"]: transition["position"] for transition in snapshot["transitions"]}
+        for transition in parked:
+            if transition.id in final_positions:
+                transition.position = final_positions[transition.id]
+        session.flush()
+
+    @staticmethod
+    def _park_transition_positions(
+        session: Session,
+        changes: list[FlowGraphChangeModel],
+        final_transitions: list[dict[str, Any]],
+    ) -> list[FlowTransitionModel]:
+        transition_changes = [change for change in changes if change.entity_type == ChangeEntityType.TRANSITION]
+        if not transition_changes:
+            return []
+        current = list(session.scalars(select(FlowTransitionModel).order_by(FlowTransitionModel.id)))
+        changed_ids = {change.entity_id for change in transition_changes}
+        affected_nodes = {transition.node_id for transition in current if transition.id in changed_ids}
+        affected_nodes.update(
+            change.new_value["node_id"] for change in transition_changes if change.new_value is not None
+        )
+        parked = [transition for transition in current if transition.node_id in affected_nodes]
+        occupied = {transition.position for transition in parked} | {transition["position"] for transition in final_transitions}
+        temporary_position = 0
+        # Reserve positions outside both the current and final orders, so immediate
+        # UNIQUE checks also allow swaps, replacements and moves between nodes.
+        for transition in parked:
+            while temporary_position in occupied:
+                temporary_position += 1
+            transition.position = temporary_position
+            temporary_position += 1
+        session.flush()
+        return parked
 
     @staticmethod
     def _resolve_id(
