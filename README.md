@@ -91,6 +91,17 @@ Se quiser aplicar a migration manualmente, use:
 uv run alembic upgrade head
 ```
 
+Ao aplicar a migration `0016_optional_registration`, as actions de cadastro passam
+a ser opcionais e suas dependências são removidas. FAQ, reposição, suporte,
+rotas e drafts são preservados. Ela também funciona em bancos já ajustados
+manualmente. O downgrade mantém essa configuração; para recuperar os valores
+anteriores, restaure o backup do ambiente.
+
+O cache do fluxo não tem TTL. Ao aplicar essa migration em um ambiente já em uso,
+mantenha API e workers parados, aplique a migration e remova a chave
+`chatbot_flow:active_revision` do Redis antes de reiniciá-los. O fluxo será
+recarregado do banco, sem publicar drafts nem mudar sua versão.
+
 > O Docker Compose aplica migrations existentes, mas não cria migrations novas. Sempre gere e commite o arquivo em `migrations/versions` antes de abrir o PR.
 
 Para bancos já existentes criados antes do Alembic, rode uma única vez:

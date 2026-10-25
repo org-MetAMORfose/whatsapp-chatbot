@@ -73,7 +73,15 @@ async def test_seed_draft_publication_and_optional_action_deletion() -> None:
         with factory() as session:
             assert session.scalar(select(func.count(FlowTransitionModel.id))) == 157
             assert session.scalar(select(func.count(FlowTransitionActionModel.id))) == 172
-            assert session.scalar(select(func.count(FlowActionDependencyModel.id))) == 60
+            assert session.scalar(select(func.count(FlowActionDependencyModel.id))) == 0
+            assert session.scalar(select(func.count(FlowTransitionActionModel.id)).where(FlowTransitionActionModel.is_required)) == 14
+            assert all(
+                not action.is_required
+                for node in flow.nodes.values()
+                for transition in node.transitions
+                for action in transition.actions
+                if action.action_key.startswith(("redis_", "postgres_register_", "postgres_route_patient_"))
+            )
             end = session.scalar(select(FlowNodeModel).where(FlowNodeModel.type == NodeType.END).limit(1))
             published = session.scalar(
                 select(FlowGraphRevisionModel).where(
