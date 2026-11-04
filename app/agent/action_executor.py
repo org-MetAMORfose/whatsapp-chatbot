@@ -22,7 +22,7 @@ from app.domain.enum.chat_mode import ChatMode
 from app.domain.enum.chat_state import ChatState
 from app.domain.enum.faq_answer_status import FaqAnswerStatus
 from app.domain.enum.faq_session_outcome import FaqSessionOutcome
-from app.domain.matching.profile import patient_request, professional_profile, specialties
+from app.domain.matching.profile import PSYCHOTHERAPY, append_specialty_answer, area, patient_request, professional_profile
 from app.domain.message import Message
 from app.domain.redis.patient_stage import PatientStageContext
 from app.domain.sheets import PatientSheet, ProfessionalSheet
@@ -289,6 +289,7 @@ class ActionExecutor:
     ) -> str:
         """Create temporary professional registration context."""
         await self.professional_stage_repository.get_or_create_context(message)
+        await self.professional_stage_repository.update_context(message, {"psychotherapy_specialties": None})
         return ""
 
     async def redis_update_professional(
@@ -305,7 +306,10 @@ class ActionExecutor:
         return ""
 
     async def redis_update_professional_list(self, message: Message, *, field: str) -> str:
-        values = specialties([part.strip() for part in (message.content or "").split(",") if part.strip()])
+        context = await self.professional_stage_repository.get_or_create_context(message)
+        if not any(area(value) == PSYCHOTHERAPY for value in [context.area, *(context.areas or [])]):
+            return ""
+        values = append_specialty_answer(getattr(context, field), message.content)
         await self.professional_stage_repository.update_context(message, {field: values})
         return ""
 
@@ -392,6 +396,7 @@ class ActionExecutor:
             f"- E-mail: {format_value(context.email, 80)}\n"
             f"- Área de atuação: {format_value(context.area, 50)}\n"
             f"- Abordagem: {format_value(context.approach, 50)}\n"
+            f"- Especialidades: {format_value(', '.join(context.psychotherapy_specialties or []))}\n"
             f"- Gênero: {format_value(context.gender, 30)}\n"
             f"- Identificação: {format_value(context.minority_group, 50)}\n"
             f"- Ferramenta online: {format_value(context.video_tool, 50)}\n"
@@ -637,6 +642,7 @@ class ActionExecutor:
 
         if not self.patient_repository.exists_by_person_id(person.id):
             await self.patient_stage_repository.get_or_create_context(message)
+            await self.patient_stage_repository.update_context(message, {"psychotherapy_specialties": None})
             return ActionResult(data={"patient_is_returning": False})
 
         latest_patient = self.patient_repository.get_latest_by_person_id(person.id)
@@ -802,7 +808,10 @@ class ActionExecutor:
         return ""
 
     async def redis_update_patient_list(self, message: Message, *, field: str) -> str:
-        values = specialties([part.strip() for part in (message.content or "").split(",") if part.strip()])
+        context = await self.patient_stage_repository.get_or_create_context(message)
+        if area(context.area) != PSYCHOTHERAPY:
+            return ""
+        values = append_specialty_answer(getattr(context, field), message.content)
         await self.patient_stage_repository.update_context(message, {field: values})
         return ""
 
@@ -871,9 +880,16 @@ class ActionExecutor:
         )
         if ActionExecutor._normalize_content(context.area) == "psicoterapia":
             summary += f"- Abordagem em psicoterapia: {format_value(context.psychotherapy_approach)}\n"
+            summary += f"- Especialidades: {format_value(', '.join(context.psychotherapy_specialties or []))}\n"
 
+        preference = patient_request(
+            selected_area=context.area, professional_profile=context.professional_profile,
+            preferred_gender=context.preferred_gender, preferred_race=context.preferred_race,
+        )["professional_preferences"]
         return summary + (
-            f"- Perfil profissional: {format_value(context.professional_profile)}\n- Faixa de valor: {format_value(context.price_range)}\n\n"
+            f"- Gênero do profissional: {format_value(preference['gender'])}\n"
+            f"- Autodeclaração do profissional: {format_value(preference['race'])}\n"
+            f"- Faixa de valor: {format_value(context.price_range)}\n\n"
         )
 
     @staticmethod

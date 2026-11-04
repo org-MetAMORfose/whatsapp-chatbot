@@ -168,7 +168,7 @@ async def run() -> None:
             outbox = OutboxRepository(factory)
             media = create_media_service()
             flow_cache = ChatFlowCache(redis, ChatFlowRepository(factory))
-            await flow_cache.get_flow()
+            await flow_cache.refresh()
             agent = AgentWorker(
                 ctx=ctx,
                 inbound=inbound,

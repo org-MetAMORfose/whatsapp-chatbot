@@ -97,10 +97,26 @@ rotas e drafts são preservados. Ela também funciona em bancos já ajustados
 manualmente. O downgrade mantém essa configuração; para recuperar os valores
 anteriores, restaure o backup do ambiente.
 
-O cache do fluxo não tem TTL. Ao aplicar essa migration em um ambiente já em uso,
-mantenha API e workers parados, aplique a migration e remova a chave
-`chatbot_flow:active_revision` do Redis antes de reiniciá-los. O fluxo será
-recarregado do banco, sem publicar drafts nem mudar sua versão.
+O cache do fluxo não tem TTL. Mantenha API e workers parados ao aplicar migrations
+do fluxo; o worker recarrega o grafo publicado do banco ao iniciar, mesmo que o
+Redis ainda contenha uma versão anterior.
+
+A migration `0017_intake_matching_actions` conecta as perguntas de especialidades
+e autodeclaração do paciente às actions existentes, e troca a action de gênero
+pela preferência individual. As opções antigas que combinam gênero e identificação
+continuam usando a action anterior. As especialidades são acumuladas somente para
+psicoterapia, ignorando “Sem preferência” sem apagar escolhas anteriores.
+Gênero e identificação do profissional continuam nas actions existentes.
+Os dados são gravados nos JSONs `matching_profile` e `matching_request` ao concluir
+o cadastro, sem novas tabelas ou colunas. Nós personalizados ausentes em uma
+instalação nova são ignorados pela migration.
+
+Quando há alterações, a migration cria uma revisão publicada com a próxima versão
+para impedir a publicação de drafts anteriores sobre o grafo atualizado.
+O downgrade preserva as actions, como na migration 0016; para desfazer os dados,
+restaure um backup. O deploy precisa atualizar o chatbot e a Lambda de matching
+antes do front, para aceitar também Behaviorismo, Humanismo, Gestalt,
+Fenomenologia e Avaliação neuropsico. A regra de pontuação do matching permanece igual.
 
 > O Docker Compose aplica migrations existentes, mas não cria migrations novas. Sempre gere e commite o arquivo em `migrations/versions` antes de abrir o PR.
 

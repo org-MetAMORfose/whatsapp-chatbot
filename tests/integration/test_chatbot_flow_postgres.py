@@ -50,7 +50,7 @@ async def test_seed_draft_publication_and_optional_action_deletion() -> None:
         version, flow = ChatFlowRepository(factory).load()
         validation = ChatFlowValidator().validate(flow)
 
-        assert version == 1
+        assert version >= 1
         assert validation.valid, validation.model_dump()
         assert len(flow.nodes) == 70
 
@@ -86,7 +86,7 @@ async def test_seed_draft_publication_and_optional_action_deletion() -> None:
             published = session.scalar(
                 select(FlowGraphRevisionModel).where(
                     FlowGraphRevisionModel.status == RevisionStatus.PUBLISHED,
-                    FlowGraphRevisionModel.version == 1,
+                    FlowGraphRevisionModel.version == version,
                 )
             )
             assert end is not None
@@ -149,10 +149,10 @@ async def test_seed_draft_publication_and_optional_action_deletion() -> None:
 
         assert result == {
             "revision_id": draft["id"],
-            "version": 2,
+            "version": version + 1,
             "status": "PUBLISHED",
         }
-        assert publisher.calls == [(2, 71)]
+        assert publisher.calls == [(version + 1, 71)]
 
         with factory() as session:
             created = session.scalar(select(FlowNodeModel).where(FlowNodeModel.key == "integration_start"))

@@ -87,7 +87,7 @@ class PatientRegistrationRequest(RegistrationRequest):
             return None
         canonical = normalize_approach(value)
         if canonical is None:
-            raise ValueError("psychotherapy_approach must be TCC, Psicanálise or Sem preferência")
+            raise ValueError("Abordagem de psicoterapia inválida")
         return canonical
 
     @field_validator("psychotherapy_specialties")
@@ -117,7 +117,7 @@ def _normalize_approaches(values: list[str] | None) -> list[str] | None:
     for value in values:
         canonical = normalize_approach(value)
         if canonical is None:
-            raise ValueError("approaches accepts only TCC or Psicanálise")
+            raise ValueError("Abordagem de psicoterapia inválida")
         if canonical not in normalized:
             normalized.append(canonical)
     return normalized
