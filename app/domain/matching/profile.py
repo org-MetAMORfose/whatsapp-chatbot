@@ -7,7 +7,7 @@ from typing import Any
 
 SCHEMA_VERSION = 1
 PSYCHOTHERAPY = "Psicoterapia"
-APPROACHES = ("TCC", "Psicanálise")
+APPROACHES = ("TCC", "Psicanálise", "Behaviorismo", "Humanismo", "Gestalt", "Fenomenologia", "Avaliação neuropsico")
 
 
 def key(value: str | None) -> str:
@@ -36,7 +36,8 @@ def area(value: str | None) -> str | None:
 
 
 def approach(value: str | None) -> str | None:
-    aliases = {"tcc": "TCC", "psicoterapia tcc": "TCC", "psicanalise": "Psicanálise"}
+    aliases = {key(item): item for item in APPROACHES}
+    aliases["psicoterapia tcc"] = "TCC"
     return aliases.get(key(value))
 
 
@@ -49,10 +50,17 @@ def specialties(values: list[str] | None) -> list[str]:
     }
     result: list[str] = []
     for value in values or []:
+        if key(value) in ("", "sem preferencia", "sem preferecnia"):
+            continue
         canonical = aliases.get(key(value), " ".join(value.split()))
         if canonical and key(canonical) not in {key(item) for item in result}:
             result.append(canonical)
     return result
+
+
+def append_specialty_answer(previous: list[str] | None, answer: str | None) -> list[str]:
+    """Accumulate selections across pages; skipping a page keeps earlier choices."""
+    return specialties([*(previous or []), *(answer or "").split(",")])
 
 
 def normalize_gender(value: str | None) -> str | None:
@@ -70,7 +78,9 @@ def declaration(value: str | None) -> str | None:
 def identity(gender: str | None = None, minority_group: str | None = None, *, race: str | None = None,
              lgbtqiapn_plus: bool | None = None) -> dict[str, str | bool | None]:
     group = key(minority_group)
-    inferred_race = "Negra" if "negr" in group else None
+    inferred_race = "Negra" if "negr" in group else (
+        declaration(minority_group) if group in ("branco", "branca", "indigena", "asiatico", "asiatica", "imigrante") else None
+    )
     inferred_lgbt = True if "lgbt" in group else None
     normalized_gender = normalize_gender(gender)
     return {
@@ -83,6 +93,8 @@ def identity(gender: str | None = None, minority_group: str | None = None, *, ra
 def profile_preference(value: str | None) -> dict[str, str | bool | None]:
     choices: dict[str, dict[str, str | bool | None]] = {
         "mulher": {"gender": "Mulher"},
+        "homem": {"gender": "Homem"},
+        "nao binario": {"gender": "Não binário"},
         "mulher negra": {"gender": "Mulher", "race": "Negra"},
         "homem negro": {"gender": "Homem", "race": "Negra"},
         "lgbtqiapn+": {"lgbtqiapn_plus": True},

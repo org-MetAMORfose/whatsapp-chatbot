@@ -4,7 +4,7 @@ from typing import Any
 import pytest
 
 from app.domain.matching import Candidate, Patient
-from app.domain.matching.profile import patient_request, professional_profile
+from app.domain.matching.profile import APPROACHES, patient_request, professional_profile
 from matching.domain import compatibility, rank, score_candidate, urgency_score
 
 REFERENCE_TIME = datetime(2000, 1, 1, tzinfo=UTC)
@@ -19,6 +19,14 @@ def cycle(**changes: Any) -> Candidate:
         "cancelled_at": None, "promised_patients": 1, "used": 0,
     }
     return Candidate(**{**base, **changes})
+
+
+@pytest.mark.parametrize("selected", APPROACHES)
+def test_every_supported_approach_keeps_the_existing_requirement(selected: str) -> None:
+    patient = Patient(1, "Psicoterapia", selected)
+    assert score_candidate(patient, cycle(approach=selected), REFERENCE_TIME) is not None
+    other = "Gestalt" if selected == "TCC" else "TCC"
+    assert score_candidate(patient, cycle(approach=other), REFERENCE_TIME) is None
 
 
 def test_optional_preferences_count_matches_without_excluding_candidates():

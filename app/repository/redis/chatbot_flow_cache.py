@@ -43,6 +43,13 @@ class ChatFlowCache:
         self._revision: int | None = None
         self._lock = asyncio.Lock()
 
+    async def refresh(self) -> ChatFlow:
+        """Reload migration changes when the worker starts, even with a warm cache."""
+        async with self._lock:
+            revision, flow = await asyncio.to_thread(self._repository.load)
+            await self.publish(revision, flow)
+            return flow
+
     async def get_flow(self) -> ChatFlow:
         raw_revision = await self._redis.get(ACTIVE_REVISION_KEY)
         redis_revision = _parse_revision(raw_revision)

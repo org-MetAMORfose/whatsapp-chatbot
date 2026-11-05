@@ -60,6 +60,75 @@ def make_executor() -> tuple[ActionExecutor, MagicMock, MagicMock, MagicMock, Ma
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize("role", ["patient", "professional"])
+@pytest.mark.parametrize("area", ["Psicoterapia", "Nutrição"])
+async def test_specialty_actions_accumulate_answers_only_for_psychotherapy(role: str, area: str) -> None:
+    executor, professional_stage, _, _, patient_stage, _ = make_executor()
+    message = make_message()
+    model = PatientStageContext if role == "patient" else ProfessionalStageContext
+    context = model(user_id=message.user_id, chat_id=message.chat_id, channel=message.channel, area=area)
+    stage = patient_stage if role == "patient" else professional_stage
+    stage.get_or_create_context = AsyncMock(return_value=context)
+
+    async def update(_message: Message, data: dict[str, Any]) -> None:
+        for field, value in data.items():
+            setattr(context, field, value)
+
+    stage.update_context = AsyncMock(side_effect=update)
+    action = TransitionAction(action_key=f"redis_update_{role}_psychotherapy_specialties", config={})
+    for answer in ["Burnout", "Boderline", "Sem preferência", "Ansiedade", "burnout"]:
+        await executor.run([action], make_message(answer))
+
+    if area == "Psicoterapia":
+        assert context.psychotherapy_specialties == ["Burnout", "Transtorno de Personalidade Borderline", "Ansiedade"]
+    else:
+        assert context.psychotherapy_specialties is None
+        stage.update_context.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_individual_gender_action_does_not_clear_self_declaration() -> None:
+    executor, _, _, _, stage, _ = make_executor()
+    stage.update_context = AsyncMock()
+    message = make_message("Homem")
+    await executor.run([TransitionAction(action_key="redis_update_patient_preferred_gender", config={})], message)
+    stage.update_context.assert_awaited_once_with(message, {"preferred_gender": "Homem"})
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("role,field", [("patient", "preferred_race"), ("professional", "race")])
+async def test_declaration_actions_store_the_answer(role: str, field: str) -> None:
+    executor, professional_stage, _, _, patient_stage, _ = make_executor()
+    stage = patient_stage if role == "patient" else professional_stage
+    stage.update_context = AsyncMock()
+    message = make_message("Indígena")
+    await executor.run([TransitionAction(action_key=f"redis_update_{role}_{field}", config={})], message)
+    stage.update_context.assert_awaited_once_with(message, {field: "Indígena"})
+
+
+@pytest.mark.asyncio
+async def test_starting_a_professional_intake_clears_previous_specialty_selections() -> None:
+    executor, stage, *_ = make_executor()
+    stage.get_or_create_context = AsyncMock()
+    stage.update_context = AsyncMock()
+    message = make_message("Concordo")
+    await executor.redis_create_professional_stage(message)
+    stage.update_context.assert_awaited_once_with(message, {"psychotherapy_specialties": None})
+
+
+def test_patient_summary_shows_the_individual_preferences_and_collected_specialties() -> None:
+    context = PatientStageContext(
+        user_id="5511999999999", chat_id="chat", channel=Channel.WHATSAPP, area="Psicoterapia",
+        professional_profile="Mulher negra", preferred_gender="Homem", preferred_race="Branco",
+        psychotherapy_specialties=["Burnout", "Ansiedade"],
+    )
+    summary = ActionExecutor._format_patient_summary(context, context.user_id)
+    assert "Gênero do profissional: Homem" in summary
+    assert "Autodeclaração do profissional: Branca" in summary
+    assert "Especialidades: Burnout, Ansiedade" in summary
+
+
+@pytest.mark.asyncio
 async def test_configurable_sheets_action_stores_answer() -> None:
     executor, *_ = make_executor()
     stage = MagicMock()
