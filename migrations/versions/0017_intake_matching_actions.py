@@ -71,7 +71,7 @@ def upgrade() -> None:
     result = connection.execute(sa.text("""
         UPDATE chatbot_flow.transition_action AS action
         SET action_key = 'redis_update_patient_preferred_gender',
-            config = COALESCE(action.config, '{}'::jsonb)
+            config = COALESCE(NULLIF(action.config, 'null'::jsonb), '{}'::jsonb)
         FROM chatbot_flow.transition AS transition, chatbot_flow.node AS node
         WHERE action.transition_id = transition.id
           AND transition.node_id = node.id

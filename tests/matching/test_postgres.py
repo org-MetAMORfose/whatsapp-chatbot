@@ -336,7 +336,7 @@ def test_seeded_chatbot_flow_is_complete_and_loadable(database):
 
     revision, flow = ChatFlowRepository(sessionmaker(database, expire_on_commit=False)).load()
 
-    assert revision == 1
+    assert revision == 2
     assert len(flow.nodes) == 70
     start = flow.get("start")
     birth_date = flow.get("paciente_data_nascimento")
