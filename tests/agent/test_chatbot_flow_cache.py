@@ -118,12 +118,12 @@ async def test_missing_versioned_payload_recovers_from_postgres() -> None:
 
 
 @pytest.mark.asyncio
-async def test_startup_refresh_replaces_a_warm_graph_after_migration() -> None:
+async def test_startup_refresh_replaces_a_warm_graph_without_changing_its_version() -> None:
     redis = FakeRedis()
     redis.data[ACTIVE_REVISION_KEY] = "3"
     redis.data[f"{GRAPH_KEY_PREFIX}3"] = make_flow("Antes").model_dump_json()
     repository = MagicMock()
-    repository.load.return_value = (4, make_flow("Actions adicionadas"))
+    repository.load.return_value = (3, make_flow("Actions adicionadas"))
     cache = ChatFlowCache(cast(Any, redis), repository)
 
     await cache.get_flow()
@@ -131,5 +131,5 @@ async def test_startup_refresh_replaces_a_warm_graph_after_migration() -> None:
     refreshed = await cache.refresh()
     assert refreshed.nodes["start"].message == "Actions adicionadas"
     assert await cache.get_flow() is refreshed
-    assert redis.data[ACTIVE_REVISION_KEY] == "4"
+    assert redis.data[ACTIVE_REVISION_KEY] == "3"
     repository.load.assert_called_once()

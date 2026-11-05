@@ -111,8 +111,8 @@ Os dados são gravados nos JSONs `matching_profile` e `matching_request` ao conc
 o cadastro, sem novas tabelas ou colunas. Nós personalizados ausentes em uma
 instalação nova são ignorados pela migration.
 
-Quando há alterações, a migration cria uma revisão publicada com a próxima versão
-para impedir a publicação de drafts anteriores sobre o grafo atualizado.
+A migration altera somente as actions do fluxo atual, preservando a versão e as
+revisões existentes. O worker atualiza o cache na inicialização com a mesma versão.
 O downgrade preserva as actions, como na migration 0016; para desfazer os dados,
 restaure um backup. O deploy precisa atualizar o chatbot e a Lambda de matching
 antes do front, para aceitar também Behaviorismo, Humanismo, Gestalt,

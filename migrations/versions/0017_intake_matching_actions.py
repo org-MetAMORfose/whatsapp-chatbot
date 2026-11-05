@@ -40,8 +40,8 @@ ACTION_NODES = (
 )
 
 
-def _add_actions(connection: Connection, action_key: str, node_keys: tuple[str, ...]) -> int:
-    result = connection.execute(
+def _add_actions(connection: Connection, action_key: str, node_keys: tuple[str, ...]) -> None:
+    connection.execute(
         sa.text("""
             INSERT INTO chatbot_flow.transition_action (transition_id, action_key, config, is_required)
             SELECT transition.id, CAST(:action_key AS varchar), '{}'::jsonb, false
@@ -61,14 +61,13 @@ def _add_actions(connection: Connection, action_key: str, node_keys: tuple[str, 
         """).bindparams(sa.bindparam("node_keys", expanding=True)),
         {"action_key": action_key, "node_keys": node_keys, "gender_only": action_key == "redis_update_patient_preferred_gender"},
     )
-    return result.rowcount
 
 
 def upgrade() -> None:
     connection = op.get_bind()
     # Replace in place so the gender answer is stored before summary actions.
     # The combined legacy action would otherwise clear race/identity preferences.
-    result = connection.execute(sa.text("""
+    connection.execute(sa.text("""
         UPDATE chatbot_flow.transition_action AS action
         SET action_key = 'redis_update_patient_preferred_gender',
             config = COALESCE(NULLIF(action.config, 'null'::jsonb), '{}'::jsonb)
@@ -81,21 +80,8 @@ def upgrade() -> None:
           )
           AND action.action_key = 'redis_update_patient_professional_profile'
     """))
-    changed = result.rowcount
     for action_key, node_keys in ACTION_NODES:
-        changed += _add_actions(connection, action_key, node_keys)
-
-    if changed:
-        # A new version makes existing editor drafts stale rather than silently
-        # allowing them to overwrite the migrated graph. Worker startup refreshes Redis.
-        connection.execute(sa.text("""
-            INSERT INTO chatbot_flow.graph_revision
-                (base_revision_id, status, version, created_at, updated_at, published_at)
-            SELECT id, 'PUBLISHED', version + 1, now(), now(), now()
-            FROM chatbot_flow.graph_revision
-            WHERE status = 'PUBLISHED'
-            ORDER BY version DESC LIMIT 1
-        """))
+        _add_actions(connection, action_key, node_keys)
 
 
 def downgrade() -> None:
