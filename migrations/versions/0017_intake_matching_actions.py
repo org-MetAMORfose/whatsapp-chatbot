@@ -44,7 +44,7 @@ def _add_actions(connection: Connection, action_key: str, node_keys: tuple[str, 
     result = connection.execute(
         sa.text("""
             INSERT INTO chatbot_flow.transition_action (transition_id, action_key, config, is_required)
-            SELECT transition.id, :action_key, '{}'::jsonb, false
+            SELECT transition.id, CAST(:action_key AS varchar), '{}'::jsonb, false
             FROM chatbot_flow.transition AS transition
             JOIN chatbot_flow.node AS node ON node.id = transition.node_id
             WHERE node.key IN :node_keys
@@ -56,7 +56,7 @@ def _add_actions(connection: Connection, action_key: str, node_keys: tuple[str, 
               )
               AND NOT EXISTS (
                   SELECT 1 FROM chatbot_flow.transition_action AS action
-                  WHERE action.transition_id = transition.id AND action.action_key = :action_key
+                  WHERE action.transition_id = transition.id AND action.action_key = CAST(:action_key AS varchar)
               )
         """).bindparams(sa.bindparam("node_keys", expanding=True)),
         {"action_key": action_key, "node_keys": node_keys, "gender_only": action_key == "redis_update_patient_preferred_gender"},
