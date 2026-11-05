@@ -118,13 +118,6 @@ restaure um backup. O deploy precisa atualizar o chatbot e a Lambda de matching
 antes do front, para aceitar também Behaviorismo, Humanismo, Gestalt,
 Fenomenologia e Avaliação neuropsico. A regra de pontuação do matching permanece igual.
 
-Para aplicar apenas esses ajustes manualmente no DBeaver, o script equivalente
-está em [scripts/sql/intake_matching_actions.sql](scripts/sql/intake_matching_actions.sql).
-Execute o arquivo inteiro com API e worker parados, junto ao deploy do código novo,
-e reinicie o worker depois para recarregar o fluxo. O script não altera a versão
-do fluxo nem o histórico do Alembic. Se a migration for executada depois, não duplica
-as actions. A migration continua incluída no projeto e foi validada pelo CI.
-
 > O Docker Compose aplica migrations existentes, mas não cria migrations novas. Sempre gere e commite o arquivo em `migrations/versions` antes de abrir o PR.
 
 Para bancos já existentes criados antes do Alembic, rode uma única vez:
