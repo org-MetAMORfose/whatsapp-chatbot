@@ -11,7 +11,9 @@ Atendimento pago por Pix, oferecido aos psicólogos disponíveis e atendido por 
 5. O primeiro psicólogo que toca **Aceitar** fica com o atendimento (`UPDATE ... WHERE status = 'queued'`). O relay cria a sala no Daily (`immediate.accepted.v1`) e manda o link para os dois.
 6. Se ninguém aceita no prazo, o pedido expira, o estorno é feito pela API Pix (`immediate.refund.v1`) e o paciente é avisado. O estorno nunca roda duas vezes (`refunded_at`).
 
-Comandos do psicólogo no WhatsApp: `DISPONÍVEL`, `INDISPONÍVEL`, `Aceitar` (botão do modelo). Só profissionais com `area = Psicoterapia`.
+Comandos do psicólogo no WhatsApp: `DISPONÍVEL`, `INDISPONÍVEL`, `Aceitar` (botão do modelo). Só psicólogos com cadastro aprovado (não `PENDING_REVIEW`) e área Psicoterapia (perfil de matching ou campo `area`, com aliases). Sem nenhum psicólogo disponível, o paciente é avisado antes de qualquer cobrança.
+
+Estorno: o pedido só é marcado como estornado (e o paciente avisado) quando o banco responde `DEVOLVIDO`; enquanto estiver `EM_PROCESSAMENTO` o worker consulta a devolução a cada minuto por até uma hora. `NAO_REALIZADO` ou prazo esgotado geram erro no log e exigem ação manual (o painel mostra "Expirado" sem estorno). O prazo do Pix consulta o banco antes de cancelar, e cancelar remove a cobrança no BB.
 
 Os textos das mensagens do paciente ficam no fluxo do banco e podem ser editados no painel (nós `paciente_imediato`, `imediato_*`). Os textos do relay e do interceptador ficam em `app/services/immediate_care_relay.py` e `app/services/immediate_care_interceptor.py`.
 
@@ -19,6 +21,7 @@ Os textos das mensagens do paciente ficam no fluxo do banco e podem ser editados
 
 | Variável | Uso |
 | --- | --- |
+| `IMMEDIATE_CARE_ENABLED` | `false` por padrão: o botão "Atendimento imediato" responde que o serviço ainda não está disponível. Ligue só com o Pix do BB e o modelo da Meta prontos. |
 | `PIX_PROVIDER` | `fake` (desenvolvimento) ou `bb` (produção). |
 | `BB_PIX_CLIENT_ID`, `BB_PIX_CLIENT_SECRET`, `BB_PIX_DEV_APP_KEY` | Credenciais do aplicativo no portal do desenvolvedor do BB. |
 | `BB_PIX_CERT_PATH`, `BB_PIX_KEY_PATH` | Certificado e chave privada (mTLS). No servidor: `secrets/bb-pix.crt` e `secrets/bb-pix.key`, montados em `/app/secrets` pelo `docker-compose.yml`. Nunca vão para o git. |
@@ -42,11 +45,11 @@ Os textos das mensagens do paciente ficam no fluxo do banco e podem ser editados
 2. **Banco do Brasil:** criar o aplicativo com a API Pix, baixar o certificado, colocar `bb-pix.crt` e `bb-pix.key` em `secrets/` no servidor e preencher as variáveis `BB_PIX_*`. Começar em homologação.
 3. **Daily:** criar a conta no e-mail da MetAMORfose e gerar a chave da API.
 4. **GitHub:** cadastrar os segredos (`BB_PIX_CLIENT_ID`, `BB_PIX_CLIENT_SECRET`, `BB_PIX_DEV_APP_KEY`, `BB_PIX_CHAVE`, `PIX_WEBHOOK_TOKEN`, `DAILY_API_KEY`) e as variáveis (`PIX_PROVIDER=bb`, `BB_PIX_BASE_URL`, `BB_PIX_OAUTH_URL`, `PUBLIC_BASE_URL`, preços e prazos). O deploy escreve tudo no `.env` do servidor.
-5. **Deploy:** a migração `0018` cria a tabela e as colunas; a `0019` publica os nós do fluxo. O worker recarrega o fluxo ao subir.
+5. **Deploy:** a migração `0018` cria a tabela e as colunas; a `0019` publica os nós do fluxo. O worker recarrega o fluxo ao subir. Com `IMMEDIATE_CARE_ENABLED=false` (padrão) nada muda para o paciente além da mensagem "ainda não está disponível".
 6. **Webhook do BB:** com a API no ar, rodar uma vez:
 
    ```bash
-   docker compose run --rm --no-deps api python scripts/registrar_webhook_pix.py
+   docker compose run --rm --no-deps api python -m app.scripts.registrar_webhook_pix
    ```
 
    O script registra `{PUBLIC_BASE_URL}/pix/webhook/{PIX_WEBHOOK_TOKEN}` para a chave `BB_PIX_CHAVE`.

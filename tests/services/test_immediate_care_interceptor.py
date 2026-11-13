@@ -151,3 +151,24 @@ async def test_processor_answers_with_interceptor_before_the_flow() -> None:
     assert second_result["response"]["content"] == "fluxo normal"
     agent._process_message.assert_awaited_once()
     assert interceptor.handle.await_args_list[0].args[1].id == 9
+
+
+@pytest.mark.asyncio
+async def test_pending_review_cannot_become_available() -> None:
+    interceptor, professionals, _requests, _offers, _outbox = make_interceptor(found=professional())
+    professionals.get_by_person_id.return_value = ProfessionalModel(
+        id=3, person_id=9, area="Psicoterapia", professional_register="1", register_type="PENDING_REVIEW"
+    )
+    response = await interceptor.handle(message("Disponível"), PERSON)
+    assert response == Response(
+        content="Seu cadastro ainda está em análise. Assim que for aprovado, você poderá ficar disponível para o acolhimento imediato."
+    )
+    professionals.set_available_for_immediate.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_available_accepts_legacy_comma_area() -> None:
+    interceptor, professionals, _requests, _offers, _outbox = make_interceptor(found=professional("Psicoterapia, Psiquiatria"))
+    response = await interceptor.handle(message("Disponível"), PERSON)
+    assert response == Response(content="Pronto! Você está disponível para acolhimento imediato. Quando quiser sair, mande INDISPONÍVEL.")
+    professionals.set_available_for_immediate.assert_called_once_with(9, True, now=NOW)

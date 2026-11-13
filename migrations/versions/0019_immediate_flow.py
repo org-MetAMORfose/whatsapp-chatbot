@@ -104,6 +104,21 @@ NEW_NODES = (
         "Pedido aceito, expirado ou cancelado; a conversa volta ao início.",
         "Se precisar de um novo atendimento, mande RESET e recomece.",
     ),
+    (
+        "imediato_indisponivel",
+        "END",
+        "Atendimento imediato desligado",
+        "Mostrado enquanto IMMEDIATE_CARE_ENABLED estiver desligado.",
+        "O atendimento imediato ainda não está disponível. Enquanto isso, você pode agendar: mande RESET e escolha Agendar atendimento.",
+    ),
+    (
+        "imediato_sem_profissional",
+        "END",
+        "Nenhum psicólogo disponível",
+        "Nenhum profissional disponível no momento; nenhuma cobrança é gerada.",
+        "Nenhum psicólogo está disponível para atendimento imediato agora, então não vou gerar a cobrança. "
+        "Tente de novo mais tarde ou mande RESET e escolha Agendar atendimento.",
+    ),
 )
 
 
@@ -118,8 +133,11 @@ def _route(field: str, target: str) -> dict[str, object]:
 
 
 CREATE_REQUEST_CONFIG = _route("immediate_active", "imediato_em_andamento")
+NOBODY_CONFIG = _route("immediate_nobody_available", "imediato_sem_profissional")
 PAID_CONFIG = _route("immediate_paid", "imediato_na_fila")
 DONE_CONFIG = _route("immediate_done", "imediato_encerrado")
+GATE_CONFIG = _route("immediate_disabled", "imediato_indisponivel")
+ENTRY_NODE, ENTRY_VALUE = "paciente_tipo_atendimento", "atendimento imediato"
 
 # (node_key, input_type, expected_value, button_label, target_key, [(action_key, config, is_required)])
 TRANSITIONS: tuple[tuple[str, str, str | None, str | None, str, list[tuple[str, dict[str, object] | None, bool]]], ...] = (
@@ -129,14 +147,43 @@ TRANSITIONS: tuple[tuple[str, str, str | None, str | None, str, list[tuple[str, 
     ("imediato_triagem_2", "TEXT", "Sim", "Sim", "imediato_emergencia", []),
     ("imediato_termos", "TEXT", "Aceito os termos", "Aceito os termos", "imediato_duracao", []),
     ("imediato_termos", "TEXT", "Não aceito", "Não aceito", "imediato_recusa", []),
-    ("imediato_duracao", "TEXT", "30 minutos", "30 minutos", "imediato_pix", [("immediate_create_request", CREATE_REQUEST_CONFIG, True)]),
-    ("imediato_duracao", "TEXT", "50 minutos", "50 minutos", "imediato_pix", [("immediate_create_request", CREATE_REQUEST_CONFIG, True)]),
-    ("imediato_pix", "TEXT", "cancelar", None, "imediato_cancelado", [("immediate_cancel", None, True)]),
+    (
+        "imediato_duracao",
+        "TEXT",
+        "30 minutos",
+        "30 minutos",
+        "imediato_pix",
+        [("immediate_create_request", CREATE_REQUEST_CONFIG, True), ("immediate_noop", NOBODY_CONFIG, False)],
+    ),
+    (
+        "imediato_duracao",
+        "TEXT",
+        "50 minutos",
+        "50 minutos",
+        "imediato_pix",
+        [("immediate_create_request", CREATE_REQUEST_CONFIG, True), ("immediate_noop", NOBODY_CONFIG, False)],
+    ),
+    ("imediato_pix", "TEXT", "cancelar", None, "imediato_cancelado", [("immediate_cancel", PAID_CONFIG, True)]),
     ("imediato_pix", "AUTO", None, None, "imediato_pix", [("immediate_payment_status", PAID_CONFIG, False)]),
     ("imediato_na_fila", "AUTO", None, None, "imediato_na_fila", [("immediate_payment_status", DONE_CONFIG, False)]),
 )
 
 NEW_KEYS = tuple(node[0] for node in NEW_NODES)
+
+
+def _insert_action(connection: Connection, transition_id: int, action_key: str, config: dict[str, object] | None, is_required: bool) -> None:
+    connection.execute(
+        sa.text(
+            "INSERT INTO chatbot_flow.transition_action (transition_id, action_key, config, is_required) "
+            "VALUES (:transition_id, :action_key, CAST(:config AS jsonb), :is_required)"
+        ),
+        {
+            "transition_id": transition_id,
+            "action_key": action_key,
+            "config": json.dumps(config) if config is not None else None,
+            "is_required": is_required,
+        },
+    )
 
 
 def _node_ids(connection: Connection) -> dict[str, int]:
@@ -172,6 +219,16 @@ def upgrade() -> None:
             },
         )
     ids = _node_ids(connection)
+    entry_transition_id = connection.scalar(
+        sa.text(
+            "SELECT transition.id FROM chatbot_flow.transition AS transition JOIN chatbot_flow.node AS node ON node.id = transition.node_id "
+            "WHERE node.key = :node_key AND lower(transition.expected_value) = :expected"
+        ),
+        {"node_key": ENTRY_NODE, "expected": ENTRY_VALUE},
+    )
+    if entry_transition_id is None:
+        raise RuntimeError("Transition 'Atendimento imediato' not found in paciente_tipo_atendimento")
+    _insert_action(connection, int(entry_transition_id), "immediate_gate", GATE_CONFIG, True)
     positions: dict[str, int] = {}
     for node_key, input_type, expected, button, target, actions in TRANSITIONS:
         transition_position = positions.get(node_key, 0)
@@ -191,22 +248,13 @@ def upgrade() -> None:
             },
         ).scalar_one()
         for action_key, config, is_required in actions:
-            connection.execute(
-                sa.text(
-                    "INSERT INTO chatbot_flow.transition_action (transition_id, action_key, config, is_required) "
-                    "VALUES (:transition_id, :action_key, CAST(:config AS jsonb), :is_required)"
-                ),
-                {
-                    "transition_id": transition_id,
-                    "action_key": action_key,
-                    "config": json.dumps(config) if config is not None else None,
-                    "is_required": is_required,
-                },
-            )
+            _insert_action(connection, int(transition_id), action_key, config, is_required)
 
 
 def downgrade() -> None:
     connection = op.get_bind()
+    # The gate lives on the menu transition of a node that stays; remove every immediate_* action explicitly.
+    connection.execute(sa.text("DELETE FROM chatbot_flow.transition_action WHERE action_key LIKE 'immediate\\_%'"))
     ids = _node_ids(connection)
     node_ids = list(ids.values())
     if node_ids:

@@ -36,6 +36,10 @@ class PixGateway(Protocol):
 
     async def refund(self, *, e2e_id: str, refund_id: str, amount_cents: int) -> PixRefund: ...
 
+    async def get_refund(self, *, e2e_id: str, refund_id: str) -> PixRefund: ...
+
+    async def cancel_charge(self, txid: str) -> None: ...
+
 
 def format_amount(cents: int) -> str:
     """Bank format: 6000 -> "60.00"."""

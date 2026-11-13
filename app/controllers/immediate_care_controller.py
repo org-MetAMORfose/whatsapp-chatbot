@@ -7,6 +7,7 @@ from pydantic import BaseModel, ConfigDict
 
 from app.controllers.auth import ApiKeyHeader, require_chatbot_api_key
 from app.domain.db.immediate_request_model import ImmediateRequestModel
+from app.domain.immediate_eligibility import is_eligible_for_immediate
 from app.repository.sql.immediate_request_repository import ImmediateRequestRepository
 from app.repository.sql.professional_repository import ProfessionalRepository
 
@@ -60,6 +61,11 @@ class ImmediateCareController:
         professional = self._professionals.get_by_id(professional_id)
         if professional is None:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Profissional não encontrado.")
+        if body.available and not is_eligible_for_immediate(professional):
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail="Só psicólogos com cadastro aprovado podem ficar disponíveis para o acolhimento imediato.",
+            )
         updated = self._professionals.set_available_for_immediate(professional.person_id, body.available, now=datetime.now(UTC))
         if updated is None:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Profissional não encontrado.")

@@ -4,14 +4,13 @@ from collections.abc import Callable
 from datetime import datetime
 from typing import Any
 
-from sqlalchemy import func, select
+from sqlalchemy import select
 from sqlalchemy.orm import Session, joinedload
 
 from app.domain.db.professional_model import ProfessionalModel
-from app.domain.matching.profile import PSYCHOTHERAPY, professional_profile
+from app.domain.immediate_eligibility import is_eligible_for_immediate
+from app.domain.matching.profile import professional_profile
 from app.repository.sql.transaction import commit, session_scope
-
-IMMEDIATE_AREA = PSYCHOTHERAPY.lower()
 
 
 class ProfessionalRepository:
@@ -105,12 +104,12 @@ class ProfessionalRepository:
             return professional
 
     def list_available_for_immediate(self) -> list[ProfessionalModel]:
-        """Psychologists who opted in to immediate care, with their person loaded."""
+        """Approved psychologists who opted in to immediate care, with their person loaded."""
         with session_scope(self._session_factory) as session:
             stmt = (
                 select(ProfessionalModel)
                 .options(joinedload(ProfessionalModel.person))
-                .where(ProfessionalModel.available_for_immediate.is_(True), func.lower(ProfessionalModel.area) == IMMEDIATE_AREA)
+                .where(ProfessionalModel.available_for_immediate.is_(True))
                 .order_by(ProfessionalModel.id)
             )
-            return list(session.execute(stmt).unique().scalars().all())
+            return [professional for professional in session.execute(stmt).unique().scalars().all() if is_eligible_for_immediate(professional)]

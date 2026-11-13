@@ -217,6 +217,8 @@ class ActionExecutor:
             "immediate_create_request": self.immediate_create_request,
             "immediate_payment_status": self.immediate_payment_status,
             "immediate_cancel": self.immediate_cancel,
+            "immediate_gate": self.immediate_gate,
+            "immediate_noop": self.immediate_noop,
             "faq_process_question": self.faq_process_question,
             "faq_continue_or_satisfy": self.faq_continue_or_satisfy,
             "faq_continue_or_finish": self.faq_continue_or_finish,
@@ -551,6 +553,8 @@ class ActionExecutor:
             raise ValueError("Immediate request without a registered person")
         if requests.get_active_for_patient(person.id, now=self._now()) is not None:
             return ActionResult(output="", data={"immediate_active": True})
+        if not self.professional_repository.list_available_for_immediate():
+            return ActionResult(output="", data={"immediate_active": False, "immediate_nobody_available": True})
         minutes = _immediate_duration(message.content)
         amount = settings.IMMEDIATE_PRICE_30_CENTS if minutes == 30 else settings.IMMEDIATE_PRICE_50_CENTS
         txid = uuid4().hex
@@ -570,7 +574,7 @@ class ActionExecutor:
         )
         return ActionResult(
             output=f"Valor: {format_reais(amount)}\n\nPix copia e cola:\n{charge.copia_cola}\n\n",
-            data={"immediate_active": False, "immediate_request_id": request.id},
+            data={"immediate_active": False, "immediate_nobody_available": False, "immediate_request_id": request.id},
         )
 
     async def immediate_payment_status(self, message: Message) -> ActionResult:
@@ -596,11 +600,29 @@ class ActionExecutor:
         return ActionResult(output=f"Seu atendimento já foi aceito. {room}\n\n", data={"immediate_paid": True, "immediate_done": True})
 
     async def immediate_cancel(self, message: Message) -> ActionResult:
-        requests, _gateway = self._immediate()
+        """Cancel an unpaid request (and its charge at the bank); a paid one keeps waiting."""
+        requests, gateway = self._immediate()
         request = self._active_immediate_request(message, requests)
-        if request is not None and request.status == ImmediateStatus.AWAITING_PAYMENT.value:
-            requests.cancel(request.id)
-        return ActionResult(output="")
+        if request is None:
+            return ActionResult(output="", data={"immediate_paid": False})
+        if request.status != ImmediateStatus.AWAITING_PAYMENT.value:
+            return ActionResult(
+                output="Seu pagamento já foi recebido, então o pedido não pode mais ser cancelado.\n\n", data={"immediate_paid": True}
+            )
+        if requests.cancel(request.id) and request.pix_txid:
+            try:
+                await gateway.cancel_charge(request.pix_txid)
+            except Exception:
+                logger.exception("Could not remove Pix charge %s after cancelling request %s", request.pix_txid, request.id)
+        return ActionResult(output="", data={"immediate_paid": False})
+
+    async def immediate_gate(self, message: Message) -> ActionResult:
+        """Keep the immediate care entry closed until IMMEDIATE_CARE_ENABLED is on."""
+        return ActionResult(output="", data={"immediate_disabled": not settings.IMMEDIATE_CARE_ENABLED})
+
+    async def immediate_noop(self, message: Message) -> ActionResult:
+        """Carries an action_transition config without doing anything itself."""
+        return ActionResult()
 
     async def faq_process_question(self, message: Message) -> ActionResult:
         """Answer one FAQ question and expose its count for graph config."""

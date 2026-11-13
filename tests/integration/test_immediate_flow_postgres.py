@@ -23,6 +23,8 @@ KEYS = (
     "imediato_em_andamento",
     "imediato_cancelado",
     "imediato_encerrado",
+    "imediato_indisponivel",
+    "imediato_sem_profissional",
 )
 
 
@@ -90,10 +92,14 @@ def test_immediate_nodes_are_published_and_loadable() -> None:
         assert duration.buttons == ["30 minutos", "50 minutos"]
         for transition in duration.transitions:
             assert transition.target == "imediato_pix"
-            assert action_keys(transition) == ["immediate_create_request"]
-            assert transition.actions[0].is_required is True
+            assert action_keys(transition) == ["immediate_create_request", "immediate_noop"]
+            assert transition.actions[0].is_required is True and transition.actions[1].is_required is False
             assert route_of(transition) == ("immediate_active", "imediato_em_andamento")
+            noop_config = transition.actions[1].config
+            assert noop_config is not None and noop_config["source"]["field"] == "immediate_nobody_available"
+            assert noop_config["target_node_key"] == "imediato_sem_profissional"
         assert node(flow, "imediato_em_andamento").type == NodeType.END
+        assert node(flow, "imediato_sem_profissional").type == NodeType.END
 
         pix = node(flow, "imediato_pix")
         assert pix.type == NodeType.MESSAGE
@@ -102,6 +108,7 @@ def test_immediate_nodes_are_published_and_loadable() -> None:
         assert cancel.input_type == InputType.TEXT and cancel.button_label is None
         assert cancel.target == "imediato_cancelado" and action_keys(cancel) == ["immediate_cancel"]
         assert cancel.actions[0].is_required is True
+        assert route_of(cancel) == ("immediate_paid", "imediato_na_fila")
         assert waiting.input_type == InputType.AUTO and waiting.target == "imediato_pix"
         assert action_keys(waiting) == ["immediate_payment_status"] and waiting.actions[0].is_required is False
         assert route_of(waiting) == ("immediate_paid", "imediato_na_fila")
@@ -114,6 +121,13 @@ def test_immediate_nodes_are_published_and_loadable() -> None:
         assert route_of(queue.transitions[0]) == ("immediate_done", "imediato_encerrado")
         assert node(flow, "imediato_encerrado").type == NodeType.END
 
-        assert targets(node(flow, "paciente_tipo_atendimento"))["atendimento imediato"] == "paciente_imediato"
+        menu = node(flow, "paciente_tipo_atendimento")
+        assert targets(menu)["atendimento imediato"] == "paciente_imediato"
+        entry = next(transition for transition in menu.transitions if transition.expected_value == "atendimento imediato")
+        assert action_keys(entry) == ["postgres_route_patient_registration", "immediate_gate"]
+        gate = entry.actions[1]
+        assert gate.is_required is True and gate.config is not None
+        assert gate.config["source"]["field"] == "immediate_disabled" and gate.config["target_node_key"] == "imediato_indisponivel"
+        assert node(flow, "imediato_indisponivel").type == NodeType.END
     finally:
         engine.dispose()

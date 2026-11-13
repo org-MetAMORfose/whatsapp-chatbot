@@ -124,5 +124,13 @@ class BancoDoBrasilPixGateway:
         body = await self._request("PUT", f"/pix/{e2e_id}/devolucao/{refund_id}", json={"valor": format_amount(amount_cents)})
         return PixRefund(refund_id=str(body.get("id", refund_id)), status=str(body.get("status", "EM_PROCESSAMENTO")))
 
+    async def get_refund(self, *, e2e_id: str, refund_id: str) -> PixRefund:
+        body = await self._request("GET", f"/pix/{e2e_id}/devolucao/{refund_id}")
+        return PixRefund(refund_id=str(body.get("id", refund_id)), status=str(body.get("status", "EM_PROCESSAMENTO")))
+
+    async def cancel_charge(self, txid: str) -> None:
+        """Remove an unpaid charge so a late payment is refused by the bank."""
+        await self._request("PATCH", f"/cob/{txid}", json={"status": "REMOVIDA_PELO_USUARIO_RECEBEDOR"})
+
     async def register_webhook(self, url: str) -> None:
         await self._request("PUT", f"/webhook/{self._chave}", json={"webhookUrl": url})

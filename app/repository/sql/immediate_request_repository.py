@@ -106,6 +106,10 @@ class ImmediateRequestRepository:
     def set_room(self, request_id: int, room_url: str) -> None:
         self._transition(request_id, where=ImmediateRequestModel.id == request_id, values={"room_url": room_url})
 
+    def set_refund_pending(self, request_id: int, *, refund_id: str) -> None:
+        """Remember the refund the bank is still processing; `refunded_at` stays empty until it confirms."""
+        self._transition(request_id, where=ImmediateRequestModel.refunded_at.is_(None), values={"pix_refund_id": refund_id})
+
     def set_refunded(self, request_id: int, *, refund_id: str, refunded_at: datetime) -> bool:
         return self._transition(
             request_id,

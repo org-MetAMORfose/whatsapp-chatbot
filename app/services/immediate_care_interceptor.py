@@ -6,7 +6,7 @@ from datetime import UTC, datetime
 
 from app.agent.agent import Response, normalize_text
 from app.domain.db.person_model import PersonModel
-from app.domain.matching.profile import PSYCHOTHERAPY
+from app.domain.immediate_eligibility import PENDING_REVIEW, is_psychologist
 from app.domain.message import Message
 from app.repository.redis.immediate_offer_repository import ImmediateOfferRepository
 from app.repository.sql.immediate_request_repository import ImmediateRequestRepository
@@ -20,6 +20,7 @@ ACCEPT_COMMANDS = frozenset({"aceitar"})
 AVAILABLE_REPLY = "Pronto! Você está disponível para acolhimento imediato. Quando quiser sair, mande INDISPONÍVEL."
 UNAVAILABLE_REPLY = "Combinado, você não vai mais receber ofertas de acolhimento imediato. Mande DISPONÍVEL quando quiser voltar."
 ONLY_PSYCHOLOGISTS_REPLY = "Por enquanto o acolhimento imediato é só para psicólogos."
+PENDING_REVIEW_REPLY = "Seu cadastro ainda está em análise. Assim que for aprovado, você poderá ficar disponível para o acolhimento imediato."
 NO_OFFER_REPLY = "Não há nenhuma oferta de acolhimento aberta para você agora."
 ACCEPTED_REPLY = "Você ficou com o atendimento! Estou criando a sala de vídeo e te mando o link em instantes."
 ALREADY_TAKEN_REPLY = "Esse atendimento já foi aceito por outro profissional ou o prazo acabou."
@@ -50,7 +51,9 @@ class ImmediateCareInterceptor:
             return None
         if command in ACCEPT_COMMANDS:
             return await self._accept(message, person)
-        if normalize_text(professional.area) != normalize_text(PSYCHOTHERAPY):
+        if professional.register_type == PENDING_REVIEW:
+            return Response(content=PENDING_REVIEW_REPLY)
+        if not is_psychologist(professional):
             return Response(content=ONLY_PSYCHOLOGISTS_REPLY)
         available = command in AVAILABLE_COMMANDS
         self._professionals.set_available_for_immediate(person.id, available, now=self._now())

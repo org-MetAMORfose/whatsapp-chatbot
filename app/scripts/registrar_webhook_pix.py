@@ -1,6 +1,6 @@
 """Registra no Banco do Brasil a URL do webhook Pix deste ambiente.
 
-Uso (no servidor, com o .env de produção): `python scripts/registrar_webhook_pix.py`
+Uso (no servidor, com o .env de produção): `python -m app.scripts.registrar_webhook_pix`
 """
 import asyncio
 import sys

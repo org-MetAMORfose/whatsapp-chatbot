@@ -138,3 +138,20 @@ async def test_http_error_raises():
     recorder = Recorder({"POST /oauth/token": token_response(), f"PUT /pix/v2/cob/{TXID}": httpx.Response(500, json={"erro": "x"})})
     with pytest.raises(httpx.HTTPStatusError):
         await make_gateway(recorder).create_charge(txid=TXID, amount_cents=6000, expires_seconds=1800, payer_name=None)
+
+
+@pytest.mark.asyncio
+async def test_get_refund_reads_status():
+    response = httpx.Response(200, json={"id": TXID + "R1", "status": "DEVOLVIDO", "valor": "60.00"})
+    recorder = Recorder({"POST /oauth/token": token_response(), f"GET /pix/v2/pix/E123/devolucao/{TXID}R1": response})
+    refund = await make_gateway(recorder).get_refund(e2e_id="E123", refund_id=TXID + "R1")
+    assert refund.refund_id == TXID + "R1" and refund.status == "DEVOLVIDO"
+
+
+@pytest.mark.asyncio
+async def test_cancel_charge_patches_cob_as_removed():
+    removed = httpx.Response(200, json={"status": "REMOVIDA_PELO_USUARIO_RECEBEDOR"})
+    recorder = Recorder({"POST /oauth/token": token_response(), f"PATCH /pix/v2/cob/{TXID}": removed})
+    await make_gateway(recorder).cancel_charge(TXID)
+    patch = next(call for call in recorder.calls if call.method == "PATCH")
+    assert json.loads(patch.content) == {"status": "REMOVIDA_PELO_USUARIO_RECEBEDOR"}

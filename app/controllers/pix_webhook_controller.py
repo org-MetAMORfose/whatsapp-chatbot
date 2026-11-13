@@ -15,6 +15,7 @@ from sqlalchemy.orm import Session
 from app.repository.sql.immediate_request_repository import ImmediateRequestRepository
 from app.repository.sql.outbox_repository import OutboxRepository
 from app.repository.sql.transaction import transaction
+from app.services.immediate_payment import confirm_payment
 
 logger = logging.getLogger(__name__)
 
@@ -59,14 +60,13 @@ class PixWebhookController:
         queued = 0
         for event in body.pix:
             paid_at = event.horario if event.horario.tzinfo else event.horario.replace(tzinfo=UTC)
-            deadline = paid_at + self._offer_timeout
             with transaction(self._factory):
-                request = self._requests.mark_paid(event.txid, e2e_id=event.end_to_end_id, paid_at=paid_at, offer_deadline=deadline)
-                if request is None:
-                    logger.info("Pix event ignored (unknown txid or already handled): txid=%s", event.txid)
-                    continue
-                self._outbox.enqueue(f"immediate:{request.id}:offer", "immediate.offer.v1", {"request_id": request.id})
-                self._outbox.enqueue(f"immediate:{request.id}:timeout", "immediate.timeout.v1", {"request_id": request.id}, available_at=deadline)
-                queued += 1
-                logger.info("Pix confirmed for immediate request %s; offer and timeout queued", request.id)
+                request = confirm_payment(
+                    self._requests, self._outbox, txid=event.txid, e2e_id=event.end_to_end_id, paid_at=paid_at, offer_timeout=self._offer_timeout
+                )
+            if request is None:
+                logger.info("Pix event ignored (unknown txid or already handled): txid=%s", event.txid)
+                continue
+            queued += 1
+            logger.info("Pix confirmed for immediate request %s; offer and timeout queued", request.id)
         return {"received": len(body.pix), "queued": queued}

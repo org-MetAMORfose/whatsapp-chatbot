@@ -19,6 +19,7 @@ from sqlalchemy import create_engine, text
 from sqlalchemy.engine import make_url
 from sqlalchemy.orm import Session, sessionmaker
 
+import app.config.settings as settings
 from app.agent.agent import AgentWorker, Response
 from app.channel_adapters.whatsapp import WhatsAppAdapter
 from app.context import AppContext
@@ -225,6 +226,11 @@ async def reach_pix(world: World) -> str:
     return request.pix_txid
 
 
+@pytest.fixture(autouse=True)
+def immediate_care_enabled(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(settings, "IMMEDIATE_CARE_ENABLED", True)
+
+
 @pytest.mark.asyncio
 async def test_patient_pays_professional_accepts_room_is_sent(db, redis_client) -> None:
     await redis_client.flushdb()
@@ -273,7 +279,7 @@ async def test_patient_pays_professional_accepts_room_is_sent(db, redis_client) 
 async def test_nobody_accepts_refund_runs(db, redis_client) -> None:
     await redis_client.flushdb()
     world = World(db, redis_client)
-    world.seed_psychologist(available=False)
+    world.seed_psychologist(available=True)  # available, but never taps Aceitar
     txid = await reach_pix(world)
 
     assert world.pay(txid, at=datetime.now(UTC) - timedelta(minutes=10)) == {"received": 1, "queued": 1}

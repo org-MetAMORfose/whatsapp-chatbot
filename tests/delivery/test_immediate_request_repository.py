@@ -159,3 +159,31 @@ def test_accept_is_atomic_under_concurrency(factory, repository):
     assert results.count(True) == 1
     winner = repository.get(request.id).professional_person_id
     assert winner in {person.id for person in candidates}
+
+
+def test_set_refund_pending_stores_id_without_refunded_at(factory, repository):
+    person = make_person(factory, "5511900000001")
+    request = create(repository, person)
+    repository.set_refund_pending(request.id, refund_id="a" * 32 + "R1")
+    stored = repository.get(request.id)
+    assert stored.pix_refund_id == "a" * 32 + "R1" and stored.refunded_at is None
+    assert repository.set_refunded(request.id, refund_id="a" * 32 + "R1", refunded_at=NOW) is True
+
+
+def test_list_available_excludes_pending_review_and_accepts_legacy_areas(factory):
+    professionals = ProfessionalRepository(factory)
+    approved = make_professional(factory, make_person(factory, "5511900000002", name="Dra. Ana"))
+    legacy = make_professional(factory, make_person(factory, "5511900000003", name="Dr. Bia"), area="Psicoterapia, Psiquiatria")
+    analyst = make_professional(factory, make_person(factory, "5511900000004", name="Dr. Caio"), area="Psicanálise")
+    pending = make_person(factory, "5511900000005", name="Pendente")
+    with factory() as session:
+        session.add(
+            ProfessionalModel(
+                person_id=pending.id, area="Psicoterapia", professional_register="CRP-9", register_type="PENDING_REVIEW", created_at=datetime.utcnow()
+            )
+        )
+        session.commit()
+    for person_id in (approved.person_id, legacy.person_id, analyst.person_id, pending.id):
+        professionals.set_available_for_immediate(person_id, True, now=NOW)
+    listed = professionals.list_available_for_immediate()
+    assert [professional.person.phone_number for professional in listed] == ["5511900000002", "5511900000003", "5511900000004"]

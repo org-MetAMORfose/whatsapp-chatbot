@@ -13,3 +13,9 @@ class FakePixGateway:
 
     async def refund(self, *, e2e_id: str, refund_id: str, amount_cents: int) -> PixRefund:
         return PixRefund(refund_id=refund_id, status="DEVOLVIDO")
+
+    async def get_refund(self, *, e2e_id: str, refund_id: str) -> PixRefund:
+        return PixRefund(refund_id=refund_id, status="DEVOLVIDO")
+
+    async def cancel_charge(self, txid: str) -> None:
+        return None

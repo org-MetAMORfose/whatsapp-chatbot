@@ -15,7 +15,7 @@ from app.repository.sql.immediate_request_repository import ImmediateRequestRepo
 from app.repository.sql.outbox_repository import OutboxRepository
 from app.repository.sql.professional_repository import ProfessionalRepository
 from app.services.immediate_care_relay import ImmediateCareRelay
-from app.services.pix.gateway import PixRefund
+from app.services.pix.gateway import PixChargeStatus, PixRefund
 
 NOW = datetime(2026, 11, 12, 20, 0, tzinfo=UTC)
 TXID = "a" * 32
@@ -86,6 +86,9 @@ class Deps:
         self.video.create_room = AsyncMock(return_value=ROOM)
         self.pix = MagicMock()
         self.pix.refund = AsyncMock(return_value=PixRefund(refund_id=TXID + "R1", status="DEVOLVIDO"))
+        self.pix.get_refund = AsyncMock(return_value=PixRefund(refund_id=TXID + "R1", status="DEVOLVIDO"))
+        self.pix.get_charge = AsyncMock(return_value=PixChargeStatus(txid=TXID, paid=False, e2e_id=None, paid_at=None))
+        self.pix.cancel_charge = AsyncMock(return_value=None)
         self.relay = ImmediateCareRelay(
             self.outbox,
             self.whatsapp,
@@ -109,7 +112,7 @@ class Deps:
     def finished_ok(self) -> bool:
         self.outbox.finish.assert_called_once()
         args, kwargs = self.outbox.finish.call_args
-        return args[0] is self.item and len(args) == 1 and kwargs == {"max_attempts": 5}
+        return args[0] is self.item and len(args) == 1 and kwargs == {"max_attempts": ImmediateCareRelay.MAX_ATTEMPTS}
 
     def finished_with_error(self) -> bool:
         self.outbox.finish.assert_called_once()
@@ -122,11 +125,13 @@ async def test_claim_uses_all_kinds_and_returns_false_when_idle() -> None:
     deps = Deps("immediate.offer.v1", None)
     deps.outbox.claim.return_value = None
     assert await deps.relay.process_next() is False
-    deps.outbox.claim.assert_called_once_with(kinds=ImmediateCareRelay.KINDS, max_attempts=5)
+    deps.outbox.claim.assert_called_once_with(kinds=ImmediateCareRelay.KINDS, max_attempts=ImmediateCareRelay.MAX_ATTEMPTS)
+    assert ImmediateCareRelay.MAX_ATTEMPTS >= 100
     assert ImmediateCareRelay.KINDS == (
         "immediate.offer.v1",
         "immediate.timeout.v1",
         "immediate.refund.v1",
+        "immediate.refund_check.v1",
         "immediate.accepted.v1",
         "immediate.payment_timeout.v1",
     )
@@ -192,7 +197,7 @@ async def test_offer_continues_when_one_send_fails() -> None:
 
 @pytest.mark.asyncio
 async def test_timeout_expires_enqueues_refund_and_notifies() -> None:
-    deps = Deps("immediate.timeout.v1", request(ImmediateStatus.QUEUED))
+    deps = Deps("immediate.timeout.v1", request(ImmediateStatus.EXPIRED))  # what `get` sees right after `expire`
     deps.requests.expire.return_value = True
     await deps.relay.process_next()
     deps.requests.expire.assert_called_once_with(42)
@@ -216,12 +221,144 @@ async def test_timeout_noop_when_already_accepted() -> None:
 
 
 @pytest.mark.asyncio
-async def test_refund_retries_on_bank_failure() -> None:
+async def test_refund_not_performed_is_final_and_logged(caplog: pytest.LogCaptureFixture) -> None:
     deps = Deps("immediate.refund.v1", request(ImmediateStatus.EXPIRED))
     deps.pix.refund.return_value = PixRefund(refund_id=TXID + "R1", status="NAO_REALIZADO")
+    with caplog.at_level("ERROR"):
+        await deps.relay.process_next()
+    deps.requests.set_refunded.assert_not_called()
+    deps.outbound.publish.assert_not_awaited()
+    deps.outbox.enqueue.assert_not_called()
+    assert deps.finished_ok()
+    assert any("manual" in record.getMessage() for record in caplog.records)
+
+
+@pytest.mark.asyncio
+async def test_refund_transport_error_retries() -> None:
+    deps = Deps("immediate.refund.v1", request(ImmediateStatus.EXPIRED))
+    deps.pix.refund.side_effect = RuntimeError("bb down")
     await deps.relay.process_next()
     deps.requests.set_refunded.assert_not_called()
     deps.outbound.publish.assert_not_awaited()
+    assert deps.finished_with_error()
+
+
+@pytest.mark.asyncio
+async def test_refund_in_processing_schedules_check_without_telling_patient() -> None:
+    deps = Deps("immediate.refund.v1", request(ImmediateStatus.EXPIRED))
+    deps.pix.refund.return_value = PixRefund(refund_id=TXID + "R1", status="EM_PROCESSAMENTO")
+    await deps.relay.process_next()
+    deps.requests.set_refund_pending.assert_called_once_with(42, refund_id=TXID + "R1")
+    deps.requests.set_refunded.assert_not_called()
+    deps.outbox.enqueue.assert_called_once_with(
+        "immediate:42:refund_check:1", "immediate.refund_check.v1", {"request_id": 42, "attempt": 1}, available_at=NOW + timedelta(seconds=60)
+    )
+    deps.outbound.publish.assert_not_awaited()
+    assert deps.finished_ok()
+
+
+def refund_check_item(attempt: int) -> OutboxModel:
+    return OutboxModel(
+        id=f"immediate:42:refund_check:{attempt}", kind="immediate.refund_check.v1", payload={"request_id": 42, "attempt": attempt}, attempts=1
+    )
+
+
+@pytest.mark.asyncio
+async def test_refund_check_confirms_and_notifies() -> None:
+    deps = Deps("immediate.refund_check.v1", request(ImmediateStatus.EXPIRED, pix_refund_id=TXID + "R1"))
+    deps.outbox.claim.return_value = deps.item = refund_check_item(1)
+    deps.requests.set_refunded.return_value = True
+    await deps.relay.process_next()
+    deps.pix.get_refund.assert_awaited_once_with(e2e_id="E123", refund_id=TXID + "R1")
+    deps.requests.set_refunded.assert_called_once_with(42, refund_id=TXID + "R1", refunded_at=NOW)
+    assert [message.content for message in deps.published()] == [
+        "Pix de R$ 60,00 devolvido. Pode levar alguns minutos pra aparecer no seu banco. Quando quiser tentar de novo, mande RESET."
+    ]
+    assert deps.finished_ok()
+
+
+@pytest.mark.asyncio
+async def test_refund_check_reschedules_while_processing() -> None:
+    deps = Deps("immediate.refund_check.v1", request(ImmediateStatus.EXPIRED, pix_refund_id=TXID + "R1"))
+    deps.outbox.claim.return_value = deps.item = refund_check_item(3)
+    deps.pix.get_refund.return_value = PixRefund(refund_id=TXID + "R1", status="EM_PROCESSAMENTO")
+    await deps.relay.process_next()
+    deps.outbox.enqueue.assert_called_once_with(
+        "immediate:42:refund_check:4", "immediate.refund_check.v1", {"request_id": 42, "attempt": 4}, available_at=NOW + timedelta(seconds=60)
+    )
+    deps.outbound.publish.assert_not_awaited()
+    assert deps.finished_ok()
+
+
+@pytest.mark.asyncio
+async def test_refund_check_gives_up_after_limit_and_logs(caplog: pytest.LogCaptureFixture) -> None:
+    deps = Deps("immediate.refund_check.v1", request(ImmediateStatus.EXPIRED, pix_refund_id=TXID + "R1"))
+    deps.outbox.claim.return_value = deps.item = refund_check_item(ImmediateCareRelay.REFUND_CHECK_LIMIT)
+    deps.pix.get_refund.return_value = PixRefund(refund_id=TXID + "R1", status="EM_PROCESSAMENTO")
+    with caplog.at_level("ERROR"):
+        await deps.relay.process_next()
+    deps.outbox.enqueue.assert_not_called()
+    assert any("manual" in record.getMessage() for record in caplog.records)
+    assert deps.finished_ok()
+
+
+@pytest.mark.asyncio
+async def test_payment_timeout_confirms_late_payment_with_bank() -> None:
+    deps = Deps("immediate.payment_timeout.v1", request(ImmediateStatus.AWAITING_PAYMENT))
+    deps.pix.get_charge.return_value = PixChargeStatus(txid=TXID, paid=True, e2e_id="E9", paid_at=NOW)
+    deps.requests.mark_paid.return_value = request(ImmediateStatus.QUEUED)
+    await deps.relay.process_next()
+    deps.requests.cancel.assert_not_called()
+    deps.requests.mark_paid.assert_called_once_with(TXID, e2e_id="E9", paid_at=NOW, offer_deadline=NOW + timedelta(seconds=300))
+    assert [call.args[:2] for call in deps.outbox.enqueue.call_args_list] == [
+        ("immediate:42:offer", "immediate.offer.v1"),
+        ("immediate:42:timeout", "immediate.timeout.v1"),
+    ]
+    deps.outbound.publish.assert_not_awaited()
+    assert deps.finished_ok()
+
+
+@pytest.mark.asyncio
+async def test_offer_isolates_bad_professional_records() -> None:
+    deps = Deps("immediate.offer.v1", request(ImmediateStatus.QUEUED), [available("0123"), available()])
+    await deps.relay.process_next()
+    deps.whatsapp.send_template.assert_awaited_once()
+    assert deps.whatsapp.send_template.await_args.kwargs["to"] == PRO_PHONE
+    assert [message.content for message in deps.published()] == [
+        "Pagamento recebido! Estou avisando os psicólogos disponíveis. Te retorno em até 5 minutos."
+    ]
+    deps.chats.create_context.assert_awaited_once_with(PATIENT_PHONE, Channel.WHATSAPP, "imediato_na_fila")
+    assert deps.finished_ok()
+
+
+@pytest.mark.asyncio
+async def test_timeout_resends_notice_when_already_expired() -> None:
+    deps = Deps("immediate.timeout.v1", request(ImmediateStatus.EXPIRED))
+    deps.requests.expire.return_value = False
+    await deps.relay.process_next()
+    deps.outbox.enqueue.assert_called_once_with("immediate:42:refund", "immediate.refund.v1", {"request_id": 42})
+    notice = deps.published()[0].content
+    assert len(deps.published()) == 1 and notice is not None and notice.startswith("Nos últimos 5 minutos")
+    assert deps.finished_ok()
+
+
+@pytest.mark.asyncio
+async def test_room_name_is_unguessable() -> None:
+    accepted = request(ImmediateStatus.ACCEPTED, professional_person_id=9)
+    accepted.professional = professional_person()
+    deps = Deps("immediate.accepted.v1", accepted)
+    await deps.relay.process_next()
+    name = deps.video.create_room.await_args.kwargs["name"]
+    assert name.startswith("acolhimento-42-") and len(name.removeprefix("acolhimento-42-")) >= 22
+
+
+@pytest.mark.asyncio
+async def test_last_attempt_logs_error(caplog: pytest.LogCaptureFixture) -> None:
+    deps = Deps("immediate.weird.v1", request(ImmediateStatus.QUEUED))
+    deps.item.attempts = ImmediateCareRelay.MAX_ATTEMPTS
+    with caplog.at_level("ERROR"):
+        await deps.relay.process_next()
+    assert any("exhausted" in record.getMessage() for record in caplog.records)
     assert deps.finished_with_error()
 
 
@@ -285,9 +422,11 @@ async def test_accepted_without_professional_fails_for_retry() -> None:
 @pytest.mark.asyncio
 async def test_payment_timeout_cancels_and_notifies() -> None:
     deps = Deps("immediate.payment_timeout.v1", request(ImmediateStatus.AWAITING_PAYMENT))
+    deps.requests.get.side_effect = [request(ImmediateStatus.AWAITING_PAYMENT), request(ImmediateStatus.CANCELLED)]
     deps.requests.cancel.return_value = True
     await deps.relay.process_next()
     deps.requests.cancel.assert_called_once_with(42)
+    deps.pix.cancel_charge.assert_awaited_once_with(TXID)
     assert [message.content for message in deps.published()] == ["O Pix expirou e nada foi cobrado. Se ainda quiser, mande RESET e peça de novo."]
     deps.chats.delete_context.assert_awaited_once_with(PATIENT_PHONE, Channel.WHATSAPP)
     assert deps.finished_ok()

@@ -42,3 +42,11 @@ def test_from_settings_selects_provider(monkeypatch):
     monkeypatch.setattr(settings, "PIX_PROVIDER", "outro")
     with pytest.raises(ValueError):
         pix_gateway_from_settings()
+
+
+@pytest.mark.asyncio
+async def test_fake_gateway_refund_check_and_cancel():
+    gateway = FakePixGateway()
+    refund = await gateway.get_refund(e2e_id="E1", refund_id="t" * 32 + "R1")
+    assert refund.status == "DEVOLVIDO" and refund.refund_id == "t" * 32 + "R1"
+    await gateway.cancel_charge("t" * 32)

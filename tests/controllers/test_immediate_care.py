@@ -104,3 +104,18 @@ def test_get_requests_rejects_bad_limit() -> None:
     client = _client(MagicMock(), MagicMock())
     assert client.get("/immediate/requests?limit=0", headers=HEADERS).status_code == 422
     assert client.get("/immediate/requests?limit=1001", headers=HEADERS).status_code == 422
+
+
+def test_patch_availability_rejects_ineligible_with_409() -> None:
+    professionals, requests = MagicMock(), MagicMock()
+    professionals.get_by_id.return_value = ProfessionalModel(
+        id=3, person_id=9, area="Psicoterapia", professional_register="1", register_type="PENDING_REVIEW"
+    )
+    response = _client(professionals, requests).patch("/immediate/professionals/3/availability", json={"available": True}, headers=HEADERS)
+    assert response.status_code == 409
+    professionals.set_available_for_immediate.assert_not_called()
+    professionals.set_available_for_immediate.return_value = ProfessionalModel(
+        id=3, person_id=9, area="Psicoterapia", professional_register="1", register_type="PENDING_REVIEW", available_for_immediate=False
+    )
+    off = _client(professionals, requests).patch("/immediate/professionals/3/availability", json={"available": False}, headers=HEADERS)
+    assert off.status_code == 200 and off.json()["available_for_immediate"] is False

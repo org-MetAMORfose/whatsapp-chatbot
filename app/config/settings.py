@@ -121,6 +121,7 @@ GMAIL_ID_CLIENT = __get_env_variable("GMAIL_ID_CLIENT", "")
 GMAIL_SECRET_CLIENT = __get_env_variable("GMAIL_SECRET_CLIENT", "")
 
 # Acolhimento imediato: Pix (Banco do Brasil ou simulado), vídeo (Daily) e prazos.
+IMMEDIATE_CARE_ENABLED = __get_bool_env_variable("IMMEDIATE_CARE_ENABLED", "false")
 PIX_PROVIDER = __get_env_variable("PIX_PROVIDER", "fake")
 BB_PIX_CLIENT_ID = __get_env_variable("BB_PIX_CLIENT_ID", "")
 BB_PIX_CLIENT_SECRET = __get_env_variable("BB_PIX_CLIENT_SECRET", "")
