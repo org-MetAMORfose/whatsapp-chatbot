@@ -65,6 +65,12 @@ async def run(executor: ActionExecutor, key: str, content: str | None) -> Action
     return await executor.run([TransitionAction(action_key=key, is_required=True)], make_message(content))
 
 
+@pytest.fixture(autouse=True)
+def immediate_care_enabled(monkeypatch):
+    monkeypatch.setattr(settings, "IMMEDIATE_CARE_ENABLED", True)
+    monkeypatch.setattr(settings, "IMMEDIATE_ROOM_GRACE_MINUTES", 15)
+
+
 @pytest.mark.asyncio
 async def test_create_request_refuses_when_active():
     executor, requests, gateway, outbox = make_executor()
@@ -98,7 +104,7 @@ async def test_create_request_creates_charge_and_schedules_payment_timeout(monke
     )
     assert result.output == "Valor: R$ 60,00\n\nPix copia e cola:\nPIX-SIMULADO-CODIGO\n\n"
     assert result.data == {"immediate_active": False, "immediate_nobody_available": False, "immediate_request_id": 42}
-    requests.get_active_for_patient.assert_called_once_with(7, now=NOW)
+    requests.get_active_for_patient.assert_called_once_with(7, now=NOW, room_grace_minutes=15)
 
 
 @pytest.mark.asyncio
@@ -134,7 +140,7 @@ async def test_payment_status_queued():
     executor, requests, _gateway, _outbox = make_executor()
     requests.get_active_for_patient.return_value = make_request(ImmediateStatus.QUEUED)
     result = await run(executor, "immediate_payment_status", "oi")
-    assert result.output == "Pagamento recebido! Ainda estou procurando um psicólogo disponível.\n\n"
+    assert result.output == "Pagamento recebido!\n\n"
     assert result.data == {"immediate_paid": True, "immediate_done": False}
 
 
@@ -154,7 +160,7 @@ async def test_payment_status_accepted_with_and_without_room():
 async def test_payment_status_without_request():
     executor, _requests, _gateway, _outbox = make_executor()
     result = await run(executor, "immediate_payment_status", "oi")
-    assert result.output == "Não encontrei um pedido em aberto. Mande RESET para recomeçar.\n\n"
+    assert result.output == "Não encontrei um pedido em aberto.\n\n"
     assert result.data == {"immediate_paid": False, "immediate_done": True}
 
 
@@ -211,24 +217,36 @@ async def test_cancel_paid_explains_and_keeps_waiting():
 
 
 @pytest.mark.asyncio
-async def test_cancel_unpaid_removes_charge_at_bank():
-    executor, requests, gateway, _outbox = make_executor()
+async def test_cancel_unpaid_schedules_charge_removal_outside_the_transaction():
+    """The bank call must not run while the message transaction holds the row lock (it froze the worker)."""
+    executor, requests, gateway, outbox = make_executor()
     requests.get_active_for_patient.return_value = make_request(ImmediateStatus.AWAITING_PAYMENT)
     requests.cancel.return_value = True
     result = await run(executor, "immediate_cancel", "cancelar")
     assert result.output == "" and result.data == {"immediate_paid": False}
     requests.cancel.assert_called_once_with(42)
-    gateway.cancel_charge.assert_awaited_once_with("t" * 32)
+    gateway.cancel_charge.assert_not_awaited()
+    outbox.enqueue.assert_called_once_with("immediate:42:cancel_charge", "immediate.cancel_charge.v1", {"request_id": 42})
 
 
 @pytest.mark.asyncio
-async def test_cancel_survives_bank_error():
-    executor, requests, gateway, _outbox = make_executor()
+async def test_cancel_losing_the_race_with_the_payment_reports_paid():
+    executor, requests, _gateway, outbox = make_executor()
     requests.get_active_for_patient.return_value = make_request(ImmediateStatus.AWAITING_PAYMENT)
-    requests.cancel.return_value = True
-    gateway.cancel_charge.side_effect = RuntimeError("bb down")
+    requests.cancel.return_value = False  # the webhook moved it to queued a moment earlier
     result = await run(executor, "immediate_cancel", "cancelar")
-    assert result.data == {"immediate_paid": False}
+    assert result.output == "Seu pagamento já foi recebido, então o pedido não pode mais ser cancelado.\n\n"
+    assert result.data == {"immediate_paid": True}
+    outbox.enqueue.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_cancel_without_request_is_done():
+    executor, requests, _gateway, _outbox = make_executor()
+    result = await run(executor, "immediate_cancel", "cancelar")
+    assert result.output == "Não encontrei um pedido em aberto.\n\n"
+    assert result.data == {"immediate_paid": False, "immediate_done": True}
+    requests.cancel.assert_not_called()
 
 
 @pytest.mark.asyncio
@@ -245,3 +263,48 @@ async def test_noop_action_returns_empty_result():
     executor, _requests, _gateway, _outbox = make_executor()
     result = await run(executor, "immediate_noop", "30 minutos")
     assert result.output == "" and not result.data
+
+
+@pytest.mark.asyncio
+async def test_create_request_refuses_when_flag_is_off(monkeypatch):
+    """A patient already past the menu gate must not be charged after the feature is switched off."""
+    monkeypatch.setattr(settings, "IMMEDIATE_CARE_ENABLED", False)
+    executor, requests, gateway, outbox = make_executor()
+    result = await run(executor, "immediate_create_request", "30 minutos")
+    assert result.output == "" and result.data == {"immediate_disabled": True, "immediate_active": False}
+    gateway.create_charge.assert_not_awaited()
+    requests.create.assert_not_called()
+    outbox.enqueue.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_create_request_with_open_pix_shows_the_existing_code():
+    executor, requests, gateway, outbox = make_executor()
+    requests.get_active_for_patient.return_value = make_request(ImmediateStatus.AWAITING_PAYMENT)
+    result = await run(executor, "immediate_create_request", "50 minutos")
+    assert result.output == "Você já tem um Pix em aberto de R$ 60,00 (30 minutos).\n\nPix copia e cola:\nPIX-SIMULADO-CODIGO\n\n"
+    assert result.data == {"immediate_active": False, "immediate_nobody_available": False}
+    gateway.create_charge.assert_not_awaited()
+    requests.create.assert_not_called()
+    outbox.enqueue.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_create_request_with_accepted_session_shows_the_room():
+    executor, requests, gateway, _outbox = make_executor()
+    requests.get_active_for_patient.return_value = make_request(ImmediateStatus.ACCEPTED, room_url="https://exemplo.daily.co/sala")
+    result = await run(executor, "immediate_create_request", "30 minutos")
+    assert result.output == "Seu atendimento já foi aceito. Sala de vídeo: https://exemplo.daily.co/sala\n\n"
+    assert result.data == {"immediate_active": True}
+    gateway.create_charge.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_create_request_bank_failure_routes_to_the_failure_node():
+    executor, requests, gateway, outbox = make_executor()
+    gateway.create_charge.side_effect = RuntimeError("bb down")
+    result = await run(executor, "immediate_create_request", "30 minutos")
+    assert result.output == ""
+    assert result.data == {"immediate_active": False, "immediate_nobody_available": False, "immediate_pix_failed": True}
+    requests.create.assert_not_called()
+    outbox.enqueue.assert_not_called()

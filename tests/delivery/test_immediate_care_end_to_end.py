@@ -139,7 +139,10 @@ class World:
             room_grace_minutes=15,
         )
         self.interceptor = ImmediateCareInterceptor(self.professionals, self.requests, self.offers, self.outbox)
-        self.webhook = PixWebhookController(db, self.requests, self.outbox, token=TOKEN, offer_timeout_seconds=300)
+        self.clock = datetime.now(UTC)
+        self.webhook = PixWebhookController(
+            db, self.requests, self.outbox, token=TOKEN, offer_timeout_seconds=300, now=lambda: self.clock
+        )
 
     def seed_psychologist(self, *, available: bool) -> PersonModel:
         with self.db() as session:
@@ -171,9 +174,10 @@ class World:
         with transaction(self.db):
             return await self.interceptor.handle(message(PSYCHOLOGIST, content), person)
 
-    def pay(self, txid: str, *, at: datetime) -> dict[str, int]:
+    async def pay(self, txid: str, *, at: datetime) -> dict[str, int]:
+        self.clock = at
         event = PixEvent(txid=txid, endToEndId="E2E" + txid[:10], valor="60.00", horario=at)
-        return self.webhook.receive(TOKEN, PixWebhookBody(pix=[event]))
+        return await self.webhook.receive(TOKEN, PixWebhookBody(pix=[event]))
 
     async def drain(self, limit: int = 10) -> int:
         processed = 0
@@ -241,8 +245,8 @@ async def test_patient_pays_professional_accepts_room_is_sent(db, redis_client) 
     status = await world.say(PATIENT, "já paguei?")
     assert status.content.startswith("Ainda não recebi o pagamento. Pix copia e cola:\nPIX-SIMULADO-")
 
-    assert world.pay(txid, at=datetime.now(UTC)) == {"received": 1, "queued": 1}
-    assert world.pay(txid, at=datetime.now(UTC)) == {"received": 1, "queued": 0}
+    assert await world.pay(txid, at=datetime.now(UTC)) == {"received": 1, "queued": 1}
+    assert await world.pay(txid, at=datetime.now(UTC)) == {"received": 1, "queued": 0}
     assert await world.drain() == 1
     world.whatsapp.send_template.assert_awaited_once()
     offer = world.whatsapp.send_template.await_args.kwargs
@@ -251,7 +255,9 @@ async def test_patient_pays_professional_accepts_room_is_sent(db, redis_client) 
     context = await world.chats.get_context(PATIENT, Channel.WHATSAPP)
     assert context is not None and context.state == "imediato_na_fila"
     waiting = await world.say(PATIENT, "e aí?")
-    assert waiting.content.startswith("Pagamento recebido! Ainda estou procurando um psicólogo disponível.")
+    assert waiting.content == (
+        "Pagamento recebido!\n\nEstou procurando um psicólogo disponível. Te aviso aqui assim que alguém aceitar, em até 5 minutos."
+    )
 
     reply = await world.professional_says("Aceitar")
     assert reply == Response(content=ACCEPTED_REPLY)
@@ -267,10 +273,13 @@ async def test_patient_pays_professional_accepts_room_is_sent(db, redis_client) 
         (PATIENT, f"Um psicólogo aceitou o seu atendimento! Entre na sala de vídeo: {request.room_url}\n\nA sessão dura 30 minutos e não é gravada."),
         (PSYCHOLOGIST, f"Sala de vídeo do acolhimento: {request.room_url}\n\nO paciente é Maria, sessão de 30 minutos."),
     ]
-    assert await world.chats.get_context(PATIENT, Channel.WHATSAPP) is None
+    context = await world.chats.get_context(PATIENT, Channel.WHATSAPP)
+    assert context is not None and context.state == "imediato_na_fila"  # the patient can ask for the link again
     assert await world.offers.get(PSYCHOLOGIST, Channel.WHATSAPP) is None
     assert await world.drain() == 0  # the 5-minute timeout is not due and will be a no-op when it is
 
+    again = await world.say(PATIENT, "perdi o link")
+    assert again.content.startswith(f"Seu atendimento já foi aceito. Sala de vídeo: {request.room_url}")
     restart = await world.say(PATIENT, "oi")
     assert restart.buttons is not None and "Quero ser paciente" in restart.buttons
 
@@ -282,7 +291,7 @@ async def test_nobody_accepts_refund_runs(db, redis_client) -> None:
     world.seed_psychologist(available=True)  # available, but never taps Aceitar
     txid = await reach_pix(world)
 
-    assert world.pay(txid, at=datetime.now(UTC) - timedelta(minutes=10)) == {"received": 1, "queued": 1}
+    assert await world.pay(txid, at=datetime.now(UTC) - timedelta(minutes=10)) == {"received": 1, "queued": 1}
     assert await world.drain() == 3  # timeout (overdue), offer (skipped: expired), refund
     world.whatsapp.send_template.assert_not_awaited()
     request = world.patient_request()

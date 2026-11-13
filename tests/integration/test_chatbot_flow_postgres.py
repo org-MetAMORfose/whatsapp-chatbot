@@ -52,7 +52,7 @@ async def test_seed_draft_publication_and_optional_action_deletion() -> None:
 
         assert version == 1
         assert validation.valid, validation.model_dump()
-        assert len(flow.nodes) == 82
+        assert len(flow.nodes) == 83
 
         patient_area = flow.get("paciente_inicio")
         approach = flow.get("paciente_psico_abordagem")
@@ -71,10 +71,10 @@ async def test_seed_draft_publication_and_optional_action_deletion() -> None:
         assert all(action.config is None for transition in birth_date.transitions for action in transition.actions)
 
         with factory() as session:
-            assert session.scalar(select(func.count(FlowTransitionModel.id))) == 168
-            assert session.scalar(select(func.count(FlowTransitionActionModel.id))) == 180
+            assert session.scalar(select(func.count(FlowTransitionModel.id))) == 169
+            assert session.scalar(select(func.count(FlowTransitionActionModel.id))) == 188
             assert session.scalar(select(func.count(FlowActionDependencyModel.id))) == 0
-            assert session.scalar(select(func.count(FlowTransitionActionModel.id)).where(FlowTransitionActionModel.is_required)) == 18
+            assert session.scalar(select(func.count(FlowTransitionActionModel.id)).where(FlowTransitionActionModel.is_required)) == 19
             assert all(
                 not action.is_required
                 for node in flow.nodes.values()
@@ -152,7 +152,7 @@ async def test_seed_draft_publication_and_optional_action_deletion() -> None:
             "version": 2,
             "status": "PUBLISHED",
         }
-        assert publisher.calls == [(2, 83)]
+        assert publisher.calls == [(2, 84)]
 
         with factory() as session:
             created = session.scalar(select(FlowNodeModel).where(FlowNodeModel.key == "integration_start"))

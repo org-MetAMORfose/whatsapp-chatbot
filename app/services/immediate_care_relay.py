@@ -53,6 +53,10 @@ REFUNDED_MESSAGE = "Pix de {amount} devolvido. Pode levar alguns minutos pra apa
 ACCEPTED_PATIENT_MESSAGE = "Um psicólogo aceitou o seu atendimento! Entre na sala de vídeo: {url}\n\nA sessão dura {minutes} minutos e não é gravada."
 ACCEPTED_PROFESSIONAL_MESSAGE = "Sala de vídeo do acolhimento: {url}\n\nO paciente é {name}, sessão de {minutes} minutos."
 PAYMENT_EXPIRED_MESSAGE = "O Pix expirou e nada foi cobrado. Se ainda quiser, mande RESET e peça de novo."
+REFUND_FAILED_MESSAGE = (
+    "Não consegui devolver o seu Pix de {amount} automaticamente. A equipe da MetAMORfose vai fazer a devolução manualmente "
+    "e te avisa por aqui."
+)
 
 
 def _message_id() -> int:
@@ -72,6 +76,7 @@ class ImmediateCareRelay:
         "immediate.refund_check.v1",
         "immediate.accepted.v1",
         "immediate.payment_timeout.v1",
+        "immediate.cancel_charge.v1",
     )
     # Outbox backoff caps at 5 minutes, so 120 attempts cover roughly nine hours of a bank or video outage.
     MAX_ATTEMPTS = 120
@@ -117,6 +122,7 @@ class ImmediateCareRelay:
             "immediate.refund_check.v1": self._refund_check,
             "immediate.accepted.v1": self._accepted,
             "immediate.payment_timeout.v1": self._payment_timeout,
+            "immediate.cancel_charge.v1": self._cancel_charge,
         }
 
     async def process_next(self) -> bool:
@@ -193,24 +199,44 @@ class ImmediateCareRelay:
             self.outbox.enqueue(f"immediate:{request_id}:refund", "immediate.refund.v1", {"request_id": request_id})
         patient_phone = request.patient.phone_number
         await self._send_text(request_id, "timeout", patient_phone, TIMEOUT_MESSAGE.format(amount=format_reais(request.amount_cents)))
-        await self.chats.delete_context(patient_phone, Channel.WHATSAPP)
+        await self._leave_flow(patient_phone)
 
     async def _refund(self, item: OutboxModel) -> None:
         request_id = self._request_id(item)
         request = self.requests.get(request_id)
-        if request is None or request.refunded_at is not None:
+        if request is None or await self._resend_refund_outcome(request):
             return
         if not request.pix_e2e_id or not request.pix_txid:
             raise RuntimeError(f"Immediate request {request_id} has no Pix payment to refund")
         refund_id = f"{request.pix_txid}R1"
-        result = await self.pix.refund(e2e_id=request.pix_e2e_id, refund_id=refund_id, amount_cents=request.amount_cents)
+        try:
+            result = await self.pix.refund(e2e_id=request.pix_e2e_id, refund_id=refund_id, amount_cents=request.amount_cents)
+        except Exception as error:
+            # The PUT may have landed before a transport error, or the bank may refuse the same id twice: read it back
+            # before retrying, so one refund is never requested as two.
+            logger.warning("Pix refund %s for immediate request %s failed to send (%s); asking the bank", refund_id, request_id, error)
+            try:
+                result = await self.pix.get_refund(e2e_id=request.pix_e2e_id, refund_id=refund_id)
+            except Exception:
+                raise error from None
         await self._apply_refund_status(request, result.refund_id or refund_id, result.status, attempt=0)
+
+    async def _resend_refund_outcome(self, request: ImmediateRequestModel) -> bool:
+        """Already settled: say so again (the dispatcher dedups by event_id) so a crash never swallows the message."""
+        amount = format_reais(request.amount_cents)
+        if request.refunded_at is not None:
+            await self._send_text(request.id, "refund", request.patient.phone_number, REFUNDED_MESSAGE.format(amount=amount))
+            return True
+        if request.refund_failed_at is not None:
+            await self._send_text(request.id, "refund_failed", request.patient.phone_number, REFUND_FAILED_MESSAGE.format(amount=amount))
+            return True
+        return False
 
     async def _refund_check(self, item: OutboxModel) -> None:
         request_id = self._request_id(item)
         attempt = int(item.payload.get("attempt", 1))
         request = self.requests.get(request_id)
-        if request is None or request.refunded_at is not None:
+        if request is None or await self._resend_refund_outcome(request):
             return
         if not request.pix_e2e_id or not request.pix_refund_id:
             raise RuntimeError(f"Immediate request {request_id} has no pending refund to check")
@@ -227,6 +253,7 @@ class ImmediateCareRelay:
             logger.error(
                 "Pix refund %s for immediate request %s was not performed by the bank; needs manual action", refund_id, request.id
             )
+            await self._refund_failed(request, refund_id)
             return
         # Still processing: remember the id and look again later, without telling the patient anything yet.
         self.requests.set_refund_pending(request.id, refund_id=refund_id)
@@ -234,6 +261,7 @@ class ImmediateCareRelay:
             logger.error(
                 "Pix refund %s for immediate request %s is still processing after %s checks; needs manual action", refund_id, request.id, attempt
             )
+            await self._refund_failed(request, refund_id)
             return
         next_attempt = attempt + 1
         with transaction(self.factory):
@@ -243,6 +271,12 @@ class ImmediateCareRelay:
                 {"request_id": request.id, "attempt": next_attempt},
                 available_at=self._now() + REFUND_CHECK_INTERVAL,
             )
+
+    async def _refund_failed(self, request: ImmediateRequestModel, refund_id: str) -> None:
+        """Record the failure (the panel shows "Estorno falhou") and tell the patient someone will refund by hand."""
+        self.requests.set_refund_failed(request.id, refund_id=refund_id, failed_at=self._now())
+        message = REFUND_FAILED_MESSAGE.format(amount=format_reais(request.amount_cents))
+        await self._send_text(request.id, "refund_failed", request.patient.phone_number, message)
 
     async def _accepted(self, item: OutboxModel) -> None:
         request_id = self._request_id(item)
@@ -268,40 +302,61 @@ class ImmediateCareRelay:
             professional_phone,
             ACCEPTED_PROFESSIONAL_MESSAGE.format(url=url, name=_first_name(request), minutes=request.duration_minutes),
         )
-        await self.chats.delete_context(patient_phone, Channel.WHATSAPP)
+        # The patient stays in the queue node: any message gets the room link again, then the flow closes.
         await self.offers.clear(professional_phone, Channel.WHATSAPP)
 
     async def _payment_timeout(self, item: OutboxModel) -> None:
         request_id = self._request_id(item)
         request = self.requests.get(request_id)
-        if request is None:
-            return
-        if request.status == ImmediateStatus.AWAITING_PAYMENT.value and request.pix_txid:
-            # The webhook may be late or lost: ask the bank before telling the patient nothing was charged.
-            charge = await self.pix.get_charge(request.pix_txid)
-            if charge.paid and charge.e2e_id:
-                with transaction(self.factory):
-                    confirm_payment(
-                        self.requests,
-                        self.outbox,
-                        txid=request.pix_txid,
-                        e2e_id=charge.e2e_id,
-                        paid_at=charge.paid_at or self._now(),
-                        offer_timeout=self.offer_timeout,
-                    )
-                logger.info("Late Pix payment found by the bank check for immediate request %s", request_id)
-                return
-            if self.requests.cancel(request_id):
-                try:
-                    await self.pix.cancel_charge(request.pix_txid)
-                except Exception:
-                    logger.exception("Could not remove Pix charge %s after the payment deadline", request.pix_txid)
-            request = self.requests.get(request_id)
-        if request is None or request.status != ImmediateStatus.CANCELLED.value:
+        if request is None or not request.pix_txid:
             return
         patient_phone = request.patient.phone_number
+        if request.status == ImmediateStatus.CANCELLED.value:
+            # Cancelled by the patient (always before the deadline): nothing to say. Cancelled by an earlier attempt of
+            # this step (at or after the deadline): resend the notice, which the dispatcher dedups by event_id.
+            if request.updated_at is not None and request.updated_at >= request.expires_at:
+                await self._send_text(request_id, "payment_timeout", patient_phone, PAYMENT_EXPIRED_MESSAGE)
+            return
+        if request.status != ImmediateStatus.AWAITING_PAYMENT.value:
+            return
+        # The webhook may be late or lost: ask the bank before telling the patient nothing was charged.
+        charge = await self.pix.get_charge(request.pix_txid)
+        if charge.paid and charge.e2e_id:
+            with transaction(self.factory):
+                confirm_payment(
+                    self.requests,
+                    self.outbox,
+                    txid=request.pix_txid,
+                    e2e_id=charge.e2e_id,
+                    paid_at=charge.paid_at or self._now(),
+                    now=self._now(),
+                    offer_timeout=self.offer_timeout,
+                )
+            logger.info("Late Pix payment found by the bank check for immediate request %s", request_id)
+            return
+        if not self.requests.cancel(request_id):
+            return  # paid or cancelled a moment ago; that path speaks to the patient
+        try:
+            await self.pix.cancel_charge(request.pix_txid)
+        except Exception:
+            logger.exception("Could not remove Pix charge %s after the payment deadline", request.pix_txid)
         await self._send_text(request_id, "payment_timeout", patient_phone, PAYMENT_EXPIRED_MESSAGE)
-        await self.chats.delete_context(patient_phone, Channel.WHATSAPP)
+        await self._leave_flow(patient_phone)
+
+    async def _cancel_charge(self, item: OutboxModel) -> None:
+        """Remove the charge at the bank after a CANCELAR, outside the message transaction (a lock held across the HTTP
+        call froze the worker when the payment deadline fired at the same time)."""
+        request_id = self._request_id(item)
+        request = self.requests.get(request_id)
+        if request is None or request.status != ImmediateStatus.CANCELLED.value or not request.pix_txid:
+            return
+        await self.pix.cancel_charge(request.pix_txid)
+
+    async def _leave_flow(self, phone: str) -> None:
+        """Close the patient's conversation only while it is still inside the immediate care nodes."""
+        context = await self.chats.get_context(phone, Channel.WHATSAPP)
+        if context is not None and str(context.state).startswith("imediato_"):
+            await self.chats.delete_context(phone, Channel.WHATSAPP)
 
     async def _send_text(self, request_id: int, kind: str, phone: str, content: str) -> None:
         message = Message(

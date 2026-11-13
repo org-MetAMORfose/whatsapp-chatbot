@@ -119,6 +119,13 @@ NEW_NODES = (
         "Nenhum psicólogo está disponível para atendimento imediato agora, então não vou gerar a cobrança. "
         "Tente de novo mais tarde ou mande RESET e escolha Agendar atendimento.",
     ),
+    (
+        "imediato_falha_pix",
+        "END",
+        "Falha ao gerar o Pix",
+        "O banco não respondeu ao criar a cobrança; nenhum pedido fica aberto.",
+        "Não consegui gerar o Pix agora. Tente de novo em alguns minutos ou mande RESET e escolha Agendar atendimento.",
+    ),
 )
 
 
@@ -137,6 +144,14 @@ NOBODY_CONFIG = _route("immediate_nobody_available", "imediato_sem_profissional"
 PAID_CONFIG = _route("immediate_paid", "imediato_na_fila")
 DONE_CONFIG = _route("immediate_done", "imediato_encerrado")
 GATE_CONFIG = _route("immediate_disabled", "imediato_indisponivel")
+PIX_FAILED_CONFIG = _route("immediate_pix_failed", "imediato_falha_pix")
+DURATION_ACTIONS: list[tuple[str, dict[str, object] | None, bool]] = [
+    ("immediate_create_request", CREATE_REQUEST_CONFIG, True),
+    ("immediate_noop", NOBODY_CONFIG, False),
+    ("immediate_noop", GATE_CONFIG, False),
+    ("immediate_noop", PIX_FAILED_CONFIG, False),
+]
+CANCEL_ACTIONS: list[tuple[str, dict[str, object] | None, bool]] = [("immediate_cancel", PAID_CONFIG, True), ("immediate_noop", DONE_CONFIG, False)]
 ENTRY_NODE, ENTRY_VALUE = "paciente_tipo_atendimento", "atendimento imediato"
 
 # (node_key, input_type, expected_value, button_label, target_key, [(action_key, config, is_required)])
@@ -147,24 +162,11 @@ TRANSITIONS: tuple[tuple[str, str, str | None, str | None, str, list[tuple[str, 
     ("imediato_triagem_2", "TEXT", "Sim", "Sim", "imediato_emergencia", []),
     ("imediato_termos", "TEXT", "Aceito os termos", "Aceito os termos", "imediato_duracao", []),
     ("imediato_termos", "TEXT", "Não aceito", "Não aceito", "imediato_recusa", []),
-    (
-        "imediato_duracao",
-        "TEXT",
-        "30 minutos",
-        "30 minutos",
-        "imediato_pix",
-        [("immediate_create_request", CREATE_REQUEST_CONFIG, True), ("immediate_noop", NOBODY_CONFIG, False)],
-    ),
-    (
-        "imediato_duracao",
-        "TEXT",
-        "50 minutos",
-        "50 minutos",
-        "imediato_pix",
-        [("immediate_create_request", CREATE_REQUEST_CONFIG, True), ("immediate_noop", NOBODY_CONFIG, False)],
-    ),
-    ("imediato_pix", "TEXT", "cancelar", None, "imediato_cancelado", [("immediate_cancel", PAID_CONFIG, True)]),
-    ("imediato_pix", "AUTO", None, None, "imediato_pix", [("immediate_payment_status", PAID_CONFIG, False)]),
+    ("imediato_duracao", "TEXT", "30 minutos", "30 minutos", "imediato_pix", DURATION_ACTIONS),
+    ("imediato_duracao", "TEXT", "50 minutos", "50 minutos", "imediato_pix", DURATION_ACTIONS),
+    ("imediato_pix", "TEXT", "cancelar", None, "imediato_cancelado", CANCEL_ACTIONS),
+    ("imediato_pix", "AUTO", None, None, "imediato_pix", [("immediate_payment_status", PAID_CONFIG, False), ("immediate_noop", DONE_CONFIG, False)]),
+    ("imediato_na_fila", "TEXT", "cancelar", None, "imediato_na_fila", CANCEL_ACTIONS),
     ("imediato_na_fila", "AUTO", None, None, "imediato_na_fila", [("immediate_payment_status", DONE_CONFIG, False)]),
 )
 
@@ -253,28 +255,30 @@ def upgrade() -> None:
 
 def downgrade() -> None:
     connection = op.get_bind()
-    # The gate lives on the menu transition of a node that stays; remove every immediate_* action explicitly.
-    connection.execute(sa.text("DELETE FROM chatbot_flow.transition_action WHERE action_key LIKE 'immediate\\_%'"))
     ids = _node_ids(connection)
-    node_ids = list(ids.values())
-    if node_ids:
-        connection.execute(
-            sa.text(
-                "DELETE FROM chatbot_flow.action_dependency WHERE action_id IN ("
-                "SELECT action.id FROM chatbot_flow.transition_action AS action JOIN chatbot_flow.transition AS transition "
-                "ON transition.id = action.transition_id WHERE transition.node_id IN :node_ids) OR depends_on_id IN ("
-                "SELECT action.id FROM chatbot_flow.transition_action AS action JOIN chatbot_flow.transition AS transition "
-                "ON transition.id = action.transition_id WHERE transition.node_id IN :node_ids)"
-            ).bindparams(sa.bindparam("node_ids", expanding=True)),
-            {"node_ids": node_ids},
-        )
-        connection.execute(
-            sa.text(
-                "DELETE FROM chatbot_flow.transition_action WHERE transition_id IN "
-                "(SELECT id FROM chatbot_flow.transition WHERE node_id IN :node_ids)"
-            ).bindparams(sa.bindparam("node_ids", expanding=True)),
-            {"node_ids": node_ids},
-        )
+    node_ids = list(ids.values()) or [-1]
+    # Every immediate_* action (the gate lives on a menu transition that stays) plus the actions on our own nodes.
+    # Dependencies go first: the FK from action_dependency has no cascade.
+    connection.execute(
+        sa.text(
+            "DELETE FROM chatbot_flow.action_dependency WHERE action_id IN ("
+            "SELECT action.id FROM chatbot_flow.transition_action AS action JOIN chatbot_flow.transition AS transition "
+            "ON transition.id = action.transition_id WHERE action.action_key LIKE 'immediate\\_%' OR transition.node_id IN :node_ids"
+            ") OR depends_on_id IN ("
+            "SELECT action.id FROM chatbot_flow.transition_action AS action JOIN chatbot_flow.transition AS transition "
+            "ON transition.id = action.transition_id WHERE action.action_key LIKE 'immediate\\_%' OR transition.node_id IN :node_ids)"
+        ).bindparams(sa.bindparam("node_ids", expanding=True)),
+        {"node_ids": node_ids},
+    )
+    connection.execute(
+        sa.text(
+            "DELETE FROM chatbot_flow.transition_action WHERE id IN ("
+            "SELECT action.id FROM chatbot_flow.transition_action AS action JOIN chatbot_flow.transition AS transition "
+            "ON transition.id = action.transition_id WHERE action.action_key LIKE 'immediate\\_%' OR transition.node_id IN :node_ids)"
+        ).bindparams(sa.bindparam("node_ids", expanding=True)),
+        {"node_ids": node_ids},
+    )
+    if ids:
         # Keep the existing menu edge into paciente_imediato: only our own transitions go away.
         new_ids = [node_id for key, node_id in ids.items() if key != "paciente_imediato"] or [-1]
         connection.execute(

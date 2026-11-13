@@ -1,5 +1,6 @@
 """HTTP ingress and management endpoints, with no background message consumers."""
 
+import logging
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from typing import Any
@@ -14,7 +15,7 @@ from app.controllers.faq_knowledge_controller import FaqKnowledgeController
 from app.controllers.health_controller import HealthController
 from app.controllers.immediate_care_controller import ImmediateCareController
 from app.controllers.matching_follow_up_controller import MatchingFollowUpController
-from app.controllers.pix_webhook_controller import PixWebhookController
+from app.controllers.pix_webhook_controller import PixWebhookController, WebhookTokenLogFilter
 from app.controllers.registration_controller import RegistrationController
 from app.controllers.send_message_controller import SendMessageController
 from app.controllers.upload_media_controller import UploadMediaController
@@ -32,6 +33,8 @@ from app.repository.sql.person_repository import PersonRepository
 from app.repository.sql.professional_repository import ProfessionalRepository
 from app.services.chatbot_flow_admin_service import ChatFlowAdminService
 from app.services.google_sheets_service import GoogleSheetsService
+from app.services.pix.banco_do_brasil import BancoDoBrasilPixGateway
+from app.services.pix.gateway import pix_gateway_from_settings
 from app.services.receiver_service import MessageReceiverService
 from app.services.registration_service import RegistrationService
 
@@ -102,6 +105,8 @@ def create_app() -> FastAPI:
         ).router
     )
     immediate_requests = ImmediateRequestRepository(factory)
+    pix_gateway = pix_gateway_from_settings()  # also refuses the fake gateway with the feature switched on
+    logging.getLogger("uvicorn.access").addFilter(WebhookTokenLogFilter())
     app.include_router(
         PixWebhookController(
             factory,
@@ -109,6 +114,7 @@ def create_app() -> FastAPI:
             outbox,
             token=settings.PIX_WEBHOOK_TOKEN,
             offer_timeout_seconds=settings.IMMEDIATE_OFFER_TIMEOUT_SECONDS,
+            verify_with_bank=pix_gateway.get_charge if isinstance(pix_gateway, BancoDoBrasilPixGateway) else None,
         ).router
     )
     app.include_router(ImmediateCareController(professionals, immediate_requests).router)

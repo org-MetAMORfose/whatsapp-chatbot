@@ -66,10 +66,10 @@ def test_create_sets_awaiting_payment_and_timestamps(factory, repository):
 def test_get_active_for_patient_ignores_expired_unpaid(factory, repository):
     person = make_person(factory, "5511900000001")
     create(repository, person, txid="b" * 32, expires_at=NOW - timedelta(minutes=1))
-    assert repository.get_active_for_patient(person.id, now=NOW) is None
+    assert repository.get_active_for_patient(person.id, now=NOW, room_grace_minutes=15) is None
     queued = create(repository, person, txid="c" * 32)
     repository.mark_paid("c" * 32, e2e_id="E1", paid_at=NOW, offer_deadline=NOW + timedelta(minutes=5))
-    assert repository.get_active_for_patient(person.id, now=NOW).id == queued.id
+    assert repository.get_active_for_patient(person.id, now=NOW, room_grace_minutes=15).id == queued.id
 
 
 def test_mark_paid_transitions_once(factory, repository):
@@ -187,3 +187,25 @@ def test_list_available_excludes_pending_review_and_accepts_legacy_areas(factory
         professionals.set_available_for_immediate(person_id, True, now=NOW)
     listed = professionals.list_available_for_immediate()
     assert [professional.person.phone_number for professional in listed] == ["5511900000002", "5511900000003", "5511900000004"]
+
+
+def test_get_active_for_patient_releases_accepted_after_session_window(factory, repository):
+    """An accepted session blocks a new request only while it can still be happening (duration + room grace)."""
+    person = make_person(factory, "5511900000001")
+    professional = make_person(factory, "5511900000009", name="Dra. Ana")
+    request = create(repository, person, txid="d" * 32)
+    repository.mark_paid("d" * 32, e2e_id="E1", paid_at=NOW, offer_deadline=NOW + timedelta(minutes=5))
+    assert repository.accept(request.id, professional_person_id=professional.id, now=NOW) is True
+    during = repository.get_active_for_patient(person.id, now=NOW + timedelta(minutes=44), room_grace_minutes=15)
+    assert during is not None and during.id == request.id
+    assert repository.get_active_for_patient(person.id, now=NOW + timedelta(minutes=46), room_grace_minutes=15) is None
+
+
+def test_set_refund_failed_records_once(factory, repository):
+    person = make_person(factory, "5511900000001")
+    request = create(repository, person)
+    assert repository.set_refund_failed(request.id, refund_id="a" * 32 + "R1", failed_at=NOW) is True
+    stored = repository.get(request.id)
+    assert stored.refund_failed_at is not None and stored.pix_refund_id == "a" * 32 + "R1" and stored.refunded_at is None
+    assert repository.set_refund_failed(request.id, refund_id="a" * 32 + "R1", failed_at=NOW) is False
+    assert repository.set_refunded(request.id, refund_id="a" * 32 + "R1", refunded_at=NOW) is True

@@ -543,24 +543,47 @@ class ActionExecutor:
         person = self.person_repository.get_by_phone_number_and_channel(message.user_id, message.channel)
         if person is None:
             return None
-        return requests.get_active_for_patient(person.id, now=self._now())
+        return requests.get_active_for_patient(person.id, now=self._now(), room_grace_minutes=settings.IMMEDIATE_ROOM_GRACE_MINUTES)
+
+    @staticmethod
+    def _already_active(active: ImmediateRequestModel) -> ActionResult:
+        """An open request wins over a new one: unpaid goes back to the Pix node with its code, paid to "em andamento"."""
+        if active.status == ImmediateStatus.AWAITING_PAYMENT.value:
+            output = (
+                f"Você já tem um Pix em aberto de {format_reais(active.amount_cents)} ({active.duration_minutes} minutos).\n\n"
+                f"Pix copia e cola:\n{active.pix_copia_cola}\n\n"
+            )
+            return ActionResult(output=output, data={"immediate_active": False, "immediate_nobody_available": False})
+        output = ""
+        if active.status == ImmediateStatus.ACCEPTED.value:
+            room = f"Sala de vídeo: {active.room_url}" if active.room_url else "Estou criando a sala de vídeo."
+            output = f"Seu atendimento já foi aceito. {room}\n\n"
+        return ActionResult(output=output, data={"immediate_active": True})
 
     async def immediate_create_request(self, message: Message) -> ActionResult:
-        """Create the request and its Pix charge; route to "em andamento" when the patient already has one."""
+        """Create the request and its Pix charge; the data fields route to the waiting, refusal and failure nodes."""
         requests, gateway = self._immediate()
+        if not settings.IMMEDIATE_CARE_ENABLED:
+            # The menu gate already refuses new entries; this covers a patient who was mid-flow when the switch went off.
+            return ActionResult(output="", data={"immediate_disabled": True, "immediate_active": False})
         person = self.person_repository.get_by_phone_number_and_channel(message.user_id, message.channel)
         if person is None:
             raise ValueError("Immediate request without a registered person")
-        if requests.get_active_for_patient(person.id, now=self._now()) is not None:
-            return ActionResult(output="", data={"immediate_active": True})
+        active = requests.get_active_for_patient(person.id, now=self._now(), room_grace_minutes=settings.IMMEDIATE_ROOM_GRACE_MINUTES)
+        if active is not None:
+            return self._already_active(active)
         if not self.professional_repository.list_available_for_immediate():
             return ActionResult(output="", data={"immediate_active": False, "immediate_nobody_available": True})
         minutes = _immediate_duration(message.content)
         amount = settings.IMMEDIATE_PRICE_30_CENTS if minutes == 30 else settings.IMMEDIATE_PRICE_50_CENTS
         txid = uuid4().hex
-        charge = await gateway.create_charge(
-            txid=txid, amount_cents=amount, expires_seconds=settings.IMMEDIATE_PAYMENT_TIMEOUT_SECONDS, payer_name=person.name
-        )
+        try:
+            charge = await gateway.create_charge(
+                txid=txid, amount_cents=amount, expires_seconds=settings.IMMEDIATE_PAYMENT_TIMEOUT_SECONDS, payer_name=person.name
+            )
+        except Exception:
+            logger.exception("Could not create the Pix charge for an immediate request of person %s", person.id)
+            return ActionResult(output="", data={"immediate_active": False, "immediate_nobody_available": False, "immediate_pix_failed": True})
         request = requests.create(
             patient_person_id=person.id,
             duration_minutes=minutes,
@@ -583,7 +606,7 @@ class ActionExecutor:
         request = self._active_immediate_request(message, requests)
         if request is None:
             return ActionResult(
-                output="Não encontrei um pedido em aberto. Mande RESET para recomeçar.\n\n",
+                output="Não encontrei um pedido em aberto.\n\n",
                 data={"immediate_paid": False, "immediate_done": True},
             )
         if request.status == ImmediateStatus.AWAITING_PAYMENT.value:
@@ -593,27 +616,25 @@ class ActionExecutor:
             )
         if request.status == ImmediateStatus.QUEUED.value:
             return ActionResult(
-                output="Pagamento recebido! Ainda estou procurando um psicólogo disponível.\n\n",
+                output="Pagamento recebido!\n\n",
                 data={"immediate_paid": True, "immediate_done": False},
             )
         room = f"Sala de vídeo: {request.room_url}" if request.room_url else "Estou criando a sala de vídeo."
         return ActionResult(output=f"Seu atendimento já foi aceito. {room}\n\n", data={"immediate_paid": True, "immediate_done": True})
 
     async def immediate_cancel(self, message: Message) -> ActionResult:
-        """Cancel an unpaid request (and its charge at the bank); a paid one keeps waiting."""
-        requests, gateway = self._immediate()
+        """Cancel an unpaid request; a paid one keeps waiting. The bank call runs in the worker, never inside this transaction."""
+        requests, _gateway = self._immediate()
         request = self._active_immediate_request(message, requests)
         if request is None:
-            return ActionResult(output="", data={"immediate_paid": False})
-        if request.status != ImmediateStatus.AWAITING_PAYMENT.value:
+            return ActionResult(output="Não encontrei um pedido em aberto.\n\n", data={"immediate_paid": False, "immediate_done": True})
+        if request.status != ImmediateStatus.AWAITING_PAYMENT.value or not requests.cancel(request.id):
+            # Already paid, or paid in the instant between reading and cancelling: the queue path speaks to the patient.
             return ActionResult(
                 output="Seu pagamento já foi recebido, então o pedido não pode mais ser cancelado.\n\n", data={"immediate_paid": True}
             )
-        if requests.cancel(request.id) and request.pix_txid:
-            try:
-                await gateway.cancel_charge(request.pix_txid)
-            except Exception:
-                logger.exception("Could not remove Pix charge %s after cancelling request %s", request.pix_txid, request.id)
+        if request.pix_txid:
+            self.outbox_repository.enqueue(f"immediate:{request.id}:cancel_charge", "immediate.cancel_charge.v1", {"request_id": request.id})
         return ActionResult(output="", data={"immediate_paid": False})
 
     async def immediate_gate(self, message: Message) -> ActionResult:

@@ -48,3 +48,13 @@ def test_from_settings_selects_fake_without_key(monkeypatch):
     assert isinstance(video_room_service_from_settings(), FakeVideoRoomService)
     monkeypatch.setattr(settings, "DAILY_API_KEY", "k")
     assert isinstance(video_room_service_from_settings(), DailyService)
+
+
+def test_from_settings_refuses_fake_room_with_the_feature_on(monkeypatch):
+    monkeypatch.setattr(settings, "DAILY_API_KEY", "")
+    monkeypatch.setattr(settings, "IMMEDIATE_CARE_ENABLED", True)
+    monkeypatch.setattr(settings, "IMMEDIATE_ALLOW_FAKE", False)
+    with pytest.raises(RuntimeError, match="DAILY_API_KEY"):
+        video_room_service_from_settings()
+    monkeypatch.setattr(settings, "IMMEDIATE_ALLOW_FAKE", True)
+    assert isinstance(video_room_service_from_settings(), FakeVideoRoomService)

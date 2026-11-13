@@ -15,13 +15,16 @@ def confirm_payment(
     txid: str,
     e2e_id: str,
     paid_at: datetime,
+    now: datetime,
     offer_timeout: timedelta,
 ) -> ImmediateRequestModel | None:
     """Queue the request and schedule the offer and its deadline; None when the payment was already handled.
 
     Must run inside a business transaction (`transaction(...)`), so the state change and the outbox rows commit together.
+    The offer window starts when we learn about the payment, not when the bank booked it: a late webhook (or the
+    30-minute bank check) must still give the psychologists their 5 minutes.
     """
-    deadline = paid_at + offer_timeout
+    deadline = max(paid_at, now) + offer_timeout
     request = requests.mark_paid(txid, e2e_id=e2e_id, paid_at=paid_at, offer_deadline=deadline)
     if request is None:
         return None

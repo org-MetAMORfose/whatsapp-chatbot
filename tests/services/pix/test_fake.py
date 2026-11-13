@@ -50,3 +50,16 @@ async def test_fake_gateway_refund_check_and_cancel():
     refund = await gateway.get_refund(e2e_id="E1", refund_id="t" * 32 + "R1")
     assert refund.status == "DEVOLVIDO" and refund.refund_id == "t" * 32 + "R1"
     await gateway.cancel_charge("t" * 32)
+
+
+def test_from_settings_refuses_fake_pix_with_the_feature_on(monkeypatch):
+    monkeypatch.setattr(settings, "PIX_PROVIDER", "fake")
+    monkeypatch.setattr(settings, "IMMEDIATE_CARE_ENABLED", True)
+    monkeypatch.setattr(settings, "IMMEDIATE_ALLOW_FAKE", False)
+    with pytest.raises(RuntimeError, match="PIX_PROVIDER=bb"):
+        pix_gateway_from_settings()
+    monkeypatch.setattr(settings, "IMMEDIATE_ALLOW_FAKE", True)
+    assert isinstance(pix_gateway_from_settings(), FakePixGateway)
+    monkeypatch.setattr(settings, "IMMEDIATE_ALLOW_FAKE", False)
+    monkeypatch.setattr(settings, "IMMEDIATE_CARE_ENABLED", False)
+    assert isinstance(pix_gateway_from_settings(), FakePixGateway)

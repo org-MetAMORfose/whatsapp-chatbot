@@ -5,7 +5,7 @@ from collections.abc import Callable
 from datetime import datetime
 from typing import Any, cast
 
-from sqlalchemy import and_, or_, select, update
+from sqlalchemy import and_, func, or_, select, update
 from sqlalchemy.engine import CursorResult
 from sqlalchemy.orm import Session
 
@@ -58,15 +58,22 @@ class ImmediateRequestRepository:
         with session_scope(self._session_factory) as session:
             return session.scalar(select(ImmediateRequestModel).where(ImmediateRequestModel.pix_txid == txid))
 
-    def get_active_for_patient(self, patient_person_id: int, *, now: datetime) -> ImmediateRequestModel | None:
-        """Latest request still worth waiting for: queued/accepted, or unpaid within its payment deadline."""
+    def get_active_for_patient(self, patient_person_id: int, *, now: datetime, room_grace_minutes: int) -> ImmediateRequestModel | None:
+        """Latest request still worth waiting for: queued, accepted while the session can still be running
+        (duration + room grace), or unpaid within its payment deadline."""
+        session_window = func.make_interval(0, 0, 0, 0, 0, ImmediateRequestModel.duration_minutes + room_grace_minutes)
         with session_scope(self._session_factory) as session:
             stmt = (
                 select(ImmediateRequestModel)
                 .where(
                     ImmediateRequestModel.patient_person_id == patient_person_id,
                     or_(
-                        ImmediateRequestModel.status.in_((QUEUED, ACCEPTED)),
+                        ImmediateRequestModel.status == QUEUED,
+                        and_(
+                            ImmediateRequestModel.status == ACCEPTED,
+                            ImmediateRequestModel.accepted_at.is_not(None),
+                            ImmediateRequestModel.accepted_at + session_window > now,
+                        ),
                         and_(ImmediateRequestModel.status == AWAITING, ImmediateRequestModel.expires_at > now),
                     ),
                 )
@@ -115,6 +122,14 @@ class ImmediateRequestRepository:
             request_id,
             where=ImmediateRequestModel.refunded_at.is_(None),
             values={"pix_refund_id": refund_id, "refunded_at": refunded_at},
+        )
+
+    def set_refund_failed(self, request_id: int, *, refund_id: str, failed_at: datetime) -> bool:
+        """The bank refused or never finished the refund: someone has to do it by hand (shown in the panel)."""
+        return self._transition(
+            request_id,
+            where=and_(ImmediateRequestModel.refunded_at.is_(None), ImmediateRequestModel.refund_failed_at.is_(None)),
+            values={"pix_refund_id": refund_id, "refund_failed_at": failed_at},
         )
 
     def list_recent(self, limit: int = 100) -> list[ImmediateRequestModel]:

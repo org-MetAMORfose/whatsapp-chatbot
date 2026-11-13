@@ -124,6 +124,8 @@ GMAIL_SECRET_CLIENT = __get_env_variable("GMAIL_SECRET_CLIENT", "")
 
 # Acolhimento imediato: Pix (Banco do Brasil ou simulado), vídeo (Daily) e prazos.
 IMMEDIATE_CARE_ENABLED = __get_bool_env_variable("IMMEDIATE_CARE_ENABLED", "false")
+# Só em testes locais: deixa ligar o atendimento com Pix e sala simulados.
+IMMEDIATE_ALLOW_FAKE = __get_bool_env_variable("IMMEDIATE_ALLOW_FAKE", "false")
 PIX_PROVIDER = __get_env_variable("PIX_PROVIDER", "fake")
 BB_PIX_CLIENT_ID = __get_env_variable("BB_PIX_CLIENT_ID", "")
 BB_PIX_CLIENT_SECRET = __get_env_variable("BB_PIX_CLIENT_SECRET", "")
@@ -141,4 +143,3 @@ IMMEDIATE_OFFER_TIMEOUT_SECONDS = int(__get_env_variable("IMMEDIATE_OFFER_TIMEOU
 IMMEDIATE_PAYMENT_TIMEOUT_SECONDS = int(__get_env_variable("IMMEDIATE_PAYMENT_TIMEOUT_SECONDS", "1800"))
 IMMEDIATE_ROOM_GRACE_MINUTES = int(__get_env_variable("IMMEDIATE_ROOM_GRACE_MINUTES", "15"))
 DAILY_API_KEY = __get_env_variable("DAILY_API_KEY", "")
-DAILY_DOMAIN = __get_env_variable("DAILY_DOMAIN", "")

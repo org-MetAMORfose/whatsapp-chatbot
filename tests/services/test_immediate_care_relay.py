@@ -1,4 +1,5 @@
 from datetime import UTC, datetime, timedelta
+from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
@@ -22,6 +23,12 @@ TXID = "a" * 32
 PATIENT_PHONE = "5511999999999"
 PRO_PHONE = "5511977776666"
 ROOM = "https://exemplo.daily.co/sala"
+REFUNDED_TEXT = "Pix de R$ 60,00 devolvido. Pode levar alguns minutos pra aparecer no seu banco. Quando quiser tentar de novo, mande RESET."
+REFUND_FAILED_TEXT = (
+    "Não consegui devolver o seu Pix de R$ 60,00 automaticamente. A equipe da MetAMORfose vai fazer a devolução manualmente "
+    "e te avisa por aqui."
+)
+PAYMENT_EXPIRED_TEXT = "O Pix expirou e nada foi cobrado. Se ainda quiser, mande RESET e peça de novo."
 
 
 def patient() -> PersonModel:
@@ -82,6 +89,7 @@ class Deps:
         self.chats = MagicMock()
         self.chats.create_context = AsyncMock()
         self.chats.delete_context = AsyncMock(return_value=True)
+        self.chats.get_context = AsyncMock(return_value=SimpleNamespace(state="imediato_na_fila"))
         self.video = MagicMock()
         self.video.create_room = AsyncMock(return_value=ROOM)
         self.pix = MagicMock()
@@ -134,6 +142,7 @@ async def test_claim_uses_all_kinds_and_returns_false_when_idle() -> None:
         "immediate.refund_check.v1",
         "immediate.accepted.v1",
         "immediate.payment_timeout.v1",
+        "immediate.cancel_charge.v1",
     )
 
 
@@ -221,13 +230,14 @@ async def test_timeout_noop_when_already_accepted() -> None:
 
 
 @pytest.mark.asyncio
-async def test_refund_not_performed_is_final_and_logged(caplog: pytest.LogCaptureFixture) -> None:
+async def test_refund_not_performed_is_recorded_and_patient_is_told(caplog: pytest.LogCaptureFixture) -> None:
     deps = Deps("immediate.refund.v1", request(ImmediateStatus.EXPIRED))
     deps.pix.refund.return_value = PixRefund(refund_id=TXID + "R1", status="NAO_REALIZADO")
     with caplog.at_level("ERROR"):
         await deps.relay.process_next()
     deps.requests.set_refunded.assert_not_called()
-    deps.outbound.publish.assert_not_awaited()
+    deps.requests.set_refund_failed.assert_called_once_with(42, refund_id=TXID + "R1", failed_at=NOW)
+    assert [message.content for message in deps.published()] == [REFUND_FAILED_TEXT]
     deps.outbox.enqueue.assert_not_called()
     assert deps.finished_ok()
     assert any("manual" in record.getMessage() for record in caplog.records)
@@ -237,6 +247,7 @@ async def test_refund_not_performed_is_final_and_logged(caplog: pytest.LogCaptur
 async def test_refund_transport_error_retries() -> None:
     deps = Deps("immediate.refund.v1", request(ImmediateStatus.EXPIRED))
     deps.pix.refund.side_effect = RuntimeError("bb down")
+    deps.pix.get_refund.side_effect = RuntimeError("bb down")
     await deps.relay.process_next()
     deps.requests.set_refunded.assert_not_called()
     deps.outbound.publish.assert_not_awaited()
@@ -298,6 +309,8 @@ async def test_refund_check_gives_up_after_limit_and_logs(caplog: pytest.LogCapt
     with caplog.at_level("ERROR"):
         await deps.relay.process_next()
     deps.outbox.enqueue.assert_not_called()
+    deps.requests.set_refund_failed.assert_called_once_with(42, refund_id=TXID + "R1", failed_at=NOW)
+    assert [message.content for message in deps.published()] == [REFUND_FAILED_TEXT]
     assert any("manual" in record.getMessage() for record in caplog.records)
     assert deps.finished_ok()
 
@@ -363,11 +376,13 @@ async def test_last_attempt_logs_error(caplog: pytest.LogCaptureFixture) -> None
 
 
 @pytest.mark.asyncio
-async def test_refund_is_idempotent() -> None:
+async def test_refund_is_idempotent_but_resends_the_confirmation() -> None:
+    """A retry after a crash between `set_refunded` and the message must not swallow the confirmation (event_id dedups)."""
     deps = Deps("immediate.refund.v1", request(ImmediateStatus.EXPIRED, refunded_at=NOW, pix_refund_id=TXID + "R1"))
     await deps.relay.process_next()
     deps.pix.refund.assert_not_awaited()
-    deps.outbound.publish.assert_not_awaited()
+    deps.requests.set_refunded.assert_not_called()
+    assert [message.content for message in deps.published()] == [REFUNDED_TEXT]
     assert deps.finished_ok()
 
 
@@ -398,7 +413,7 @@ async def test_accepted_creates_room_once_and_notifies_both() -> None:
         (PATIENT_PHONE, f"Um psicólogo aceitou o seu atendimento! Entre na sala de vídeo: {ROOM}\n\nA sessão dura 30 minutos e não é gravada."),
         (PRO_PHONE, f"Sala de vídeo do acolhimento: {ROOM}\n\nO paciente é Maria, sessão de 30 minutos."),
     ]
-    deps.chats.delete_context.assert_awaited_once_with(PATIENT_PHONE, Channel.WHATSAPP)
+    deps.chats.delete_context.assert_not_awaited()  # the patient stays in the queue node and can ask for the link again
     deps.offers.clear.assert_awaited_once_with(PRO_PHONE, Channel.WHATSAPP)
     assert deps.finished_ok()
 
@@ -450,4 +465,75 @@ async def test_missing_request_is_finished_without_retry() -> None:
     deps = Deps("immediate.offer.v1", None)
     await deps.relay.process_next()
     deps.outbound.publish.assert_not_awaited()
+    assert deps.finished_ok()
+
+
+@pytest.mark.asyncio
+async def test_payment_timeout_stays_quiet_after_the_patient_cancelled() -> None:
+    """CANCELAR before paying must not be followed, 30 minutes later, by \"O Pix expirou\" and a wiped conversation."""
+    cancelled = request(ImmediateStatus.CANCELLED, expires_at=NOW, updated_at=NOW - timedelta(minutes=10))
+    deps = Deps("immediate.payment_timeout.v1", cancelled)
+    await deps.relay.process_next()
+    deps.requests.cancel.assert_not_called()
+    deps.pix.get_charge.assert_not_awaited()
+    deps.outbound.publish.assert_not_awaited()
+    deps.chats.delete_context.assert_not_awaited()
+    assert deps.finished_ok()
+
+
+@pytest.mark.asyncio
+async def test_payment_timeout_resends_the_notice_when_a_previous_attempt_cancelled() -> None:
+    cancelled_by_deadline = request(ImmediateStatus.CANCELLED, expires_at=NOW - timedelta(minutes=1), updated_at=NOW - timedelta(seconds=30))
+    deps = Deps("immediate.payment_timeout.v1", cancelled_by_deadline)
+    await deps.relay.process_next()
+    deps.requests.cancel.assert_not_called()
+    assert [message.content for message in deps.published()] == [PAYMENT_EXPIRED_TEXT]
+    assert deps.finished_ok()
+
+
+@pytest.mark.asyncio
+async def test_timeout_leaves_a_patient_who_moved_to_another_flow_alone() -> None:
+    deps = Deps("immediate.timeout.v1", request(ImmediateStatus.EXPIRED))
+    deps.requests.expire.return_value = True
+    deps.chats.get_context.return_value = SimpleNamespace(state="paciente_nome")
+    await deps.relay.process_next()
+    assert len(deps.published()) == 1
+    deps.chats.delete_context.assert_not_awaited()
+    assert deps.finished_ok()
+
+
+@pytest.mark.asyncio
+async def test_cancel_charge_removes_the_charge_only_while_cancelled() -> None:
+    deps = Deps("immediate.cancel_charge.v1", request(ImmediateStatus.CANCELLED))
+    await deps.relay.process_next()
+    deps.pix.cancel_charge.assert_awaited_once_with(TXID)
+    assert deps.finished_ok()
+
+    paid_meanwhile = Deps("immediate.cancel_charge.v1", request(ImmediateStatus.QUEUED))
+    await paid_meanwhile.relay.process_next()
+    paid_meanwhile.pix.cancel_charge.assert_not_awaited()
+    assert paid_meanwhile.finished_ok()
+
+
+@pytest.mark.asyncio
+async def test_refund_falls_back_to_querying_the_bank_when_the_put_fails() -> None:
+    deps = Deps("immediate.refund.v1", request(ImmediateStatus.EXPIRED))
+    deps.pix.refund.side_effect = RuntimeError("409 devolução já existe")
+    deps.requests.set_refunded.return_value = True
+    await deps.relay.process_next()
+    deps.pix.get_refund.assert_awaited_once_with(e2e_id="E123", refund_id=TXID + "R1")
+    deps.requests.set_refunded.assert_called_once_with(42, refund_id=TXID + "R1", refunded_at=NOW)
+    assert [message.content for message in deps.published()] == [REFUNDED_TEXT]
+    assert deps.finished_ok()
+
+
+@pytest.mark.asyncio
+async def test_late_payment_found_by_the_bank_gets_a_fresh_offer_window() -> None:
+    deps = Deps("immediate.payment_timeout.v1", request(ImmediateStatus.AWAITING_PAYMENT))
+    deps.pix.get_charge.return_value = PixChargeStatus(txid=TXID, paid=True, e2e_id="E9", paid_at=NOW - timedelta(minutes=30))
+    deps.requests.mark_paid.return_value = request(ImmediateStatus.QUEUED)
+    await deps.relay.process_next()
+    deps.requests.mark_paid.assert_called_once_with(
+        TXID, e2e_id="E9", paid_at=NOW - timedelta(minutes=30), offer_deadline=NOW + timedelta(seconds=300)
+    )
     assert deps.finished_ok()

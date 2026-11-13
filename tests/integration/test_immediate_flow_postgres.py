@@ -25,6 +25,7 @@ KEYS = (
     "imediato_encerrado",
     "imediato_indisponivel",
     "imediato_sem_profissional",
+    "imediato_falha_pix",
 )
 
 
@@ -61,6 +62,16 @@ def route_of(transition: Transition) -> tuple[str, str]:
     return str(config["source"]["field"]), str(config["target_node_key"])
 
 
+def routes_of(transition: Transition) -> dict[str, str]:
+    """Every action_transition config on the transition, field -> target."""
+    routes: dict[str, str] = {}
+    for action in transition.actions:
+        if action.config is not None:
+            assert action.config["operator"] == "eq" and action.config["value"] is True
+            routes[str(action.config["source"]["field"])] = str(action.config["target_node_key"])
+    return routes
+
+
 @pytest.mark.integration
 def test_immediate_nodes_are_published_and_loadable() -> None:
     engine = create_engine(database_url())
@@ -92,33 +103,43 @@ def test_immediate_nodes_are_published_and_loadable() -> None:
         assert duration.buttons == ["30 minutos", "50 minutos"]
         for transition in duration.transitions:
             assert transition.target == "imediato_pix"
-            assert action_keys(transition) == ["immediate_create_request", "immediate_noop"]
-            assert transition.actions[0].is_required is True and transition.actions[1].is_required is False
-            assert route_of(transition) == ("immediate_active", "imediato_em_andamento")
-            noop_config = transition.actions[1].config
-            assert noop_config is not None and noop_config["source"]["field"] == "immediate_nobody_available"
-            assert noop_config["target_node_key"] == "imediato_sem_profissional"
+            assert action_keys(transition) == ["immediate_create_request", "immediate_noop", "immediate_noop", "immediate_noop"]
+            assert [action.is_required for action in transition.actions] == [True, False, False, False]
+            assert routes_of(transition) == {
+                "immediate_active": "imediato_em_andamento",
+                "immediate_nobody_available": "imediato_sem_profissional",
+                "immediate_disabled": "imediato_indisponivel",
+                "immediate_pix_failed": "imediato_falha_pix",
+            }
         assert node(flow, "imediato_em_andamento").type == NodeType.END
         assert node(flow, "imediato_sem_profissional").type == NodeType.END
+        failure = node(flow, "imediato_falha_pix")
+        assert failure.type == NodeType.END and failure.message.startswith("Não consegui gerar o Pix agora.")
 
         pix = node(flow, "imediato_pix")
         assert pix.type == NodeType.MESSAGE
         assert [transition.expected_value for transition in pix.transitions] == ["cancelar", None]
         cancel, waiting = pix.transitions
         assert cancel.input_type == InputType.TEXT and cancel.button_label is None
-        assert cancel.target == "imediato_cancelado" and action_keys(cancel) == ["immediate_cancel"]
-        assert cancel.actions[0].is_required is True
-        assert route_of(cancel) == ("immediate_paid", "imediato_na_fila")
+        assert cancel.target == "imediato_cancelado" and action_keys(cancel) == ["immediate_cancel", "immediate_noop"]
+        assert [action.is_required for action in cancel.actions] == [True, False]
+        assert routes_of(cancel) == {"immediate_paid": "imediato_na_fila", "immediate_done": "imediato_encerrado"}
         assert waiting.input_type == InputType.AUTO and waiting.target == "imediato_pix"
-        assert action_keys(waiting) == ["immediate_payment_status"] and waiting.actions[0].is_required is False
-        assert route_of(waiting) == ("immediate_paid", "imediato_na_fila")
+        assert action_keys(waiting) == ["immediate_payment_status", "immediate_noop"]
+        assert [action.is_required for action in waiting.actions] == [False, False]
+        assert routes_of(waiting) == {"immediate_paid": "imediato_na_fila", "immediate_done": "imediato_encerrado"}
         assert node(flow, "imediato_cancelado").type == NodeType.END
 
         queue = node(flow, "imediato_na_fila")
-        assert queue.type == NodeType.MESSAGE and len(queue.transitions) == 1
-        assert queue.transitions[0].input_type == InputType.AUTO and queue.transitions[0].target == "imediato_na_fila"
-        assert action_keys(queue.transitions[0]) == ["immediate_payment_status"]
-        assert route_of(queue.transitions[0]) == ("immediate_done", "imediato_encerrado")
+        assert queue.type == NodeType.MESSAGE
+        assert [transition.expected_value for transition in queue.transitions] == ["cancelar", None]
+        queue_cancel, queue_waiting = queue.transitions
+        assert queue_cancel.input_type == InputType.TEXT and queue_cancel.target == "imediato_na_fila"
+        assert action_keys(queue_cancel) == ["immediate_cancel", "immediate_noop"]
+        assert routes_of(queue_cancel) == {"immediate_paid": "imediato_na_fila", "immediate_done": "imediato_encerrado"}
+        assert queue_waiting.input_type == InputType.AUTO and queue_waiting.target == "imediato_na_fila"
+        assert action_keys(queue_waiting) == ["immediate_payment_status"]
+        assert route_of(queue_waiting) == ("immediate_done", "imediato_encerrado")
         assert node(flow, "imediato_encerrado").type == NodeType.END
 
         menu = node(flow, "paciente_tipo_atendimento")

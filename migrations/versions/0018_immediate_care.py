@@ -30,6 +30,7 @@ def upgrade() -> None:
         sa.Column("paid_at", sa.DateTime(timezone=True)),
         sa.Column("accepted_at", sa.DateTime(timezone=True)),
         sa.Column("refunded_at", sa.DateTime(timezone=True)),
+        sa.Column("refund_failed_at", sa.DateTime(timezone=True)),
         sa.Column("expires_at", sa.DateTime(timezone=True), nullable=False),
         sa.Column("created_at", sa.DateTime(timezone=True), nullable=False, server_default=sa.func.now()),
         sa.Column("updated_at", sa.DateTime(timezone=True), nullable=False, server_default=sa.func.now()),

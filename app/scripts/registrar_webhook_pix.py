@@ -20,7 +20,7 @@ async def main() -> int:
         return 1
     url = f"{settings.PUBLIC_BASE_URL.rstrip('/')}/pix/webhook/{settings.PIX_WEBHOOK_TOKEN}"
     await gateway.register_webhook(url)
-    print(f"Webhook registrado para a chave {settings.BB_PIX_CHAVE}: {url}")
+    print(f"Webhook registrado para a chave {settings.BB_PIX_CHAVE}: {url.replace(settings.PIX_WEBHOOK_TOKEN, '***')}")
     return 0
 
 

@@ -45,4 +45,9 @@ class FakeVideoRoomService:
 def video_room_service_from_settings() -> VideoRoomService:
     if settings.DAILY_API_KEY:
         return DailyService(settings.DAILY_API_KEY)
+    if settings.IMMEDIATE_CARE_ENABLED and not settings.IMMEDIATE_ALLOW_FAKE:
+        raise RuntimeError(
+            "IMMEDIATE_CARE_ENABLED=true exige DAILY_API_KEY: sem ela a sala de vídeo seria simulada. "
+            "Em testes locais, defina IMMEDIATE_ALLOW_FAKE=true."
+        )
     return FakeVideoRoomService()
