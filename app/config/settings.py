@@ -101,6 +101,8 @@ REDIS_PASSWORD = __get_env_variable("REDIS_PASSWORD", "")
 WHATSAPP_VERIFY_TOKEN = __get_env_variable("WHATSAPP_VERIFY_TOKEN", "")
 WHATSAPP_ACCESS_TOKEN = __get_env_variable("WHATSAPP_ACCESS_TOKEN", "")
 WHATSAPP_PHONE_NUMBER_ID = __get_env_variable("WHATSAPP_PHONE_NUMBER_ID", "")
+# Endereço da Graph API; em testes locais pode apontar para um servidor falso.
+WHATSAPP_GRAPH_URL = __get_env_variable("WHATSAPP_GRAPH_URL", "https://graph.facebook.com")
 WHATSAPP_WEBHOOK_PORT = int(
     __get_env_variable("WHATSAPP_WEBHOOK_PORT", "8000"))
 
