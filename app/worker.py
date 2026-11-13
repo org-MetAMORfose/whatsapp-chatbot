@@ -127,6 +127,7 @@ async def run() -> None:
     from app.infra.media_factory import create_media_service
     from app.repository.redis.chat_repository import ChatRepository
     from app.repository.redis.chatbot_flow_cache import ChatFlowCache
+    from app.repository.redis.immediate_offer_repository import ImmediateOfferRepository
     from app.repository.redis.matching_follow_up_repository import MatchingFollowUpRepository
     from app.repository.redis.patient_stage_repository import PatientStageRepository
     from app.repository.redis.professional_stage_repository import ProfessionalStageRepository
@@ -140,6 +141,7 @@ async def run() -> None:
     from app.repository.sql.professional_repository import ProfessionalRepository
     from app.services.dispatcher_service import MessageDispatcherService
     from app.services.email_service import GmailSmtpAdapter
+    from app.services.immediate_care_interceptor import ImmediateCareInterceptor
     from app.services.inbound_processor import InboundProcessor
     from app.services.matching_completed_relay import MatchingCompletedRelay
     from app.services.matching_email_relay import MatchingEmailRelay
@@ -168,6 +170,9 @@ async def run() -> None:
             await outbound.initialize()
             people = PersonRepository(factory)
             outbox = OutboxRepository(factory)
+            professionals = ProfessionalRepository(factory)
+            immediate_requests = ImmediateRequestRepository(factory)
+            immediate_offers = ImmediateOfferRepository(redis)
             media = create_media_service()
             flow_cache = ChatFlowCache(redis, ChatFlowRepository(factory))
             await flow_cache.refresh()
@@ -176,7 +181,7 @@ async def run() -> None:
                 inbound=inbound,
                 outbound=outbound,
                 chat_repository=ChatRepository(redis),
-                professional_repository=ProfessionalRepository(factory),
+                professional_repository=professionals,
                 professional_stage_repository=ProfessionalStageRepository(redis),
                 person_repository=people,
                 patient_repository=PatientRepository(factory),
@@ -186,7 +191,7 @@ async def run() -> None:
                 faq_session_repository=FaqSessionRepository(factory),
                 flow_provider=flow_cache,
                 sheets_stage_repository=SheetsStageRepository(redis),
-                immediate_requests=ImmediateRequestRepository(factory),
+                immediate_requests=immediate_requests,
                 pix_gateway=pix_gateway_from_settings(),
             )
             processor = InboundProcessor(
@@ -197,6 +202,7 @@ async def run() -> None:
                 outbound,
                 media,
                 MatchingFollowUpRepository(redis),
+                interceptor=ImmediateCareInterceptor(professionals, immediate_requests, immediate_offers, outbox),
             )
             dispatcher = MessageDispatcherService(ctx, outbound, people)
             whatsapp = WhatsAppAdapter(s3_service=media)

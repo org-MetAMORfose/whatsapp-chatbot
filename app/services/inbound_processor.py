@@ -17,6 +17,7 @@ from app.repository.redis.matching_follow_up_repository import MatchingFollowUpR
 from app.repository.redis.staged_state import stage_state
 from app.repository.sql.person_repository import PersonRepository
 from app.repository.sql.transaction import transaction
+from app.services.immediate_care_interceptor import ImmediateCareInterceptor
 from app.services.s3_media_service import S3MediaService
 from app.services.whatsapp_media_service import WhatsAppMediaService
 
@@ -35,10 +36,12 @@ class InboundProcessor:
         outbound: MessageQueue,
         media: S3MediaService | None,
         follow_ups: MatchingFollowUpRepository,
+        interceptor: ImmediateCareInterceptor | None = None,
     ) -> None:
         self.factory, self.agent, self.people = factory, agent, person_repository
         self.inbound, self.outbound, self.media = inbound, outbound, media
         self.follow_ups = follow_ups
+        self.interceptor = interceptor
 
     async def process(self, delivery: Delivery) -> None:
         message = delivery.message
@@ -89,7 +92,10 @@ class InboundProcessor:
             if await self.follow_ups.consume(message.user_id, message.channel):
                 answer = Response(content=FOLLOW_UP_THANK_YOU)
             elif person.chat_mode != ChatMode.MANUAL:
-                answer = await self.agent._process_message(message)
+                if self.interceptor is not None:
+                    answer = await self.interceptor.handle(message, person)
+                if answer is None:
+                    answer = await self.agent._process_message(message)
             if answer is not None:
                 buttons: list[MessageButton] | None = (
                     [MessageButton(id=str(uuid4()), title=title) for title in answer.buttons] if answer.buttons else None
