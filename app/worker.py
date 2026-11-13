@@ -14,6 +14,7 @@ if TYPE_CHECKING:
 from redis.exceptions import RedisError
 from sqlalchemy import text
 
+import app.config.settings as settings
 from app.config import infra
 from app.context import AppContext
 from app.infra.message_queue import Delivery, MessageQueue
@@ -142,10 +143,12 @@ async def run() -> None:
     from app.services.dispatcher_service import MessageDispatcherService
     from app.services.email_service import GmailSmtpAdapter
     from app.services.immediate_care_interceptor import ImmediateCareInterceptor
+    from app.services.immediate_care_relay import ImmediateCareRelay
     from app.services.inbound_processor import InboundProcessor
     from app.services.matching_completed_relay import MatchingCompletedRelay
     from app.services.matching_email_relay import MatchingEmailRelay
     from app.services.pix.gateway import pix_gateway_from_settings
+    from app.services.video_room_service import video_room_service_from_settings
 
     ctx = AppContext()
     loop = asyncio.get_running_loop()
@@ -173,6 +176,8 @@ async def run() -> None:
             professionals = ProfessionalRepository(factory)
             immediate_requests = ImmediateRequestRepository(factory)
             immediate_offers = ImmediateOfferRepository(redis)
+            chat_repository = ChatRepository(redis)
+            pix_gateway = pix_gateway_from_settings()
             media = create_media_service()
             flow_cache = ChatFlowCache(redis, ChatFlowRepository(factory))
             await flow_cache.refresh()
@@ -180,7 +185,7 @@ async def run() -> None:
                 ctx=ctx,
                 inbound=inbound,
                 outbound=outbound,
-                chat_repository=ChatRepository(redis),
+                chat_repository=chat_repository,
                 professional_repository=professionals,
                 professional_stage_repository=ProfessionalStageRepository(redis),
                 person_repository=people,
@@ -192,7 +197,7 @@ async def run() -> None:
                 flow_provider=flow_cache,
                 sheets_stage_repository=SheetsStageRepository(redis),
                 immediate_requests=immediate_requests,
-                pix_gateway=pix_gateway_from_settings(),
+                pix_gateway=pix_gateway,
             )
             processor = InboundProcessor(
                 factory,
@@ -209,6 +214,21 @@ async def run() -> None:
             dispatcher.register_adapter(WhatsAppAdapter.channel, whatsapp)
             matching_notifications = MatchingCompletedRelay(outbox, whatsapp)
             matching_emails = MatchingEmailRelay(outbox, GmailSmtpAdapter())
+            immediate_relay = ImmediateCareRelay(
+                outbox,
+                whatsapp,
+                outbound,
+                immediate_requests,
+                professionals,
+                people,
+                immediate_offers,
+                chat_repository,
+                video_room_service_from_settings(),
+                pix_gateway,
+                factory,
+                offer_timeout_seconds=settings.IMMEDIATE_OFFER_TIMEOUT_SECONDS,
+                room_grace_minutes=settings.IMMEDIATE_ROOM_GRACE_MINUTES,
+            )
 
             async def send(delivery: Delivery) -> None:
                 await dispatcher.dispatch(delivery.message)
@@ -232,6 +252,7 @@ async def run() -> None:
                 asyncio.create_task(matching_relay(outbox, ctx)),
                 asyncio.create_task(matching_notifications.run(ctx)),
                 asyncio.create_task(matching_emails.run(ctx)),
+                asyncio.create_task(immediate_relay.run(ctx)),
                 asyncio.create_task(heartbeat()),
             ]
             stopping = asyncio.create_task(ctx.wait_for_shutdown())
