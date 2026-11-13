@@ -16,10 +16,12 @@ from app.repository.redis.professional_stage_repository import ProfessionalStage
 from app.repository.redis.sheets_stage_repository import SheetsStageRepository
 from app.repository.sql.faq_knowledge_repository import FaqKnowledgeRepository
 from app.repository.sql.faq_session_repository import FaqSessionRepository
+from app.repository.sql.immediate_request_repository import ImmediateRequestRepository
 from app.repository.sql.outbox_repository import OutboxRepository
 from app.repository.sql.patient_repository import PatientRepository
 from app.repository.sql.person_repository import PersonRepository
 from app.repository.sql.professional_repository import ProfessionalRepository
+from app.services.pix.gateway import PixGateway
 
 logger = logging.getLogger(__name__)
 
@@ -62,6 +64,8 @@ class AgentWorker:
         faq_session_repository: FaqSessionRepository,
         flow_provider: FlowProvider,
         sheets_stage_repository: SheetsStageRepository | None = None,
+        immediate_requests: ImmediateRequestRepository | None = None,
+        pix_gateway: PixGateway | None = None,
     ):
         self.ctx = ctx
         self.inbound_queue = inbound
@@ -82,6 +86,8 @@ class AgentWorker:
             outbox_repository,
             faq_flow,
             sheets_stage_repository,
+            immediate_requests=immediate_requests,
+            pix_gateway=pix_gateway,
         )
 
     async def _process_message(self, message: Message) -> Response:

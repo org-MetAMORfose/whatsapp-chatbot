@@ -134,6 +134,7 @@ async def run() -> None:
     from app.repository.sql.chatbot_flow_repository import ChatFlowRepository
     from app.repository.sql.faq_knowledge_repository import FaqKnowledgeRepository
     from app.repository.sql.faq_session_repository import FaqSessionRepository
+    from app.repository.sql.immediate_request_repository import ImmediateRequestRepository
     from app.repository.sql.patient_repository import PatientRepository
     from app.repository.sql.person_repository import PersonRepository
     from app.repository.sql.professional_repository import ProfessionalRepository
@@ -142,6 +143,7 @@ async def run() -> None:
     from app.services.inbound_processor import InboundProcessor
     from app.services.matching_completed_relay import MatchingCompletedRelay
     from app.services.matching_email_relay import MatchingEmailRelay
+    from app.services.pix.gateway import pix_gateway_from_settings
 
     ctx = AppContext()
     loop = asyncio.get_running_loop()
@@ -184,6 +186,8 @@ async def run() -> None:
                 faq_session_repository=FaqSessionRepository(factory),
                 flow_provider=flow_cache,
                 sheets_stage_repository=SheetsStageRepository(redis),
+                immediate_requests=ImmediateRequestRepository(factory),
+                pix_gateway=pix_gateway_from_settings(),
             )
             processor = InboundProcessor(
                 factory,

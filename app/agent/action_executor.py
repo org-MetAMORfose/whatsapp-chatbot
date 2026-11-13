@@ -6,10 +6,12 @@ import re
 import unicodedata
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
-from datetime import date, datetime
+from datetime import UTC, date, datetime
 from functools import partial
 from typing import Any, Final
+from uuid import uuid4
 
+import app.config.settings as settings
 from app.agent.action_catalog import SHEETS_FLUSH, SHEETS_STORE_ANSWER
 from app.agent.chat_flow import (
     SheetsFlushConfig,
@@ -17,11 +19,13 @@ from app.agent.chat_flow import (
     TransitionAction,
 )
 from app.agent.faq_flow import FaqFlow
+from app.domain.db.immediate_request_model import ImmediateRequestModel
 from app.domain.db.patient_model import PatientModel
 from app.domain.enum.chat_mode import ChatMode
 from app.domain.enum.chat_state import ChatState
 from app.domain.enum.faq_answer_status import FaqAnswerStatus
 from app.domain.enum.faq_session_outcome import FaqSessionOutcome
+from app.domain.enum.immediate_status import ImmediateStatus
 from app.domain.matching.profile import PSYCHOTHERAPY, append_specialty_answer, area, patient_request, professional_profile
 from app.domain.message import Message
 from app.domain.redis.patient_stage import PatientStageContext
@@ -31,10 +35,12 @@ from app.repository.redis.professional_stage_repository import (
     ProfessionalStageRepository,
 )
 from app.repository.redis.sheets_stage_repository import SheetsStageRepository
+from app.repository.sql.immediate_request_repository import ImmediateRequestRepository
 from app.repository.sql.outbox_repository import OutboxRepository
 from app.repository.sql.patient_repository import PatientRepository
 from app.repository.sql.person_repository import PersonRepository
 from app.repository.sql.professional_repository import ProfessionalRepository
+from app.services.pix.gateway import PixGateway, format_reais
 
 
 @dataclass
@@ -60,6 +66,14 @@ PATIENT_PRICE_RANGES: Final[frozenset[str]] = frozenset(
 BIRTH_DATE_PATTERN: Final = re.compile(r"^\d{1,2}/\d{1,2}/\d{4}$")
 FAQ_SATISFIED_OPTION: Final = "estou satisfeito"
 FAQ_HUMAN_SUPPORT_OPTION: Final = "falar com atendente"
+IMMEDIATE_DURATION_PATTERN: Final = re.compile(r"\b(30|50)\b")
+
+
+def _immediate_duration(content: str | None) -> int:
+    match = IMMEDIATE_DURATION_PATTERN.search(content or "")
+    if match is None:
+        raise ValueError(f"Unknown immediate care duration: {content!r}")
+    return int(match.group(1))
 
 
 class ActionExecutor:
@@ -75,6 +89,9 @@ class ActionExecutor:
         outbox_repository: OutboxRepository,
         faq_flow: FaqFlow,
         sheets_stage_repository: SheetsStageRepository | None = None,
+        immediate_requests: ImmediateRequestRepository | None = None,
+        pix_gateway: PixGateway | None = None,
+        now: Callable[[], datetime] | None = None,
     ) -> None:
         self.professional_stage_repository = professional_stage_repository
         self.professional_repository = professional_repository
@@ -84,6 +101,9 @@ class ActionExecutor:
         self.outbox_repository = outbox_repository
         self.faq_flow = faq_flow
         self.sheets_stage_repository = sheets_stage_repository
+        self.immediate_requests = immediate_requests
+        self.pix_gateway = pix_gateway
+        self._now: Callable[[], datetime] = now or (lambda: datetime.now(UTC))
 
         self.actions: Final[dict[str, Action]] = {
             "redis_create_professional_stage": (self.redis_create_professional_stage),
@@ -194,6 +214,9 @@ class ActionExecutor:
             "request_matching": self.request_matching,
             "sheets_register_patient": self.sheets_register_patient,
             "sheets_register_professional": self.sheets_register_professional,
+            "immediate_create_request": self.immediate_create_request,
+            "immediate_payment_status": self.immediate_payment_status,
+            "immediate_cancel": self.immediate_cancel,
             "faq_process_question": self.faq_process_question,
             "faq_continue_or_satisfy": self.faq_continue_or_satisfy,
             "faq_continue_or_finish": self.faq_continue_or_finish,
@@ -508,6 +531,76 @@ class ActionExecutor:
             chat_state=chat_state,
         )
         return ""
+
+    def _immediate(self) -> tuple[ImmediateRequestRepository, PixGateway]:
+        if self.immediate_requests is None or self.pix_gateway is None:
+            raise RuntimeError("Immediate care is not configured")
+        return self.immediate_requests, self.pix_gateway
+
+    def _active_immediate_request(self, message: Message, requests: ImmediateRequestRepository) -> ImmediateRequestModel | None:
+        person = self.person_repository.get_by_phone_number_and_channel(message.user_id, message.channel)
+        if person is None:
+            return None
+        return requests.get_active_for_patient(person.id, now=self._now())
+
+    async def immediate_create_request(self, message: Message) -> ActionResult:
+        """Create the request and its Pix charge; route to "em andamento" when the patient already has one."""
+        requests, gateway = self._immediate()
+        person = self.person_repository.get_by_phone_number_and_channel(message.user_id, message.channel)
+        if person is None:
+            raise ValueError("Immediate request without a registered person")
+        if requests.get_active_for_patient(person.id, now=self._now()) is not None:
+            return ActionResult(output="", data={"immediate_active": True})
+        minutes = _immediate_duration(message.content)
+        amount = settings.IMMEDIATE_PRICE_30_CENTS if minutes == 30 else settings.IMMEDIATE_PRICE_50_CENTS
+        txid = uuid4().hex
+        charge = await gateway.create_charge(
+            txid=txid, amount_cents=amount, expires_seconds=settings.IMMEDIATE_PAYMENT_TIMEOUT_SECONDS, payer_name=person.name
+        )
+        request = requests.create(
+            patient_person_id=person.id,
+            duration_minutes=minutes,
+            amount_cents=amount,
+            pix_txid=txid,
+            pix_copia_cola=charge.copia_cola,
+            expires_at=charge.expires_at,
+        )
+        self.outbox_repository.enqueue(
+            f"immediate:{request.id}:payment_timeout", "immediate.payment_timeout.v1", {"request_id": request.id}, available_at=charge.expires_at
+        )
+        return ActionResult(
+            output=f"Valor: {format_reais(amount)}\n\nPix copia e cola:\n{charge.copia_cola}\n\n",
+            data={"immediate_active": False, "immediate_request_id": request.id},
+        )
+
+    async def immediate_payment_status(self, message: Message) -> ActionResult:
+        """Tell the patient where the request stands; `immediate_paid`/`immediate_done` drive the waiting nodes."""
+        requests, _gateway = self._immediate()
+        request = self._active_immediate_request(message, requests)
+        if request is None:
+            return ActionResult(
+                output="Não encontrei um pedido em aberto. Mande RESET para recomeçar.\n\n",
+                data={"immediate_paid": False, "immediate_done": True},
+            )
+        if request.status == ImmediateStatus.AWAITING_PAYMENT.value:
+            return ActionResult(
+                output=f"Ainda não recebi o pagamento. Pix copia e cola:\n{request.pix_copia_cola}\n\n",
+                data={"immediate_paid": False, "immediate_done": False},
+            )
+        if request.status == ImmediateStatus.QUEUED.value:
+            return ActionResult(
+                output="Pagamento recebido! Ainda estou procurando um psicólogo disponível.\n\n",
+                data={"immediate_paid": True, "immediate_done": False},
+            )
+        room = f"Sala de vídeo: {request.room_url}" if request.room_url else "Estou criando a sala de vídeo."
+        return ActionResult(output=f"Seu atendimento já foi aceito. {room}\n\n", data={"immediate_paid": True, "immediate_done": True})
+
+    async def immediate_cancel(self, message: Message) -> ActionResult:
+        requests, _gateway = self._immediate()
+        request = self._active_immediate_request(message, requests)
+        if request is not None and request.status == ImmediateStatus.AWAITING_PAYMENT.value:
+            requests.cancel(request.id)
+        return ActionResult(output="")
 
     async def faq_process_question(self, message: Message) -> ActionResult:
         """Answer one FAQ question and expose its count for graph config."""
