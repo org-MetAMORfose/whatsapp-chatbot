@@ -119,3 +119,23 @@ GOOGLE_PROFESSIONALS_SPREADSHEET_URL = __get_env_variable(
 
 GMAIL_ID_CLIENT = __get_env_variable("GMAIL_ID_CLIENT", "")
 GMAIL_SECRET_CLIENT = __get_env_variable("GMAIL_SECRET_CLIENT", "")
+
+# Acolhimento imediato: Pix (Banco do Brasil ou simulado), vídeo (Daily) e prazos.
+PIX_PROVIDER = __get_env_variable("PIX_PROVIDER", "fake")
+BB_PIX_CLIENT_ID = __get_env_variable("BB_PIX_CLIENT_ID", "")
+BB_PIX_CLIENT_SECRET = __get_env_variable("BB_PIX_CLIENT_SECRET", "")
+BB_PIX_DEV_APP_KEY = __get_env_variable("BB_PIX_DEV_APP_KEY", "")
+BB_PIX_CERT_PATH = __get_env_variable("BB_PIX_CERT_PATH", "")
+BB_PIX_KEY_PATH = __get_env_variable("BB_PIX_KEY_PATH", "")
+BB_PIX_CHAVE = __get_env_variable("BB_PIX_CHAVE", "")
+BB_PIX_BASE_URL = __get_env_variable("BB_PIX_BASE_URL", "https://api-pix.hm.bb.com.br/pix/v2")
+BB_PIX_OAUTH_URL = __get_env_variable("BB_PIX_OAUTH_URL", "https://oauth.hm.bb.com.br/oauth/token")
+PIX_WEBHOOK_TOKEN = __get_env_variable("PIX_WEBHOOK_TOKEN", "")
+PUBLIC_BASE_URL = __get_env_variable("PUBLIC_BASE_URL", "")
+IMMEDIATE_PRICE_30_CENTS = int(__get_env_variable("IMMEDIATE_PRICE_30_CENTS", "6000"))
+IMMEDIATE_PRICE_50_CENTS = int(__get_env_variable("IMMEDIATE_PRICE_50_CENTS", "9000"))
+IMMEDIATE_OFFER_TIMEOUT_SECONDS = int(__get_env_variable("IMMEDIATE_OFFER_TIMEOUT_SECONDS", "300"))
+IMMEDIATE_PAYMENT_TIMEOUT_SECONDS = int(__get_env_variable("IMMEDIATE_PAYMENT_TIMEOUT_SECONDS", "1800"))
+IMMEDIATE_ROOM_GRACE_MINUTES = int(__get_env_variable("IMMEDIATE_ROOM_GRACE_MINUTES", "15"))
+DAILY_API_KEY = __get_env_variable("DAILY_API_KEY", "")
+DAILY_DOMAIN = __get_env_variable("DAILY_DOMAIN", "")
