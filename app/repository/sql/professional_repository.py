@@ -4,12 +4,14 @@ from collections.abc import Callable
 from datetime import datetime
 from typing import Any
 
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.orm import Session, joinedload
 
 from app.domain.db.professional_model import ProfessionalModel
-from app.domain.matching.profile import professional_profile
+from app.domain.matching.profile import PSYCHOTHERAPY, professional_profile
 from app.repository.sql.transaction import commit, session_scope
+
+IMMEDIATE_AREA = PSYCHOTHERAPY.lower()
 
 
 class ProfessionalRepository:
@@ -89,3 +91,26 @@ class ProfessionalRepository:
             commit(session)
             session.refresh(merged)
             return merged
+
+    def set_available_for_immediate(self, person_id: int, available: bool, *, now: datetime) -> ProfessionalModel | None:
+        with session_scope(self._session_factory) as session:
+            stmt = select(ProfessionalModel).options(joinedload(ProfessionalModel.person)).where(ProfessionalModel.person_id == person_id)
+            professional = session.execute(stmt).unique().scalar_one_or_none()
+            if professional is None:
+                return None
+            professional.available_for_immediate = available
+            professional.immediate_availability_updated_at = now
+            commit(session)
+            session.refresh(professional)
+            return professional
+
+    def list_available_for_immediate(self) -> list[ProfessionalModel]:
+        """Psychologists who opted in to immediate care, with their person loaded."""
+        with session_scope(self._session_factory) as session:
+            stmt = (
+                select(ProfessionalModel)
+                .options(joinedload(ProfessionalModel.person))
+                .where(ProfessionalModel.available_for_immediate.is_(True), func.lower(ProfessionalModel.area) == IMMEDIATE_AREA)
+                .order_by(ProfessionalModel.id)
+            )
+            return list(session.execute(stmt).unique().scalars().all())

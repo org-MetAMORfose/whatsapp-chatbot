@@ -11,6 +11,7 @@ from app.domain.db.delivery_model import InboxModel, OutboxModel
 from app.domain.db.faq_interaction_model import FaqInteractionModel
 from app.domain.db.faq_knowledge_entry_model import FaqKnowledgeEntryModel
 from app.domain.db.faq_session_model import FaqSessionModel
+from app.domain.db.immediate_request_model import ImmediateRequestModel
 from app.domain.db.matching_model import MatchingCycleModel, MatchingSlotModel
 from app.domain.db.message_history_model import MessageHistoryModel
 from app.domain.db.patient_model import PatientModel
@@ -30,6 +31,7 @@ __all__ = [
     "FaqInteractionModel",
     "FaqKnowledgeEntryModel",
     "FaqSessionModel",
+    "ImmediateRequestModel",
     "MessageHistoryModel",
     "PatientModel",
     "PersonModel",
