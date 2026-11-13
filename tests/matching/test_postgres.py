@@ -282,9 +282,9 @@ def test_seeded_chatbot_flow_is_complete_and_loadable(database):
     from app.repository.sql.chatbot_flow_repository import ChatFlowRepository
 
     with database.connect() as db:
-        assert db.scalar(text("SELECT count(*) FROM chatbot_flow.node")) == 70
-        assert db.scalar(text("SELECT count(*) FROM chatbot_flow.transition")) == 157
-        assert db.scalar(text("SELECT count(*) FROM chatbot_flow.transition_action")) == 172
+        assert db.scalar(text("SELECT count(*) FROM chatbot_flow.node")) == 80
+        assert db.scalar(text("SELECT count(*) FROM chatbot_flow.transition")) == 168
+        assert db.scalar(text("SELECT count(*) FROM chatbot_flow.transition_action")) == 177
         assert db.scalar(text("SELECT count(*) FROM chatbot_flow.input_error_message")) == 8
         assert (
             db.scalar(
@@ -315,7 +315,7 @@ def test_seeded_chatbot_flow_is_complete_and_loadable(database):
             WHERE action_key NOT LIKE 'sheets_%' AND NOT is_required
         """)
             )
-            == 153
+            == 155
         )
         required_actions = dict(db.execute(text("""
             SELECT action_key, count(*)
@@ -327,6 +327,8 @@ def test_seeded_chatbot_flow_is_complete_and_loadable(database):
             "faq_continue_or_finish": 3,
             "faq_continue_or_satisfy": 2,
             "faq_process_question": 1,
+            "immediate_cancel": 1,
+            "immediate_create_request": 2,
             "postgres_set_feedback_state": 1,
             "postgres_set_manual_chat_mode": 1,
             "postgres_set_payment_renewal_state": 2,
@@ -337,7 +339,7 @@ def test_seeded_chatbot_flow_is_complete_and_loadable(database):
     revision, flow = ChatFlowRepository(sessionmaker(database, expire_on_commit=False)).load()
 
     assert revision == 1
-    assert len(flow.nodes) == 70
+    assert len(flow.nodes) == 80
     start = flow.get("start")
     birth_date = flow.get("paciente_data_nascimento")
     assert start is not None
