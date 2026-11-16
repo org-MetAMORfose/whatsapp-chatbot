@@ -68,6 +68,7 @@ async def run(executor: ActionExecutor, key: str, content: str | None) -> Action
 @pytest.fixture(autouse=True)
 def immediate_care_enabled(monkeypatch):
     monkeypatch.setattr(settings, "IMMEDIATE_CARE_ENABLED", True)
+    monkeypatch.setattr(settings, "IMMEDIATE_ALLOW_FAKE", True)  # Pix and room are mocks here
     monkeypatch.setattr(settings, "IMMEDIATE_ROOM_GRACE_MINUTES", 15)
 
 
@@ -147,9 +148,9 @@ async def test_payment_status_queued():
 @pytest.mark.asyncio
 async def test_payment_status_accepted_with_and_without_room():
     executor, requests, _gateway, _outbox = make_executor()
-    requests.get_active_for_patient.return_value = make_request(ImmediateStatus.ACCEPTED, room_url="https://exemplo.daily.co/sala")
+    requests.get_active_for_patient.return_value = make_request(ImmediateStatus.ACCEPTED, room_url="https://exemplo.daily.co/sala", patient_room_url="https://exemplo.daily.co/sala?t=paciente")
     result = await run(executor, "immediate_payment_status", "oi")
-    assert result.output == "Seu atendimento já foi aceito. Sala de vídeo: https://exemplo.daily.co/sala\n\n"
+    assert result.output == "Seu atendimento já foi aceito. Sala de vídeo: https://exemplo.daily.co/sala?t=paciente\n\n"
     assert result.data == {"immediate_paid": True, "immediate_done": True}
     requests.get_active_for_patient.return_value = make_request(ImmediateStatus.ACCEPTED)
     result = await run(executor, "immediate_payment_status", "oi")
@@ -259,6 +260,23 @@ async def test_gate_follows_the_feature_flag(monkeypatch):
 
 
 @pytest.mark.asyncio
+async def test_gate_stays_closed_when_the_switch_is_on_but_production_config_is_missing(monkeypatch):
+    executor, _requests, _gateway, _outbox = make_executor()
+    monkeypatch.setattr(settings, "IMMEDIATE_ALLOW_FAKE", False)
+    monkeypatch.setattr(settings, "PIX_PROVIDER", "fake")
+    assert (await run(executor, "immediate_gate", "Atendimento imediato")).data == {"immediate_disabled": True}
+
+
+@pytest.mark.asyncio
+async def test_prices_are_shown_before_the_duration_choice(monkeypatch):
+    monkeypatch.setattr(settings, "IMMEDIATE_PRICE_30_CENTS", 6000)
+    monkeypatch.setattr(settings, "IMMEDIATE_PRICE_50_CENTS", 9000)
+    executor, _requests, _gateway, _outbox = make_executor()
+    result = await run(executor, "immediate_prices", "Aceito os termos")
+    assert result.output == "Valores: 30 minutos por R$ 60,00 ou 50 minutos por R$ 90,00.\n\n"
+
+
+@pytest.mark.asyncio
 async def test_noop_action_returns_empty_result():
     executor, _requests, _gateway, _outbox = make_executor()
     result = await run(executor, "immediate_noop", "30 minutos")
@@ -292,9 +310,9 @@ async def test_create_request_with_open_pix_shows_the_existing_code():
 @pytest.mark.asyncio
 async def test_create_request_with_accepted_session_shows_the_room():
     executor, requests, gateway, _outbox = make_executor()
-    requests.get_active_for_patient.return_value = make_request(ImmediateStatus.ACCEPTED, room_url="https://exemplo.daily.co/sala")
+    requests.get_active_for_patient.return_value = make_request(ImmediateStatus.ACCEPTED, room_url="https://exemplo.daily.co/sala", patient_room_url="https://exemplo.daily.co/sala?t=paciente")
     result = await run(executor, "immediate_create_request", "30 minutos")
-    assert result.output == "Seu atendimento já foi aceito. Sala de vídeo: https://exemplo.daily.co/sala\n\n"
+    assert result.output == "Seu atendimento já foi aceito. Sala de vídeo: https://exemplo.daily.co/sala?t=paciente\n\n"
     assert result.data == {"immediate_active": True}
     gateway.create_charge.assert_not_awaited()
 

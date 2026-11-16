@@ -1,8 +1,14 @@
 """Immediate care: replace the "[URL em construção]" placeholder with the in-chat flow.
 
 Converts `paciente_imediato` into the first triage question and adds the triage,
-terms, duration, Pix, queue and terminal nodes. Copy lives in the database so the
+age, terms, duration, Pix, queue and terminal nodes. Copy lives in the database so the
 panel's flow editor can adjust it. Downgrade restores the placeholder node.
+
+The flow is data the team edits in the panel, so production may differ from the seed.
+Every precondition is checked before anything is written; on a mismatch the migration
+stops with the list of differences (the deploy runs migrations before stopping the bot,
+so production keeps the previous version). Both directions publish a new graph revision:
+the workers reload the flow and drafts opened before the deploy show up as stale.
 """
 
 import json
@@ -23,9 +29,9 @@ PLACEHOLDER = {
 }
 
 TRIAGE_1 = {
-    "title": "Triagem do atendimento imediato (1 de 2)",
+    "title": "Triagem do atendimento imediato (1 de 3)",
     "description": "Primeira pergunta de segurança antes de qualquer cobrança.",
-    "message": "Antes de continuar, duas perguntas rápidas.\n\nVocê está pensando em se machucar ou em tirar a própria vida?",
+    "message": "Antes de continuar, algumas perguntas rápidas.\n\nVocê está pensando em se machucar ou em tirar a própria vida?",
 }
 
 # (key, type, title, description, message)
@@ -33,9 +39,24 @@ NEW_NODES = (
     (
         "imediato_triagem_2",
         "MESSAGE",
-        "Triagem do atendimento imediato (2 de 2)",
+        "Triagem do atendimento imediato (2 de 3)",
         "Segunda pergunta de segurança antes de qualquer cobrança.",
         "Você está passando agora por uma emergência, como uso de substâncias, violência ou uma crise intensa que precise de socorro?",
+    ),
+    (
+        "imediato_idade",
+        "MESSAGE",
+        "Triagem do atendimento imediato (3 de 3)",
+        "Atendimento de menores exige autorização de um responsável (CFP); o imediato é só para maiores.",
+        "Você tem 18 anos ou mais?",
+    ),
+    (
+        "imediato_menor",
+        "END",
+        "Menor de 18 anos",
+        "O acolhimento imediato não atende menores; nunca gera cobrança.",
+        "O acolhimento imediato é só para maiores de 18 anos. Para quem tem menos de 18, o atendimento precisa da autorização "
+        "de um responsável legal.\n\nSe você estiver em perigo agora, ligue 188 (CVV) ou 192 (SAMU).",
     ),
     (
         "imediato_emergencia",
@@ -158,9 +179,11 @@ ENTRY_NODE, ENTRY_VALUE = "paciente_tipo_atendimento", "atendimento imediato"
 TRANSITIONS: tuple[tuple[str, str, str | None, str | None, str, list[tuple[str, dict[str, object] | None, bool]]], ...] = (
     ("paciente_imediato", "TEXT", "Não", "Não", "imediato_triagem_2", []),
     ("paciente_imediato", "TEXT", "Sim", "Sim", "imediato_emergencia", []),
-    ("imediato_triagem_2", "TEXT", "Não", "Não", "imediato_termos", []),
+    ("imediato_triagem_2", "TEXT", "Não", "Não", "imediato_idade", []),
     ("imediato_triagem_2", "TEXT", "Sim", "Sim", "imediato_emergencia", []),
-    ("imediato_termos", "TEXT", "Aceito os termos", "Aceito os termos", "imediato_duracao", []),
+    ("imediato_idade", "TEXT", "Sim", "Sim", "imediato_termos", []),
+    ("imediato_idade", "TEXT", "Não", "Não", "imediato_menor", []),
+    ("imediato_termos", "TEXT", "Aceito os termos", "Aceito os termos", "imediato_duracao", [("immediate_prices", None, False)]),
     ("imediato_termos", "TEXT", "Não aceito", "Não aceito", "imediato_recusa", []),
     ("imediato_duracao", "TEXT", "30 minutos", "30 minutos", "imediato_pix", DURATION_ACTIONS),
     ("imediato_duracao", "TEXT", "50 minutos", "50 minutos", "imediato_pix", DURATION_ACTIONS),
@@ -189,12 +212,79 @@ def _insert_action(connection: Connection, transition_id: int, action_key: str, 
 
 
 def _node_ids(connection: Connection) -> dict[str, int]:
-    rows = connection.execute(sa.text("SELECT key, id FROM chatbot_flow.node WHERE key = 'paciente_imediato' OR key LIKE 'imediato\\_%'"))
+    """Only the nodes this migration owns: nodes the team adds later with an imediato_ prefix are left alone."""
+    keys = ["paciente_imediato", *NEW_KEYS]
+    rows = connection.execute(
+        sa.text("SELECT key, id FROM chatbot_flow.node WHERE key IN :keys").bindparams(sa.bindparam("keys", expanding=True)),
+        {"keys": keys},
+    )
     return {str(key): int(node_id) for key, node_id in rows}
+
+
+def _entry_transition(connection: Connection) -> tuple[int, int | None] | None:
+    row = connection.execute(
+        sa.text(
+            "SELECT transition.id, transition.next_node_id FROM chatbot_flow.transition AS transition "
+            "JOIN chatbot_flow.node AS node ON node.id = transition.node_id "
+            "WHERE node.key = :node_key AND lower(transition.expected_value) = :expected"
+        ),
+        {"node_key": ENTRY_NODE, "expected": ENTRY_VALUE},
+    ).first()
+    return None if row is None else (int(row[0]), None if row[1] is None else int(row[1]))
+
+
+def _upgrade_problems(connection: Connection) -> list[str]:
+    """Everything the upgrade relies on, read before any write."""
+    problems: list[str] = []
+    placeholder = connection.execute(
+        sa.text("SELECT id, CAST(type AS text), message FROM chatbot_flow.node WHERE key = 'paciente_imediato'")
+    ).first()
+    if placeholder is None:
+        problems.append("o nó 'paciente_imediato' não existe (foi renomeado ou apagado no editor)")
+    else:
+        if placeholder[1] != "END" or placeholder[2] != PLACEHOLDER["message"]:
+            problems.append("o nó 'paciente_imediato' foi editado: não é mais o fim com o texto '[URL em construção]'")
+        outgoing = connection.scalar(
+            sa.text("SELECT count(*) FROM chatbot_flow.transition WHERE node_id = :node_id"), {"node_id": placeholder[0]}
+        )
+        if outgoing:
+            problems.append("o nó 'paciente_imediato' ganhou transições de saída")
+    entry = _entry_transition(connection)
+    if entry is None:
+        problems.append("o botão 'Atendimento imediato' do nó 'paciente_tipo_atendimento' não existe mais")
+    elif placeholder is not None and entry[1] != placeholder[0]:
+        problems.append("o botão 'Atendimento imediato' não leva mais ao nó 'paciente_imediato'")
+    taken = connection.execute(
+        sa.text("SELECT key FROM chatbot_flow.node WHERE key IN :keys ORDER BY key").bindparams(sa.bindparam("keys", expanding=True)),
+        {"keys": list(NEW_KEYS)},
+    ).scalars().all()
+    if taken:
+        problems.append("já existem nós com os nomes usados pelo acolhimento imediato: " + ", ".join(taken))
+    if connection.scalar(sa.text("SELECT count(*) FROM chatbot_flow.graph_revision WHERE status = 'PUBLISHED'")) == 0:
+        problems.append("não há revisão publicada do fluxo")
+    return problems
+
+
+def _publish_revision(connection: Connection) -> None:
+    """A new published version: workers reload the flow and drafts based on the old one are reported as stale."""
+    connection.execute(
+        sa.text(
+            "INSERT INTO chatbot_flow.graph_revision (base_revision_id, status, version, created_at, updated_at, published_at) "
+            "SELECT id, CAST('PUBLISHED' AS chatbot_flow.revision_status), version + 1, now(), now(), now() FROM chatbot_flow.graph_revision "
+            "WHERE status = 'PUBLISHED' ORDER BY version DESC LIMIT 1"
+        )
+    )
 
 
 def upgrade() -> None:
     connection = op.get_bind()
+    problems = _upgrade_problems(connection)
+    if problems:
+        raise RuntimeError(
+            "Migração 0019 (acolhimento imediato) não aplicada: o fluxo de produção é diferente do esperado. "
+            "Nada foi alterado e o bot continua com a versão anterior. Diferenças: " + "; ".join(problems) + ". "
+            "Desfaça essas mudanças no editor do fluxo (ou ajuste a migração) e rode o deploy de novo."
+        )
     connection.execute(
         sa.text(
             "UPDATE chatbot_flow.node SET type = CAST('MESSAGE' AS chatbot_flow.node_type), title = :title, description = :description, "
@@ -221,16 +311,10 @@ def upgrade() -> None:
             },
         )
     ids = _node_ids(connection)
-    entry_transition_id = connection.scalar(
-        sa.text(
-            "SELECT transition.id FROM chatbot_flow.transition AS transition JOIN chatbot_flow.node AS node ON node.id = transition.node_id "
-            "WHERE node.key = :node_key AND lower(transition.expected_value) = :expected"
-        ),
-        {"node_key": ENTRY_NODE, "expected": ENTRY_VALUE},
-    )
-    if entry_transition_id is None:
+    entry = _entry_transition(connection)
+    if entry is None:  # already reported by _upgrade_problems
         raise RuntimeError("Transition 'Atendimento imediato' not found in paciente_tipo_atendimento")
-    _insert_action(connection, int(entry_transition_id), "immediate_gate", GATE_CONFIG, True)
+    _insert_action(connection, entry[0], "immediate_gate", GATE_CONFIG, True)
     positions: dict[str, int] = {}
     for node_key, input_type, expected, button, target, actions in TRANSITIONS:
         transition_position = positions.get(node_key, 0)
@@ -251,6 +335,7 @@ def upgrade() -> None:
         ).scalar_one()
         for action_key, config, is_required in actions:
             _insert_action(connection, int(transition_id), action_key, config, is_required)
+    _publish_revision(connection)
 
 
 def downgrade() -> None:
@@ -298,3 +383,4 @@ def downgrade() -> None:
         ),
         PLACEHOLDER,
     )
+    _publish_revision(connection)

@@ -12,6 +12,8 @@ from app.domain.message import Message, MessageButton
 from app.interfaces.bot_adapter import BotAdapter
 from app.services.s3_media_service import S3MediaService
 
+GRAPH_URL = "https://graph.facebook.com"
+
 logger = logging.getLogger(__name__)
 
 
@@ -143,6 +145,9 @@ class WhatsAppAdapter(BotAdapter):
         self.access_token = access_token or config.WHATSAPP_ACCESS_TOKEN
         self.phone_number_id = phone_number_id or config.WHATSAPP_PHONE_NUMBER_ID
         graph = (graph_url or config.WHATSAPP_GRAPH_URL).rstrip("/")
+        if graph != GRAPH_URL and not config.IMMEDIATE_ALLOW_FAKE:
+            # The access token goes to this host: only local tests may point it elsewhere.
+            graph = GRAPH_URL
         self.base_url = f"{graph}/{self.version}/{self.phone_number_id}"
         self.s3_service = s3_service
 

@@ -43,6 +43,8 @@ QUEUE_NODE = "imediato_na_fila"
 REFUND_CHECK_INTERVAL = timedelta(seconds=60)
 REFUND_DONE = "DEVOLVIDO"
 REFUND_FAILED = "NAO_REALIZADO"
+# The offer is remembered past its deadline so a late "Aceitar" hears "o prazo acabou" instead of going to the flow.
+OFFER_MEMORY_GRACE_SECONDS = 3600
 
 PAID_MESSAGE = "Pagamento recebido! Estou avisando os psicólogos disponíveis. Te retorno em até 5 minutos."
 TIMEOUT_MESSAGE = (
@@ -165,7 +167,12 @@ class ImmediateCareRelay:
         await self._send_text(request_id, "offer", patient_phone, PAID_MESSAGE)
         await self.chats.create_context(patient_phone, Channel.WHATSAPP, QUEUE_NODE)
         remaining = max(1, int((request.expires_at - now).total_seconds()))
-        candidates = self.professionals.list_available_for_immediate()
+        # A professional who is also the patient of this request never gets its offer.
+        candidates = [
+            professional
+            for professional in self.professionals.list_available_for_immediate()
+            if professional.person_id != request.patient_person_id
+        ]
         if not candidates:
             logger.warning("Immediate request %s paid but no psychologist is available", request_id)
         for professional in candidates:
@@ -185,7 +192,7 @@ class ImmediateCareRelay:
                     callback_data=None,
                 )
                 self._record_history(phone, template_history_content(template.name, template.language, template.body_parameters), now)
-                await self.offers.mark(phone, Channel.WHATSAPP, request_id, ttl_seconds=remaining)
+                await self.offers.mark(phone, Channel.WHATSAPP, request_id, ttl_seconds=remaining + OFFER_MEMORY_GRACE_SECONDS)
             except Exception:
                 logger.exception("Immediate offer not delivered to professional %s (%r) for request %s", professional.id, phone, request_id)
 
@@ -286,24 +293,27 @@ class ImmediateCareRelay:
             return
         if request.professional is None:
             raise RuntimeError(f"Accepted immediate request {request_id} has no professional")
-        url = request.room_url
-        if not url:
+        patient_url, professional_url = request.patient_room_url, request.professional_room_url
+        if not patient_url or not professional_url:
             expires_at = self._now() + timedelta(minutes=request.duration_minutes + self.room_grace_minutes)
-            url = await self.video.create_room(name=f"acolhimento-{request_id}-{secrets.token_urlsafe(16)}", expires_at=expires_at)
-            self.requests.set_room(request_id, url)
+            room = await self.video.create_room(name=f"acolhimento-{request_id}-{secrets.token_urlsafe(16)}", expires_at=expires_at)
+            self.requests.set_room(
+                request_id, room_url=room.room_url, patient_room_url=room.patient_url, professional_room_url=room.professional_url
+            )
+            patient_url, professional_url = room.patient_url, room.professional_url
         patient_phone = request.patient.phone_number
         professional_phone = request.professional.phone_number
         await self._send_text(
-            request_id, "accepted", patient_phone, ACCEPTED_PATIENT_MESSAGE.format(url=url, minutes=request.duration_minutes)
+            request_id, "accepted", patient_phone, ACCEPTED_PATIENT_MESSAGE.format(url=patient_url, minutes=request.duration_minutes)
         )
         await self._send_text(
             request_id,
             "accepted",
             professional_phone,
-            ACCEPTED_PROFESSIONAL_MESSAGE.format(url=url, name=_first_name(request), minutes=request.duration_minutes),
+            ACCEPTED_PROFESSIONAL_MESSAGE.format(url=professional_url, name=_first_name(request), minutes=request.duration_minutes),
         )
-        # The patient stays in the queue node: any message gets the room link again, then the flow closes.
-        await self.offers.clear(professional_phone, Channel.WHATSAPP)
+        # The patient stays in the queue node: any message gets the room link again, then the flow closes. The
+        # professional's offer key is kept until its TTL, so a repeated "Aceitar" gets their room link again.
 
     async def _payment_timeout(self, item: OutboxModel) -> None:
         request_id = self._request_id(item)

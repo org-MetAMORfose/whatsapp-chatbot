@@ -110,8 +110,12 @@ class ImmediateRequestRepository:
     def cancel(self, request_id: int) -> bool:
         return self._transition(request_id, where=ImmediateRequestModel.status == AWAITING, values={"status": CANCELLED})
 
-    def set_room(self, request_id: int, room_url: str) -> None:
-        self._transition(request_id, where=ImmediateRequestModel.id == request_id, values={"room_url": room_url})
+    def set_room(self, request_id: int, *, room_url: str, patient_room_url: str, professional_room_url: str) -> None:
+        self._transition(
+            request_id,
+            where=ImmediateRequestModel.id == request_id,
+            values={"room_url": room_url, "patient_room_url": patient_room_url, "professional_room_url": professional_room_url},
+        )
 
     def set_refund_pending(self, request_id: int, *, refund_id: str) -> None:
         """Remember the refund the bank is still processing; `refunded_at` stays empty until it confirms."""

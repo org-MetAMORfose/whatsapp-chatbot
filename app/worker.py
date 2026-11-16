@@ -142,6 +142,7 @@ async def run() -> None:
     from app.repository.sql.professional_repository import ProfessionalRepository
     from app.services.dispatcher_service import MessageDispatcherService
     from app.services.email_service import GmailSmtpAdapter
+    from app.services.immediate_care_config import log_configuration as log_immediate_care_configuration
     from app.services.immediate_care_interceptor import ImmediateCareInterceptor
     from app.services.immediate_care_relay import ImmediateCareRelay
     from app.services.inbound_processor import InboundProcessor
@@ -177,6 +178,7 @@ async def run() -> None:
             immediate_requests = ImmediateRequestRepository(factory)
             immediate_offers = ImmediateOfferRepository(redis)
             chat_repository = ChatRepository(redis)
+            log_immediate_care_configuration()
             pix_gateway = pix_gateway_from_settings()
             media = create_media_service()
             flow_cache = ChatFlowCache(redis, ChatFlowRepository(factory))

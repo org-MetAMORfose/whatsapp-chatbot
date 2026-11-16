@@ -3,6 +3,7 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
+import app.config.settings as settings
 from app.agent.agent import Response
 from app.domain.db.person_model import PersonModel
 from app.domain.db.professional_model import ProfessionalModel
@@ -16,8 +17,16 @@ NOW = datetime(2026, 11, 12, 20, 0, tzinfo=UTC)
 PERSON = PersonModel(id=9, phone_number="5511977776666", channel=Channel.WHATSAPP, name="Dra. Ana")
 
 
-def professional(area: str = "Psicoterapia") -> ProfessionalModel:
-    return ProfessionalModel(id=3, person_id=9, area=area, professional_register="1", register_type="CRP")
+def professional(area: str = "Psicoterapia", *, released: bool = True) -> ProfessionalModel:
+    found = ProfessionalModel(id=3, person_id=9, area=area, professional_register="1", register_type="CRP")
+    found.immediate_approved_at = NOW if released else None
+    return found
+
+
+@pytest.fixture(autouse=True)
+def feature_open(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(settings, "IMMEDIATE_CARE_ENABLED", True)
+    monkeypatch.setattr(settings, "IMMEDIATE_ALLOW_FAKE", True)
 
 
 def message(content: str) -> Message:
@@ -80,10 +89,10 @@ async def test_unavailable_clears_flag() -> None:
 
 
 @pytest.mark.asyncio
-async def test_accept_without_offer() -> None:
+async def test_accept_without_offer_follows_the_flow() -> None:
+    """No offer was sent to this number: "Aceitar" belongs to the flow (another button may use the same text)."""
     interceptor, _professionals, requests, _offers, outbox = make_interceptor(found=professional(), offer=None)
-    response = await interceptor.handle(message("Aceitar"), PERSON)
-    assert response == Response(content="Não há nenhuma oferta de acolhimento aberta para você agora.")
+    assert await interceptor.handle(message("Aceitar"), PERSON) is None
     requests.accept.assert_not_called()
     outbox.enqueue.assert_not_called()
 
@@ -95,12 +104,29 @@ async def test_accept_wins_enqueues_accepted_and_clears_offer() -> None:
     assert response == Response(content="Você ficou com o atendimento! Estou criando a sala de vídeo e te mando o link em instantes.")
     requests.accept.assert_called_once_with(42, professional_person_id=9, now=NOW)
     outbox.enqueue.assert_called_once_with("immediate:42:accepted", "immediate.accepted.v1", {"request_id": 42})
-    offers.clear.assert_awaited_once_with("5511977776666", Channel.WHATSAPP)
+    offers.clear.assert_not_awaited()  # the relay clears it after sending the room link
+
+
+@pytest.mark.asyncio
+async def test_winner_tapping_again_hears_it_is_already_theirs() -> None:
+    from app.domain.db.immediate_request_model import ImmediateRequestModel
+
+    interceptor, _professionals, requests, offers, outbox = make_interceptor(found=professional(), offer=42, accepted=False)
+    requests.get.return_value = ImmediateRequestModel(id=42, professional_person_id=9)
+    response = await interceptor.handle(message("Aceitar"), PERSON)
+    assert response == Response(content="Você já ficou com esse atendimento. O link da sala de vídeo chega por aqui em instantes.")
+    outbox.enqueue.assert_not_called()
+    offers.clear.assert_not_awaited()
+
+    requests.get.return_value = ImmediateRequestModel(id=42, professional_person_id=9, professional_room_url="https://exemplo.daily.co/s?t=pro")
+    response = await interceptor.handle(message("Aceitar"), PERSON)
+    assert response == Response(content="Você já ficou com esse atendimento. Sala de vídeo: https://exemplo.daily.co/s?t=pro")
 
 
 @pytest.mark.asyncio
 async def test_accept_loser_gets_already_taken() -> None:
     interceptor, _professionals, requests, offers, outbox = make_interceptor(found=professional(), offer=42, accepted=False)
+    requests.get.return_value = None
     response = await interceptor.handle(message("aceitar"), PERSON)
     assert response == Response(content="Esse atendimento já foi aceito por outro profissional ou o prazo acabou.")
     requests.accept.assert_called_once_with(42, professional_person_id=9, now=NOW)
@@ -154,16 +180,31 @@ async def test_processor_answers_with_interceptor_before_the_flow() -> None:
 
 
 @pytest.mark.asyncio
-async def test_pending_review_cannot_become_available() -> None:
-    interceptor, professionals, _requests, _offers, _outbox = make_interceptor(found=professional())
-    professionals.get_by_person_id.return_value = ProfessionalModel(
-        id=3, person_id=9, area="Psicoterapia", professional_register="1", register_type="PENDING_REVIEW"
-    )
+async def test_professional_the_team_did_not_release_cannot_become_available() -> None:
+    interceptor, professionals, _requests, _offers, _outbox = make_interceptor(found=professional(released=False))
     response = await interceptor.handle(message("Disponível"), PERSON)
     assert response == Response(
-        content="Seu cadastro ainda está em análise. Assim que for aprovado, você poderá ficar disponível para o acolhimento imediato."
+        content="Seu cadastro ainda não foi liberado para o acolhimento imediato. Assim que a equipe da MetAMORfose liberar, "
+        "você poderá ficar disponível."
     )
     professionals.set_available_for_immediate.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_unreleased_professional_can_still_switch_off() -> None:
+    interceptor, professionals, _requests, _offers, _outbox = make_interceptor(found=professional(released=False))
+    await interceptor.handle(message("Indisponível"), PERSON)
+    professionals.set_available_for_immediate.assert_called_once_with(9, False, now=NOW)
+
+
+@pytest.mark.asyncio
+async def test_closed_feature_intercepts_nothing(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(settings, "IMMEDIATE_CARE_ENABLED", False)
+    interceptor, professionals, requests, _offers, _outbox = make_interceptor(found=professional(), offer=42)
+    for text in ("Disponível", "Indisponível", "Aceitar"):
+        assert await interceptor.handle(message(text), PERSON) is None
+    professionals.set_available_for_immediate.assert_not_called()
+    requests.accept.assert_not_called()
 
 
 @pytest.mark.asyncio

@@ -1,4 +1,9 @@
-"""Who may take immediate care sessions: approved psychologists only."""
+"""Who may take immediate care sessions: psychologists the team released in the panel.
+
+`register_type` cannot be the gate: the public registration endpoint accepts it from the request body.
+`immediate_approved_at` is written only by the panel through the authenticated endpoint, after the
+team checks the professional's CRP.
+"""
 from __future__ import annotations
 
 from app.domain.db.professional_model import ProfessionalModel
@@ -20,5 +25,9 @@ def is_psychologist(professional: ProfessionalModel) -> bool:
     return any(area(value) == PSYCHOTHERAPY for value in _areas(professional))
 
 
+def is_released_for_immediate(professional: ProfessionalModel) -> bool:
+    return professional.immediate_approved_at is not None
+
+
 def is_eligible_for_immediate(professional: ProfessionalModel) -> bool:
-    return professional.register_type != PENDING_REVIEW and is_psychologist(professional)
+    return is_released_for_immediate(professional) and is_psychologist(professional)

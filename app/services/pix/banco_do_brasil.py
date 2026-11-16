@@ -15,8 +15,20 @@ from app.services.pix import brcode
 from app.services.pix.gateway import PixCharge, PixChargeStatus, PixRefund, format_amount
 
 SCOPE = "cob.read cob.write pix.read pix.write webhook.read webhook.write"
-PAYER_REQUEST = "Acolhimento imediato MetAMORfose"
 TOKEN_SAFETY_SECONDS = 60
+
+
+class PixBankError(RuntimeError):
+    """A BB error without the request URL: httpx's message carries the query string with gw-dev-app-key into the logs."""
+
+    def __init__(self, method: str, path: str, status_code: int) -> None:
+        super().__init__(f"Banco do Brasil {method} {path} returned HTTP {status_code}")
+        self.status_code = status_code
+
+
+def _check(response: httpx.Response, method: str, path: str) -> None:
+    if response.is_error:
+        raise PixBankError(method, path, response.status_code)
 
 
 def _parse_datetime(value: object) -> datetime | None:
@@ -69,7 +81,7 @@ class BancoDoBrasilPixGateway:
                 data={"grant_type": "client_credentials", "scope": SCOPE},
                 auth=(self._client_id, self._client_secret),
             )
-        response.raise_for_status()
+        _check(response, "POST", "/oauth/token")
         body = response.json()
         self._access_token = str(body["access_token"])
         self._token_expires_at = time.monotonic() + float(body.get("expires_in", 600))
@@ -85,7 +97,7 @@ class BancoDoBrasilPixGateway:
                 headers={"Authorization": f"Bearer {token}"},
                 json=json,
             )
-        response.raise_for_status()
+        _check(response, method, path)
         if response.status_code == 204 or not response.content:
             return {}
         return cast(dict[str, Any], response.json())
@@ -98,7 +110,8 @@ class BancoDoBrasilPixGateway:
                 "calendario": {"expiracao": expires_seconds},
                 "valor": {"original": format_amount(amount_cents)},
                 "chave": self._chave,
-                "solicitacaoPagador": PAYER_REQUEST,
+                # No solicitacaoPagador: it shows on the payer's statement, and whoever shares the account would read
+                # that this person asked for psychological care.
             },
         )
         copia_cola = body.get("pixCopiaECola")

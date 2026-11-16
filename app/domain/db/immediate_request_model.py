@@ -34,7 +34,9 @@ class ImmediateRequestModel(Base):
     pix_copia_cola: Mapped[str | None] = mapped_column(Text)
     pix_e2e_id: Mapped[str | None] = mapped_column(String)
     pix_refund_id: Mapped[str | None] = mapped_column(String)
-    room_url: Mapped[str | None] = mapped_column(Text)
+    room_url: Mapped[str | None] = mapped_column(Text)  # the room itself, without a token: it does not let anyone in
+    patient_room_url: Mapped[str | None] = mapped_column(Text)  # join links with each person's token, sent only by WhatsApp
+    professional_room_url: Mapped[str | None] = mapped_column(Text)
     paid_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     accepted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     refunded_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))

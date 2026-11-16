@@ -1,8 +1,12 @@
 """The immediate care nodes published by migration 0019, read back from PostgreSQL (FLOW_TEST_DATABASE_URL)."""
 import os
+import subprocess
+import sys
 from typing import Any
+from unittest.mock import AsyncMock
 
 import pytest
+import sqlalchemy as sa
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 
@@ -15,6 +19,8 @@ KEYS = (
     "paciente_imediato",
     "imediato_triagem_2",
     "imediato_emergencia",
+    "imediato_idade",
+    "imediato_menor",
     "imediato_termos",
     "imediato_recusa",
     "imediato_duracao",
@@ -85,10 +91,14 @@ def test_immediate_nodes_are_published_and_loadable() -> None:
 
         triage = node(flow, "paciente_imediato")
         assert triage.type == NodeType.MESSAGE
-        assert triage.message.startswith("Antes de continuar, duas perguntas rápidas.")
+        assert triage.message.startswith("Antes de continuar, algumas perguntas rápidas.")
         assert triage.buttons == ["Não", "Sim"]
         assert targets(triage) == {"Não": "imediato_triagem_2", "Sim": "imediato_emergencia"}
-        assert targets(node(flow, "imediato_triagem_2")) == {"Não": "imediato_termos", "Sim": "imediato_emergencia"}
+        assert targets(node(flow, "imediato_triagem_2")) == {"Não": "imediato_idade", "Sim": "imediato_emergencia"}
+        age = node(flow, "imediato_idade")
+        assert age.message == "Você tem 18 anos ou mais?" and targets(age) == {"Sim": "imediato_termos", "Não": "imediato_menor"}
+        minor = node(flow, "imediato_menor")
+        assert minor.type == NodeType.END and "18 anos" in minor.message and "188" in minor.message
 
         emergency = node(flow, "imediato_emergencia")
         assert emergency.type == NodeType.END
@@ -97,6 +107,8 @@ def test_immediate_nodes_are_published_and_loadable() -> None:
         terms = node(flow, "imediato_termos")
         assert terms.buttons == ["Aceito os termos", "Não aceito"]
         assert targets(terms) == {"Aceito os termos": "imediato_duracao", "Não aceito": "imediato_recusa"}
+        accept_terms = next(transition for transition in terms.transitions if transition.expected_value == "Aceito os termos")
+        assert action_keys(accept_terms) == ["immediate_prices"] and accept_terms.actions[0].is_required is False
         assert node(flow, "imediato_recusa").type == NodeType.END
 
         duration = node(flow, "imediato_duracao")
@@ -152,3 +164,90 @@ def test_immediate_nodes_are_published_and_loadable() -> None:
         assert node(flow, "imediato_indisponivel").type == NodeType.END
     finally:
         engine.dispose()
+
+
+def _scratch_database(name: str) -> str:
+    """A throwaway database migrated up to 0018, so 0019 can be run against an edited flow."""
+    from sqlalchemy.engine import make_url
+
+    url = make_url(database_url())
+    admin = create_engine(url.set(database="postgres"), isolation_level="AUTOCOMMIT")
+    with admin.connect() as connection:
+        connection.execute(sa.text(f'DROP DATABASE IF EXISTS "{name}" WITH (FORCE)'))
+        connection.execute(sa.text(f'CREATE DATABASE "{name}"'))
+    admin.dispose()
+    scratch = url.set(database=name).render_as_string(hide_password=False)
+    engine = create_engine(scratch)
+    with engine.begin() as connection:
+        connection.execute(sa.text("CREATE EXTENSION IF NOT EXISTS vector"))
+    engine.dispose()
+    _alembic(scratch, "upgrade", "0018_immediate_care")
+    return scratch
+
+
+def _alembic(url: str, *args: str) -> subprocess.CompletedProcess[str]:
+    env = {**os.environ, "DATABASE_URL": url, "PYTHON_DOTENV_DISABLED": "1"}
+    return subprocess.run(  # noqa: S603
+        [sys.executable, "-m", "alembic", *args], env=env, capture_output=True, text=True, check=False
+    )
+
+
+def _drop(name: str) -> None:
+    from sqlalchemy.engine import make_url
+
+    admin = create_engine(make_url(database_url()).set(database="postgres"), isolation_level="AUTOCOMMIT")
+    with admin.connect() as connection:
+        connection.execute(sa.text(f'DROP DATABASE IF EXISTS "{name}" WITH (FORCE)'))
+    admin.dispose()
+
+
+@pytest.mark.integration
+def test_0019_stops_without_writing_when_the_production_flow_was_edited() -> None:
+    """The team edited the placeholder in the panel: the migration refuses, explains why and leaves 0018 + flow untouched."""
+    name = "immediate_0019_edited"
+    scratch = _scratch_database(name)
+    try:
+        engine = create_engine(scratch)
+        with engine.begin() as connection:
+            connection.execute(
+                sa.text("UPDATE chatbot_flow.node SET message = 'Peça pelo link https://exemplo.com/imediato' WHERE key = 'paciente_imediato'")
+            )
+        result = _alembic(scratch, "upgrade", "head")
+        assert result.returncode != 0
+        assert "Migração 0019 (acolhimento imediato) não aplicada" in result.stderr
+        assert "o nó 'paciente_imediato' foi editado" in result.stderr
+        with engine.connect() as connection:
+            assert connection.scalar(sa.text("SELECT version_num FROM alembic_version")) == "0018_immediate_care"
+            assert connection.scalar(sa.text("SELECT message FROM chatbot_flow.node WHERE key = 'paciente_imediato'")) == (
+                "Peça pelo link https://exemplo.com/imediato"
+            )
+            assert connection.scalar(sa.text("SELECT count(*) FROM chatbot_flow.node WHERE key LIKE 'imediato%'")) == 0
+            assert connection.scalar(sa.text("SELECT max(version) FROM chatbot_flow.graph_revision")) == 1
+        engine.dispose()
+    finally:
+        _drop(name)
+
+
+@pytest.mark.integration
+def test_0019_publishes_a_revision_that_marks_open_drafts_as_stale() -> None:
+    from app.services.chatbot_flow_admin_service import ChatFlowAdminService
+
+    name = "immediate_0019_drafts"
+    scratch = _scratch_database(name)
+    try:
+        engine = create_engine(scratch)
+        factory = sessionmaker(bind=engine, expire_on_commit=False)
+        service = ChatFlowAdminService(factory, AsyncMock())
+        published = service.list_revisions()["published"]
+        draft = service.create_draft(published["id"])
+        assert _alembic(scratch, "upgrade", "head").returncode == 0
+        revisions = service.list_revisions()
+        assert revisions["published"]["version"] == 2
+        assert [item["is_stale"] for item in revisions["drafts"] if item["id"] == draft["id"]] == [True]
+        assert _alembic(scratch, "downgrade", "0018_immediate_care").returncode == 0
+        with engine.connect() as connection:
+            assert connection.scalar(sa.text("SELECT max(version) FROM chatbot_flow.graph_revision WHERE status = 'PUBLISHED'")) == 3
+            assert connection.scalar(sa.text("SELECT CAST(type AS text) FROM chatbot_flow.node WHERE key = 'paciente_imediato'")) == "END"
+        engine.dispose()
+    finally:
+        _drop(name)

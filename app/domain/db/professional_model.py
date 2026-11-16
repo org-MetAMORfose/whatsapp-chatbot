@@ -44,6 +44,8 @@ class ProfessionalModel(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime, nullable=False)
     available_for_immediate: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False, server_default="false")
     immediate_availability_updated_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    # Set only by the team (panel): without it the professional cannot switch DISPONÍVEL on.
+    immediate_approved_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 
     person: Mapped["PersonModel"] = relationship(
         "PersonModel",

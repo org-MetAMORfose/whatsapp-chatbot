@@ -52,14 +52,15 @@ async def test_fake_gateway_refund_check_and_cancel():
     await gateway.cancel_charge("t" * 32)
 
 
-def test_from_settings_refuses_fake_pix_with_the_feature_on(monkeypatch):
+def test_switch_on_with_the_fake_pix_keeps_the_feature_closed(monkeypatch):
+    from app.services.immediate_care_config import configuration_problems, immediate_care_enabled
+
     monkeypatch.setattr(settings, "PIX_PROVIDER", "fake")
     monkeypatch.setattr(settings, "IMMEDIATE_CARE_ENABLED", True)
     monkeypatch.setattr(settings, "IMMEDIATE_ALLOW_FAKE", False)
-    with pytest.raises(RuntimeError, match="PIX_PROVIDER=bb"):
-        pix_gateway_from_settings()
+    assert not immediate_care_enabled()
+    assert any("PIX_PROVIDER=bb" in problem for problem in configuration_problems())
+    # The factory itself never crashes the API or the worker: the closed gate keeps the fake away from patients.
+    assert isinstance(pix_gateway_from_settings(), FakePixGateway)
     monkeypatch.setattr(settings, "IMMEDIATE_ALLOW_FAKE", True)
-    assert isinstance(pix_gateway_from_settings(), FakePixGateway)
-    monkeypatch.setattr(settings, "IMMEDIATE_ALLOW_FAKE", False)
-    monkeypatch.setattr(settings, "IMMEDIATE_CARE_ENABLED", False)
-    assert isinstance(pix_gateway_from_settings(), FakePixGateway)
+    assert immediate_care_enabled()

@@ -103,8 +103,26 @@ class ProfessionalRepository:
             session.refresh(professional)
             return professional
 
+    def set_immediate_approval(self, professional_id: int, approved: bool, *, now: datetime) -> ProfessionalModel | None:
+        """Release (or withdraw) a professional for immediate care; withdrawing also switches availability off."""
+        with session_scope(self._session_factory) as session:
+            stmt = select(ProfessionalModel).options(joinedload(ProfessionalModel.person)).where(ProfessionalModel.id == professional_id)
+            professional = session.execute(stmt).unique().scalar_one_or_none()
+            if professional is None:
+                return None
+            if approved:
+                professional.immediate_approved_at = professional.immediate_approved_at or now
+            else:
+                professional.immediate_approved_at = None
+                if professional.available_for_immediate:
+                    professional.available_for_immediate = False
+                    professional.immediate_availability_updated_at = now
+            commit(session)
+            session.refresh(professional)
+            return professional
+
     def list_available_for_immediate(self) -> list[ProfessionalModel]:
-        """Approved psychologists who opted in to immediate care, with their person loaded."""
+        """Released psychologists who opted in to immediate care, with their person loaded."""
         with session_scope(self._session_factory) as session:
             stmt = (
                 select(ProfessionalModel)

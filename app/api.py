@@ -33,6 +33,7 @@ from app.repository.sql.person_repository import PersonRepository
 from app.repository.sql.professional_repository import ProfessionalRepository
 from app.services.chatbot_flow_admin_service import ChatFlowAdminService
 from app.services.google_sheets_service import GoogleSheetsService
+from app.services.immediate_care_config import log_configuration as log_immediate_care_configuration
 from app.services.pix.banco_do_brasil import BancoDoBrasilPixGateway
 from app.services.pix.gateway import pix_gateway_from_settings
 from app.services.receiver_service import MessageReceiverService
@@ -105,7 +106,8 @@ def create_app() -> FastAPI:
         ).router
     )
     immediate_requests = ImmediateRequestRepository(factory)
-    pix_gateway = pix_gateway_from_settings()  # also refuses the fake gateway with the feature switched on
+    log_immediate_care_configuration()
+    pix_gateway = pix_gateway_from_settings()
     logging.getLogger("uvicorn.access").addFilter(WebhookTokenLogFilter())
     app.include_router(
         PixWebhookController(
@@ -117,7 +119,7 @@ def create_app() -> FastAPI:
             verify_with_bank=pix_gateway.get_charge if isinstance(pix_gateway, BancoDoBrasilPixGateway) else None,
         ).router
     )
-    app.include_router(ImmediateCareController(professionals, immediate_requests).router)
+    app.include_router(ImmediateCareController(professionals).router)
     media = create_media_service()
     if media is not None:
         app.include_router(UploadMediaController(media).router)

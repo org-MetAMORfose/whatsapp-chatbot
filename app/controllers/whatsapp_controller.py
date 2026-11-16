@@ -1,4 +1,5 @@
 import hashlib
+import hmac
 import logging
 from dataclasses import dataclass
 from datetime import UTC, datetime
@@ -14,6 +15,14 @@ from app.services.receiver_service import MessageReceiverService
 from app.services.s3_media_service import MediaType
 
 logger = logging.getLogger(__name__)
+
+
+def signature_is_valid(body: bytes, header: str | None, app_secret: str) -> bool:
+    """Meta signs every webhook with the App Secret: `X-Hub-Signature-256: sha256=<hex HMAC of the raw body>`."""
+    if not header or not header.startswith("sha256="):
+        return False
+    expected = hmac.new(app_secret.encode(), body, hashlib.sha256).hexdigest()
+    return hmac.compare_digest(expected.encode(), header.removeprefix("sha256=").strip().lower().encode())
 
 
 @dataclass(frozen=True)
@@ -56,6 +65,12 @@ class WhatsAppController:
         raise HTTPException(status_code=403, detail="Verification failed")
 
     async def receive_webhook(self, request: Request) -> dict[str, str]:
+        if config.WHATSAPP_APP_SECRET:
+            # Starlette caches the raw body, so request.json() below reads the same bytes that were checked.
+            body = await request.body()
+            if not signature_is_valid(body, request.headers.get("X-Hub-Signature-256"), config.WHATSAPP_APP_SECRET):
+                logger.warning("WhatsApp webhook rejected: missing or invalid X-Hub-Signature-256")
+                raise HTTPException(status_code=403, detail="Invalid signature")
         data = await request.json()
 
         logger.debug("Received WhatsApp webhook payload: %s", data)

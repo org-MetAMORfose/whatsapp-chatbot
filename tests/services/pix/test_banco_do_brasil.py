@@ -88,7 +88,7 @@ async def test_create_charge_uses_pixcopiaecola_when_present():
     assert body["calendario"] == {"expiracao": 1800}
     assert body["valor"] == {"original": "60.00"}
     assert body["chave"] == "chave@bb"
-    assert body["solicitacaoPagador"] == "Acolhimento imediato MetAMORfose"
+    assert "solicitacaoPagador" not in body  # would show "acolhimento" on the payer's bank statement
 
 
 @pytest.mark.asyncio
@@ -134,10 +134,14 @@ async def test_register_webhook_puts_url_for_key():
 
 
 @pytest.mark.asyncio
-async def test_http_error_raises():
+async def test_http_error_raises_without_the_app_key():
+    from app.services.pix.banco_do_brasil import PixBankError
+
     recorder = Recorder({"POST /oauth/token": token_response(), f"PUT /pix/v2/cob/{TXID}": httpx.Response(500, json={"erro": "x"})})
-    with pytest.raises(httpx.HTTPStatusError):
+    with pytest.raises(PixBankError) as error:
         await make_gateway(recorder).create_charge(txid=TXID, amount_cents=6000, expires_seconds=1800, payer_name=None)
+    assert error.value.status_code == 500
+    assert "devkey" not in str(error.value) and "gw-dev-app-key" not in str(error.value)
 
 
 @pytest.mark.asyncio

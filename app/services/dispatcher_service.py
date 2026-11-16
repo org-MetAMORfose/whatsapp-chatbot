@@ -34,7 +34,8 @@ class MessageDispatcherService:
         self.channels[channel] = adapter
 
     async def dispatch(self, message: Message) -> None:
-        logger.info("Dispatching message: %s", message)
+        # Never the content: it carries crisis answers, Pix codes and room links.
+        logger.info("Dispatching message: event=%s channel=%s", message.event_id, message.channel.value)
 
         if not message.is_recent():
             return

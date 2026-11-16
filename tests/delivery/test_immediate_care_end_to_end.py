@@ -45,7 +45,7 @@ from app.repository.sql.patient_repository import PatientRepository
 from app.repository.sql.person_repository import PersonRepository
 from app.repository.sql.professional_repository import ProfessionalRepository
 from app.repository.sql.transaction import transaction
-from app.services.immediate_care_interceptor import ACCEPTED_REPLY, ImmediateCareInterceptor
+from app.services.immediate_care_interceptor import ACCEPTED_REPLY, ALREADY_YOURS_REPLY, ImmediateCareInterceptor
 from app.services.immediate_care_relay import ImmediateCareRelay
 from app.services.pix.fake import FakePixGateway
 from app.services.video_room_service import FakeVideoRoomService
@@ -156,6 +156,7 @@ class World:
                     professional_register="CRP-1",
                     register_type="CRP",
                     available_for_immediate=available,
+                    immediate_approved_at=datetime.now(UTC),
                     created_at=datetime.utcnow(),
                 )
             )
@@ -215,11 +216,14 @@ async def reach_pix(world: World) -> str:
     menu = await world.say(PATIENT, "Maria Silva")
     assert menu.buttons == ["Atendimento imediato", "Agendar atendimento"]
     triage = await world.say(PATIENT, "Atendimento imediato")
-    assert triage.content.startswith("Antes de continuar, duas perguntas rápidas.") and triage.buttons == ["Não", "Sim"]
+    assert triage.content.startswith("Antes de continuar, algumas perguntas rápidas.") and triage.buttons == ["Não", "Sim"]
     assert (await world.say(PATIENT, "Não")).buttons == ["Não", "Sim"]
-    terms = await world.say(PATIENT, "Não")
+    age = await world.say(PATIENT, "Não")
+    assert age.content == "Você tem 18 anos ou mais?" and age.buttons == ["Sim", "Não"]
+    terms = await world.say(PATIENT, "Sim")
     assert terms.buttons == ["Aceito os termos", "Não aceito"]
     duration = await world.say(PATIENT, "Aceito os termos")
+    assert duration.content == "Valores: 30 minutos por R$ 60,00 ou 50 minutos por R$ 90,00.\n\nQuanto tempo você precisa?"
     assert duration.buttons == ["30 minutos", "50 minutos"]
     pix = await world.say(PATIENT, "30 minutos")
     assert pix.content.startswith("Valor: R$ 60,00\n\nPix copia e cola:\nPIX-SIMULADO-")
@@ -233,6 +237,7 @@ async def reach_pix(world: World) -> str:
 @pytest.fixture(autouse=True)
 def immediate_care_enabled(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(settings, "IMMEDIATE_CARE_ENABLED", True)
+    monkeypatch.setattr(settings, "IMMEDIATE_ALLOW_FAKE", True)  # simulated Pix and room
 
 
 @pytest.mark.asyncio
@@ -261,7 +266,7 @@ async def test_patient_pays_professional_accepts_room_is_sent(db, redis_client) 
 
     reply = await world.professional_says("Aceitar")
     assert reply == Response(content=ACCEPTED_REPLY)
-    assert await world.professional_says("Aceitar") is not None
+    assert await world.professional_says("Aceitar") == Response(content=ALREADY_YOURS_REPLY)
     request = world.patient_request()
     assert request.status == ImmediateStatus.ACCEPTED.value
     assert request.professional is not None and request.professional.phone_number == PSYCHOLOGIST
@@ -269,17 +274,26 @@ async def test_patient_pays_professional_accepts_room_is_sent(db, redis_client) 
     assert await world.drain() == 1
     request = world.patient_request()
     assert request.room_url is not None and request.room_url.startswith("https://exemplo.daily.co/acolhimento-")
+    assert request.patient_room_url == f"{request.room_url}?t=paciente"
+    assert request.professional_room_url == f"{request.room_url}?t=profissional"
     assert world.sent()[1:] == [
-        (PATIENT, f"Um psicólogo aceitou o seu atendimento! Entre na sala de vídeo: {request.room_url}\n\nA sessão dura 30 minutos e não é gravada."),
-        (PSYCHOLOGIST, f"Sala de vídeo do acolhimento: {request.room_url}\n\nO paciente é Maria, sessão de 30 minutos."),
+        (
+            PATIENT,
+            f"Um psicólogo aceitou o seu atendimento! Entre na sala de vídeo: {request.patient_room_url}\n\n"
+            "A sessão dura 30 minutos e não é gravada.",
+        ),
+        (PSYCHOLOGIST, f"Sala de vídeo do acolhimento: {request.professional_room_url}\n\nO paciente é Maria, sessão de 30 minutos."),
     ]
     context = await world.chats.get_context(PATIENT, Channel.WHATSAPP)
     assert context is not None and context.state == "imediato_na_fila"  # the patient can ask for the link again
-    assert await world.offers.get(PSYCHOLOGIST, Channel.WHATSAPP) is None
+    # the psychologist lost the link: tapping Aceitar again sends their own room link, never a second acceptance
+    assert await world.professional_says("Aceitar") == Response(
+        content=f"Você já ficou com esse atendimento. Sala de vídeo: {request.professional_room_url}"
+    )
     assert await world.drain() == 0  # the 5-minute timeout is not due and will be a no-op when it is
 
     again = await world.say(PATIENT, "perdi o link")
-    assert again.content.startswith(f"Seu atendimento já foi aceito. Sala de vídeo: {request.room_url}")
+    assert again.content.startswith(f"Seu atendimento já foi aceito. Sala de vídeo: {request.patient_room_url}")
     restart = await world.say(PATIENT, "oi")
     assert restart.buttons is not None and "Quero ser paciente" in restart.buttons
 

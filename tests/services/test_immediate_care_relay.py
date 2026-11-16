@@ -17,12 +17,15 @@ from app.repository.sql.outbox_repository import OutboxRepository
 from app.repository.sql.professional_repository import ProfessionalRepository
 from app.services.immediate_care_relay import ImmediateCareRelay
 from app.services.pix.gateway import PixChargeStatus, PixRefund
+from app.services.video_room_service import VideoRoom
 
 NOW = datetime(2026, 11, 12, 20, 0, tzinfo=UTC)
 TXID = "a" * 32
 PATIENT_PHONE = "5511999999999"
 PRO_PHONE = "5511977776666"
 ROOM = "https://exemplo.daily.co/sala"
+PATIENT_ROOM = f"{ROOM}?t=paciente"
+PRO_ROOM = f"{ROOM}?t=profissional"
 REFUNDED_TEXT = "Pix de R$ 60,00 devolvido. Pode levar alguns minutos pra aparecer no seu banco. Quando quiser tentar de novo, mande RESET."
 REFUND_FAILED_TEXT = (
     "Não consegui devolver o seu Pix de R$ 60,00 automaticamente. A equipe da MetAMORfose vai fazer a devolução manualmente "
@@ -91,7 +94,7 @@ class Deps:
         self.chats.delete_context = AsyncMock(return_value=True)
         self.chats.get_context = AsyncMock(return_value=SimpleNamespace(state="imediato_na_fila"))
         self.video = MagicMock()
-        self.video.create_room = AsyncMock(return_value=ROOM)
+        self.video.create_room = AsyncMock(return_value=VideoRoom(room_url=ROOM, patient_url=PATIENT_ROOM, professional_url=PRO_ROOM))
         self.pix = MagicMock()
         self.pix.refund = AsyncMock(return_value=PixRefund(refund_id=TXID + "R1", status="DEVOLVIDO"))
         self.pix.get_refund = AsyncMock(return_value=PixRefund(refund_id=TXID + "R1", status="DEVOLVIDO"))
@@ -160,7 +163,8 @@ async def test_offer_sends_template_to_each_available_and_moves_patient_to_queue
             "callback_data": None,
         }
     assert [call.args for call in deps.offers.mark.await_args_list] == [(PRO_PHONE, Channel.WHATSAPP, 42), ("5511966665555", Channel.WHATSAPP, 42)]
-    assert all(call.kwargs == {"ttl_seconds": 300} for call in deps.offers.mark.await_args_list)
+    # remembered an hour past the 5-minute deadline, so a late "Aceitar" hears "o prazo acabou"
+    assert all(call.kwargs == {"ttl_seconds": 300 + 3600} for call in deps.offers.mark.await_args_list)
     assert deps.people.create_message.call_count == 2
     recorded = deps.people.create_message.call_args.args[0]
     assert recorded.is_from_user is False and recorded.content.startswith("[template:acolhimento_oferta:pt_BR] Maria | 30 | 60,00")
@@ -408,22 +412,38 @@ async def test_accepted_creates_room_once_and_notifies_both() -> None:
     deps.video.create_room.assert_awaited_once()
     room_kwargs = deps.video.create_room.await_args.kwargs
     assert room_kwargs["name"].startswith("acolhimento-42-") and room_kwargs["expires_at"] == NOW + timedelta(minutes=45)
-    deps.requests.set_room.assert_called_once_with(42, ROOM)
+    deps.requests.set_room.assert_called_once_with(42, room_url=ROOM, patient_room_url=PATIENT_ROOM, professional_room_url=PRO_ROOM)
+    # each person gets their own token link; the bare room URL (shown in the panel) is never sent
     assert [(message.user_id, message.content) for message in deps.published()] == [
-        (PATIENT_PHONE, f"Um psicólogo aceitou o seu atendimento! Entre na sala de vídeo: {ROOM}\n\nA sessão dura 30 minutos e não é gravada."),
-        (PRO_PHONE, f"Sala de vídeo do acolhimento: {ROOM}\n\nO paciente é Maria, sessão de 30 minutos."),
+        (
+            PATIENT_PHONE,
+            f"Um psicólogo aceitou o seu atendimento! Entre na sala de vídeo: {PATIENT_ROOM}\n\nA sessão dura 30 minutos e não é gravada.",
+        ),
+        (PRO_PHONE, f"Sala de vídeo do acolhimento: {PRO_ROOM}\n\nO paciente é Maria, sessão de 30 minutos."),
     ]
     deps.chats.delete_context.assert_not_awaited()  # the patient stays in the queue node and can ask for the link again
-    deps.offers.clear.assert_awaited_once_with(PRO_PHONE, Channel.WHATSAPP)
+    deps.offers.clear.assert_not_awaited()  # kept until its TTL so a repeated "Aceitar" gets the link again
     assert deps.finished_ok()
 
-    again = Deps("immediate.accepted.v1", request(ImmediateStatus.ACCEPTED, professional_person_id=9, room_url=ROOM))
+    again = Deps(
+        "immediate.accepted.v1",
+        request(ImmediateStatus.ACCEPTED, professional_person_id=9, room_url=ROOM, patient_room_url=PATIENT_ROOM, professional_room_url=PRO_ROOM),
+    )
     again.requests.get.return_value.professional = professional_person()
     await again.relay.process_next()
     again.video.create_room.assert_not_awaited()
     again.requests.set_room.assert_not_called()
     assert len(again.published()) == 2
     assert again.finished_ok()
+
+
+@pytest.mark.asyncio
+async def test_offer_skips_the_patient_when_they_are_also_an_available_professional() -> None:
+    patient_as_professional = available("5511999999999")
+    patient_as_professional.person_id = 7  # same person as the request's patient
+    deps = Deps("immediate.offer.v1", request(ImmediateStatus.QUEUED), [patient_as_professional, available()])
+    await deps.relay.process_next()
+    assert [call.kwargs["to"] for call in deps.whatsapp.send_template.await_args_list] == [PRO_PHONE]
 
 
 @pytest.mark.asyncio

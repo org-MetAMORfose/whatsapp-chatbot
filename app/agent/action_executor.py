@@ -40,6 +40,7 @@ from app.repository.sql.outbox_repository import OutboxRepository
 from app.repository.sql.patient_repository import PatientRepository
 from app.repository.sql.person_repository import PersonRepository
 from app.repository.sql.professional_repository import ProfessionalRepository
+from app.services.immediate_care_config import immediate_care_enabled
 from app.services.pix.gateway import PixGateway, format_reais
 
 
@@ -218,6 +219,7 @@ class ActionExecutor:
             "immediate_payment_status": self.immediate_payment_status,
             "immediate_cancel": self.immediate_cancel,
             "immediate_gate": self.immediate_gate,
+            "immediate_prices": self.immediate_prices,
             "immediate_noop": self.immediate_noop,
             "faq_process_question": self.faq_process_question,
             "faq_continue_or_satisfy": self.faq_continue_or_satisfy,
@@ -556,14 +558,14 @@ class ActionExecutor:
             return ActionResult(output=output, data={"immediate_active": False, "immediate_nobody_available": False})
         output = ""
         if active.status == ImmediateStatus.ACCEPTED.value:
-            room = f"Sala de vídeo: {active.room_url}" if active.room_url else "Estou criando a sala de vídeo."
+            room = f"Sala de vídeo: {active.patient_room_url}" if active.patient_room_url else "Estou criando a sala de vídeo."
             output = f"Seu atendimento já foi aceito. {room}\n\n"
         return ActionResult(output=output, data={"immediate_active": True})
 
     async def immediate_create_request(self, message: Message) -> ActionResult:
         """Create the request and its Pix charge; the data fields route to the waiting, refusal and failure nodes."""
         requests, gateway = self._immediate()
-        if not settings.IMMEDIATE_CARE_ENABLED:
+        if not immediate_care_enabled():
             # The menu gate already refuses new entries; this covers a patient who was mid-flow when the switch went off.
             return ActionResult(output="", data={"immediate_disabled": True, "immediate_active": False})
         person = self.person_repository.get_by_phone_number_and_channel(message.user_id, message.channel)
@@ -619,7 +621,7 @@ class ActionExecutor:
                 output="Pagamento recebido!\n\n",
                 data={"immediate_paid": True, "immediate_done": False},
             )
-        room = f"Sala de vídeo: {request.room_url}" if request.room_url else "Estou criando a sala de vídeo."
+        room = f"Sala de vídeo: {request.patient_room_url}" if request.patient_room_url else "Estou criando a sala de vídeo."
         return ActionResult(output=f"Seu atendimento já foi aceito. {room}\n\n", data={"immediate_paid": True, "immediate_done": True})
 
     async def immediate_cancel(self, message: Message) -> ActionResult:
@@ -638,8 +640,16 @@ class ActionExecutor:
         return ActionResult(output="", data={"immediate_paid": False})
 
     async def immediate_gate(self, message: Message) -> ActionResult:
-        """Keep the immediate care entry closed until IMMEDIATE_CARE_ENABLED is on."""
-        return ActionResult(output="", data={"immediate_disabled": not settings.IMMEDIATE_CARE_ENABLED})
+        """Keep the immediate care entry closed until IMMEDIATE_CARE_ENABLED is on and fully configured."""
+        return ActionResult(output="", data={"immediate_disabled": not immediate_care_enabled()})
+
+    async def immediate_prices(self, message: Message) -> ActionResult:
+        """Prices before the duration choice (CDC: the patient sees the value before choosing), from the settings."""
+        output = (
+            f"Valores: 30 minutos por {format_reais(settings.IMMEDIATE_PRICE_30_CENTS)} "
+            f"ou 50 minutos por {format_reais(settings.IMMEDIATE_PRICE_50_CENTS)}.\n\n"
+        )
+        return ActionResult(output=output)
 
     async def immediate_noop(self, message: Message) -> ActionResult:
         """Carries an action_transition config without doing anything itself."""

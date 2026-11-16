@@ -28,11 +28,14 @@ def make_person(factory: Callable[[], Session], phone: str, name: str = "Maria")
         return person
 
 
-def make_professional(factory: Callable[[], Session], person: PersonModel, *, area: str = "Psicoterapia") -> ProfessionalModel:
+def make_professional(
+    factory: Callable[[], Session], person: PersonModel, *, area: str = "Psicoterapia", released: bool = True
+) -> ProfessionalModel:
     with factory() as session:
         professional = ProfessionalModel(
             person_id=person.id, area=area, professional_register=f"CRP-{person.id}", register_type="CRP", created_at=datetime.utcnow()
         )
+        professional.immediate_approved_at = NOW if released else None
         session.add(professional)
         session.commit()
         session.refresh(professional)
@@ -120,8 +123,18 @@ def test_expire_cancel_set_refunded_are_idempotent(factory, repository):
     assert repository.set_refunded(queued.id, refund_id="d" * 32 + "R1", refunded_at=NOW) is False
     refunded = repository.get(queued.id)
     assert refunded.status == ImmediateStatus.EXPIRED.value and refunded.pix_refund_id == "d" * 32 + "R1"
-    repository.set_room(queued.id, "https://exemplo.daily.co/sala")
-    assert repository.get(queued.id).room_url == "https://exemplo.daily.co/sala"
+    repository.set_room(
+        queued.id,
+        room_url="https://exemplo.daily.co/sala",
+        patient_room_url="https://exemplo.daily.co/sala?t=p",
+        professional_room_url="https://exemplo.daily.co/sala?t=pro",
+    )
+    stored = repository.get(queued.id)
+    assert (stored.room_url, stored.patient_room_url, stored.professional_room_url) == (
+        "https://exemplo.daily.co/sala",
+        "https://exemplo.daily.co/sala?t=p",
+        "https://exemplo.daily.co/sala?t=pro",
+    )
 
 
 def test_list_recent_newest_first(factory, repository):
@@ -170,23 +183,31 @@ def test_set_refund_pending_stores_id_without_refunded_at(factory, repository):
     assert repository.set_refunded(request.id, refund_id="a" * 32 + "R1", refunded_at=NOW) is True
 
 
-def test_list_available_excludes_pending_review_and_accepts_legacy_areas(factory):
+def test_list_available_excludes_unreleased_and_accepts_legacy_areas(factory):
     professionals = ProfessionalRepository(factory)
     approved = make_professional(factory, make_person(factory, "5511900000002", name="Dra. Ana"))
     legacy = make_professional(factory, make_person(factory, "5511900000003", name="Dr. Bia"), area="Psicoterapia, Psiquiatria")
     analyst = make_professional(factory, make_person(factory, "5511900000004", name="Dr. Caio"), area="Psicanálise")
-    pending = make_person(factory, "5511900000005", name="Pendente")
-    with factory() as session:
-        session.add(
-            ProfessionalModel(
-                person_id=pending.id, area="Psicoterapia", professional_register="CRP-9", register_type="PENDING_REVIEW", created_at=datetime.utcnow()
-            )
-        )
-        session.commit()
-    for person_id in (approved.person_id, legacy.person_id, analyst.person_id, pending.id):
+    # register_type "CRP" sent through the public registration endpoint, never released by the team
+    unreleased = make_professional(factory, make_person(factory, "5511900000005", name="Sem liberação"), released=False)
+    for person_id in (approved.person_id, legacy.person_id, analyst.person_id, unreleased.person_id):
         professionals.set_available_for_immediate(person_id, True, now=NOW)
     listed = professionals.list_available_for_immediate()
     assert [professional.person.phone_number for professional in listed] == ["5511900000002", "5511900000003", "5511900000004"]
+
+
+def test_withdrawing_the_release_switches_availability_off(factory):
+    professionals = ProfessionalRepository(factory)
+    psychologist = make_professional(factory, make_person(factory, "5511900000002", name="Dra. Ana"), released=False)
+    released = professionals.set_immediate_approval(psychologist.id, True, now=NOW)
+    assert released is not None and released.immediate_approved_at == NOW
+    again = professionals.set_immediate_approval(psychologist.id, True, now=NOW + timedelta(days=1))
+    assert again is not None and again.immediate_approved_at == NOW  # first release date is kept
+    professionals.set_available_for_immediate(psychologist.person_id, True, now=NOW)
+    withdrawn = professionals.set_immediate_approval(psychologist.id, False, now=NOW)
+    assert withdrawn is not None and withdrawn.immediate_approved_at is None and withdrawn.available_for_immediate is False
+    assert professionals.list_available_for_immediate() == []
+    assert professionals.set_immediate_approval(999999, True, now=NOW) is None
 
 
 def test_get_active_for_patient_releases_accepted_after_session_window(factory, repository):

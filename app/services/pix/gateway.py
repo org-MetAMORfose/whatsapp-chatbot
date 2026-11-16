@@ -59,11 +59,8 @@ def pix_gateway_from_settings() -> PixGateway:
 
     provider = settings.PIX_PROVIDER.strip().lower()
     if provider == "fake":
-        if settings.IMMEDIATE_CARE_ENABLED and not settings.IMMEDIATE_ALLOW_FAKE:
-            raise RuntimeError(
-                "IMMEDIATE_CARE_ENABLED=true exige PIX_PROVIDER=bb: com o Pix simulado, pacientes reais receberiam um código falso. "
-                "Em testes locais, defina IMMEDIATE_ALLOW_FAKE=true."
-            )
+        # Never reaches a real patient: with the switch on, a fake provider keeps the feature closed
+        # (app.services.immediate_care_config.configuration_problems).
         return FakePixGateway()
     if provider == "bb":
         return BancoDoBrasilPixGateway(
