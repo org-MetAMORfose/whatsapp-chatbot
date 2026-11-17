@@ -7,6 +7,7 @@ from fastapi.testclient import TestClient
 
 from app.controllers.pix_webhook_controller import PixWebhookController, WebhookTokenLogFilter
 from app.domain.db.immediate_request_model import ImmediateRequestModel
+from app.services.pix.banco_do_brasil import PixBankError
 from app.services.pix.gateway import PixChargeStatus
 
 TXID = "a" * 32
@@ -109,6 +110,21 @@ def test_bank_verification_blocks_an_unpaid_charge_and_uses_the_bank_data() -> N
     response = _client(requests, outbox, verify=verify).post("/pix/webhook/segredo", json={"pix": [EVENT]})
     assert response.json() == {"received": 1, "queued": 1}
     requests.mark_paid.assert_called_once_with(TXID, e2e_id="E-banco", paid_at=bank_paid_at, offer_deadline=PAID_AT + timedelta(seconds=300))
+
+
+def test_bank_outage_during_verification_answers_with_an_error_so_the_bank_sends_the_event_again() -> None:
+    """The BB test environment answered 504 once (2026-11-17): an outage must not mark the Pix as paid nor drop the event."""
+    requests, outbox = known_requests(), MagicMock()
+    verify = AsyncMock(side_effect=PixBankError("GET", "/cob/" + TXID, 504))
+    app = FastAPI()
+    controller = PixWebhookController(
+        MagicMock(), requests, outbox, token=TOKEN, offer_timeout_seconds=300, verify_with_bank=verify, now=lambda: PAID_AT
+    )
+    app.include_router(controller.router)
+    response = TestClient(app, raise_server_exceptions=False).post("/pix/webhook/segredo", json={"pix": [EVENT]})
+    assert response.status_code == 500
+    requests.mark_paid.assert_not_called()
+    outbox.enqueue.assert_not_called()
 
 
 def test_late_payment_is_treated_like_any_payment() -> None:
