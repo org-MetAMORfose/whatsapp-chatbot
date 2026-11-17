@@ -20,6 +20,7 @@ COMPLETE = {
     "WHATSAPP_APP_SECRET": "app-secret",
     "WHATSAPP_GRAPH_URL": "https://graph.facebook.com",
     "CHATBOT_API_KEY": "uma-chave-nova-que-nunca-foi-publicada",
+    "IMMEDIATE_PRICES_CENTS": {10: 3000, 20: 5000, 40: 10000, 60: 15000},
 }
 
 
@@ -52,9 +53,10 @@ def test_switch_off_is_closed_and_reports_nothing(complete: pytest.MonkeyPatch) 
         ("WHATSAPP_APP_SECRET", "", "WHATSAPP_APP_SECRET"),
         ("WHATSAPP_GRAPH_URL", "http://localhost:8099", "WHATSAPP_GRAPH_URL"),
         ("CHATBOT_API_KEY", "", "CHATBOT_API_KEY"),
+        ("IMMEDIATE_PRICES_CENTS", {}, "IMMEDIATE_PRICES"),
     ],
 )
-def test_each_missing_piece_keeps_the_feature_closed(complete: pytest.MonkeyPatch, name: str, value: str, expected: str) -> None:
+def test_each_missing_piece_keeps_the_feature_closed(complete: pytest.MonkeyPatch, name: str, value: object, expected: str) -> None:
     complete.setattr(settings, name, value)
     assert not immediate_care_enabled()
     assert any(expected in problem for problem in configuration_problems())

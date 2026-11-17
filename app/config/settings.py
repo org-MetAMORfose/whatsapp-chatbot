@@ -7,6 +7,7 @@ from typing import Any, cast
 
 from dotenv import load_dotenv
 
+from .immediate_prices import DEFAULT_IMMEDIATE_PRICES, parse_prices
 from .logger import setup_logging
 
 
@@ -139,8 +140,9 @@ BB_PIX_BASE_URL = __get_env_variable("BB_PIX_BASE_URL", "https://api-pix.hm.bb.c
 BB_PIX_OAUTH_URL = __get_env_variable("BB_PIX_OAUTH_URL", "https://oauth.hm.bb.com.br/oauth/token")
 PIX_WEBHOOK_TOKEN = __get_env_variable("PIX_WEBHOOK_TOKEN", "")
 PUBLIC_BASE_URL = __get_env_variable("PUBLIC_BASE_URL", "")
-IMMEDIATE_PRICE_30_CENTS = int(__get_env_variable("IMMEDIATE_PRICE_30_CENTS", "6000"))
-IMMEDIATE_PRICE_50_CENTS = int(__get_env_variable("IMMEDIATE_PRICE_50_CENTS", "9000"))
+# "minutos:centavos" separated by commas, in the order the patient sees them (app/config/immediate_prices.py).
+IMMEDIATE_PRICES = __get_env_variable("IMMEDIATE_PRICES", DEFAULT_IMMEDIATE_PRICES)
+IMMEDIATE_PRICES_CENTS = parse_prices(IMMEDIATE_PRICES)
 IMMEDIATE_OFFER_TIMEOUT_SECONDS = int(__get_env_variable("IMMEDIATE_OFFER_TIMEOUT_SECONDS", "300"))
 IMMEDIATE_PAYMENT_TIMEOUT_SECONDS = int(__get_env_variable("IMMEDIATE_PAYMENT_TIMEOUT_SECONDS", "1800"))
 IMMEDIATE_ROOM_GRACE_MINUTES = int(__get_env_variable("IMMEDIATE_ROOM_GRACE_MINUTES", "15"))

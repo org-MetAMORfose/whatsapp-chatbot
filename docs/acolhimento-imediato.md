@@ -32,10 +32,10 @@ Os textos das mensagens do paciente ficam no fluxo do banco e podem ser editados
 | `BB_PIX_CLIENT_ID`, `BB_PIX_CLIENT_SECRET`, `BB_PIX_DEV_APP_KEY` | Credenciais do aplicativo no portal do desenvolvedor do BB. |
 | `BB_PIX_CERT_PATH`, `BB_PIX_KEY_PATH` | Certificado e chave privada (mTLS). No servidor: `secrets/bb-pix.crt` e `secrets/bb-pix.key`, montados em `/app/secrets` pelo `docker-compose.yml`. Nunca vão para o git. |
 | `BB_PIX_CHAVE` | Chave Pix da conta que recebe. |
-| `BB_PIX_BASE_URL`, `BB_PIX_OAUTH_URL` | Homologação: `https://api-pix.hm.bb.com.br/pix/v2` e `https://oauth.hm.bb.com.br/oauth/token`. Produção: `https://api-pix.bb.com.br/pix/v2` e `https://oauth.bb.com.br/oauth/token`. Confirmar no portal do BB. |
+| `BB_PIX_BASE_URL`, `BB_PIX_OAUTH_URL` | Homologação: `https://api-pix.hm.bb.com.br/pix/v2` (exige o certificado, mTLS) ou `https://api.hm.bb.com.br/pix/v2` (sem certificado), com `https://oauth.hm.bb.com.br/oauth/token`. Produção: `https://api-pix.bb.com.br/pix/v2` e `https://oauth.bb.com.br/oauth/token`. Testado em 16/11/2026 com as credenciais de teste do aplicativo 286215: token, cobrança, consulta e remoção funcionam em `api.hm.bb.com.br` com a chave de testes do BB `9e881f18-cc66-4fc7-8f2c-a795dbb2bfc1` (a chave da conta real não existe em homologação). O portal confirma que a App Key vai no parâmetro `gw-dev-app-key` também em produção. |
 | `PIX_WEBHOOK_TOKEN` | Segredo longo e aleatório que fica na URL do webhook. |
 | `PUBLIC_BASE_URL` | URL pública da API (ex.: `https://chatbot.orgmetamorfose.com.br`), usada para registrar o webhook. |
-| `IMMEDIATE_PRICE_30_CENTS`, `IMMEDIATE_PRICE_50_CENTS` | Preços em centavos (padrão 6000 e 9000). |
+| `IMMEDIATE_PRICES` | Durações e preços, `minutos:centavos` separados por vírgula, na ordem em que o paciente vê. Padrão `10:3000,20:5000,40:10000,60:15000` (10 min R$ 30, 20 min R$ 50, 40 min R$ 100, 60 min R$ 150). Mudar um preço é só trocar a variável e publicar. Uma duração nova precisa também do botão no nó `imediato_duracao` (editor de fluxo); um botão sem preço não cobra nada e leva ao aviso de falha do Pix, com erro no log. Formato inválido mantém o imediato fechado (CRITICAL no log). Com mais de 3 opções o WhatsApp mostra a lista "Ver opções". |
 | `IMMEDIATE_OFFER_TIMEOUT_SECONDS` | Prazo para um psicólogo aceitar (padrão 300). |
 | `IMMEDIATE_PAYMENT_TIMEOUT_SECONDS` | Prazo para pagar o Pix (padrão 1800). |
 | `IMMEDIATE_ROOM_GRACE_MINUTES` | Minutos extras de validade da sala além da duração (padrão 15). |
@@ -47,7 +47,7 @@ Os textos das mensagens do paciente ficam no fluxo do banco e podem ser editados
 
    > Novo acolhimento imediato: {{1}} precisa de uma sessão de {{2}} minutos agora (R$ {{3}}). Toque em Aceitar nos próximos 5 minutos para ficar com o atendimento.
 
-   Exemplos para a aprovação: `Maria`, `30`, `60,00`.
+   Exemplos para a aprovação: `Maria`, `20`, `50,00`.
 2. **Banco do Brasil:** criar o aplicativo com a API Pix, baixar o certificado, colocar `bb-pix.crt` e `bb-pix.key` em `secrets/` no servidor e preencher as variáveis `BB_PIX_*`. Começar em homologação.
 3. **Daily:** criar a conta no e-mail da MetAMORfose e gerar a chave da API.
 4. **GitHub:** cadastrar os segredos (`BB_PIX_CLIENT_ID`, `BB_PIX_CLIENT_SECRET`, `BB_PIX_DEV_APP_KEY`, `BB_PIX_CHAVE`, `PIX_WEBHOOK_TOKEN`, `DAILY_API_KEY`, `WHATSAPP_APP_SECRET`) e as variáveis (`PIX_PROVIDER=bb`, `BB_PIX_BASE_URL`, `BB_PIX_OAUTH_URL`, `PUBLIC_BASE_URL`, preços e prazos). `IMMEDIATE_CARE_ENABLED` só vira `true` no passo 8. O deploy escreve tudo no `.env` do servidor.
@@ -55,7 +55,7 @@ Os textos das mensagens do paciente ficam no fluxo do banco e podem ser editados
    - **A `0019` confere o fluxo de produção antes de escrever:** o nó `paciente_imediato` precisa ser ainda o fim com "[URL em construção]", sem saídas; a transição "Atendimento imediato" de `paciente_tipo_atendimento` precisa levar a ele; nenhum nó com os nomes novos pode existir. Se algo não bater, ela para com a lista das diferenças e **não altera nada**. O deploy roda as migrações **antes** de parar a API e o worker, então o bot continua no ar com a versão anterior; desfaça a edição no editor (ou ajuste a migração) e rode o deploy de novo.
    - A `0019` publica uma revisão nova do fluxo (versão + 1): os workers recarregam e rascunhos abertos antes do deploy aparecem como desatualizados no editor (recrie o rascunho).
    - Desfazer a `0018` é recusado enquanto `immediate_request` tiver pedidos (registros de pagamento e estorno).
-   - **Webhook em HTTPS:** o BB só chama URLs públicas em HTTPS. `PUBLIC_BASE_URL` precisa apontar para um domínio com certificado válido encaminhando `/pix/webhook/*` para a API (porta 8000 do compose); confirmar no portal do BB se o webhook exige mTLS do lado do servidor.
+   - **Webhook em HTTPS:** o BB só chama URLs públicas em HTTPS. `PUBLIC_BASE_URL` precisa apontar para um domínio com certificado válido encaminhando `/pix/webhook/*` para a API (porta 8000 do compose); o portal do BB (aplicativo > Certificados) confirma que o webhook usa mTLS: o BB apresenta um certificado de cliente, então o proxy na frente da API precisa pedir esse certificado e confiar na cadeia do BB (botão "Baixar certificado BB" na mesma tela), servindo HTTPS com certificado válido de uma autoridade confiável. Não é mais preciso enviar o certificado do servidor ao BB.
 6. **Webhook do BB:** com a API no ar, rodar uma vez:
 
    ```bash

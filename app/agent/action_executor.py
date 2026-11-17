@@ -19,6 +19,7 @@ from app.agent.chat_flow import (
     TransitionAction,
 )
 from app.agent.faq_flow import FaqFlow
+from app.config.immediate_prices import duration_from_text
 from app.domain.db.immediate_request_model import ImmediateRequestModel
 from app.domain.db.patient_model import PatientModel
 from app.domain.enum.chat_mode import ChatMode
@@ -67,14 +68,6 @@ PATIENT_PRICE_RANGES: Final[frozenset[str]] = frozenset(
 BIRTH_DATE_PATTERN: Final = re.compile(r"^\d{1,2}/\d{1,2}/\d{4}$")
 FAQ_SATISFIED_OPTION: Final = "estou satisfeito"
 FAQ_HUMAN_SUPPORT_OPTION: Final = "falar com atendente"
-IMMEDIATE_DURATION_PATTERN: Final = re.compile(r"\b(30|50)\b")
-
-
-def _immediate_duration(content: str | None) -> int:
-    match = IMMEDIATE_DURATION_PATTERN.search(content or "")
-    if match is None:
-        raise ValueError(f"Unknown immediate care duration: {content!r}")
-    return int(match.group(1))
 
 
 class ActionExecutor:
@@ -576,8 +569,12 @@ class ActionExecutor:
             return self._already_active(active)
         if not self.professional_repository.list_available_for_immediate():
             return ActionResult(output="", data={"immediate_active": False, "immediate_nobody_available": True})
-        minutes = _immediate_duration(message.content)
-        amount = settings.IMMEDIATE_PRICE_30_CENTS if minutes == 30 else settings.IMMEDIATE_PRICE_50_CENTS
+        minutes = duration_from_text(message.content, settings.IMMEDIATE_PRICES_CENTS)
+        if minutes is None:
+            # A duration button without a price: never charge a guessed value.
+            logger.error("Immediate care option %r has no price in IMMEDIATE_PRICES; no charge was created", message.content)
+            return ActionResult(output="", data={"immediate_active": False, "immediate_nobody_available": False, "immediate_pix_failed": True})
+        amount = settings.IMMEDIATE_PRICES_CENTS[minutes]
         txid = uuid4().hex
         try:
             charge = await gateway.create_charge(
@@ -645,11 +642,12 @@ class ActionExecutor:
 
     async def immediate_prices(self, message: Message) -> ActionResult:
         """Prices before the duration choice (CDC: the patient sees the value before choosing), from the settings."""
-        output = (
-            f"Valores: 30 minutos por {format_reais(settings.IMMEDIATE_PRICE_30_CENTS)} "
-            f"ou 50 minutos por {format_reais(settings.IMMEDIATE_PRICE_50_CENTS)}.\n\n"
-        )
-        return ActionResult(output=output)
+        options = [f"{minutes} minutos por {format_reais(cents)}" for minutes, cents in settings.IMMEDIATE_PRICES_CENTS.items()]
+        if not options:
+            return ActionResult(output="")
+        if len(options) == 1:
+            return ActionResult(output=f"Valor: {options[0]}.\n\n")
+        return ActionResult(output=f"Valores: {', '.join(options[:-1])} ou {options[-1]}.\n\n")
 
     async def immediate_noop(self, message: Message) -> ActionResult:
         """Carries an action_transition config without doing anything itself."""

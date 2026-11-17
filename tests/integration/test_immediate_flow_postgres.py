@@ -112,7 +112,7 @@ def test_immediate_nodes_are_published_and_loadable() -> None:
         assert node(flow, "imediato_recusa").type == NodeType.END
 
         duration = node(flow, "imediato_duracao")
-        assert duration.buttons == ["30 minutos", "50 minutos"]
+        assert duration.buttons == ["10 minutos", "20 minutos", "40 minutos", "60 minutos"]
         for transition in duration.transitions:
             assert transition.target == "imediato_pix"
             assert action_keys(transition) == ["immediate_create_request", "immediate_noop", "immediate_noop", "immediate_noop"]

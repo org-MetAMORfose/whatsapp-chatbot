@@ -283,8 +283,8 @@ def test_seeded_chatbot_flow_is_complete_and_loadable(database):
 
     with database.connect() as db:
         assert db.scalar(text("SELECT count(*) FROM chatbot_flow.node")) == 85
-        assert db.scalar(text("SELECT count(*) FROM chatbot_flow.transition")) == 171
-        assert db.scalar(text("SELECT count(*) FROM chatbot_flow.transition_action")) == 189
+        assert db.scalar(text("SELECT count(*) FROM chatbot_flow.transition")) == 173
+        assert db.scalar(text("SELECT count(*) FROM chatbot_flow.transition_action")) == 197
         assert db.scalar(text("SELECT count(*) FROM chatbot_flow.input_error_message")) == 8
         assert (
             db.scalar(
@@ -315,7 +315,7 @@ def test_seeded_chatbot_flow_is_complete_and_loadable(database):
             WHERE action_key NOT LIKE 'sheets_%' AND NOT is_required
         """)
             )
-            == 165
+            == 171
         )
         required_actions = dict(db.execute(text("""
             SELECT action_key, count(*)
@@ -328,7 +328,7 @@ def test_seeded_chatbot_flow_is_complete_and_loadable(database):
             "faq_continue_or_satisfy": 2,
             "faq_process_question": 1,
             "immediate_cancel": 2,
-            "immediate_create_request": 2,
+            "immediate_create_request": 4,
             "immediate_gate": 1,
             "postgres_set_feedback_state": 1,
             "postgres_set_manual_chat_mode": 1,

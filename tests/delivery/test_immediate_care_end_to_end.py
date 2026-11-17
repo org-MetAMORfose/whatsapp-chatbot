@@ -177,7 +177,7 @@ class World:
 
     async def pay(self, txid: str, *, at: datetime) -> dict[str, int]:
         self.clock = at
-        event = PixEvent(txid=txid, endToEndId="E2E" + txid[:10], valor="60.00", horario=at)
+        event = PixEvent(txid=txid, endToEndId="E2E" + txid[:10], valor="50.00", horario=at)
         return await self.webhook.receive(TOKEN, PixWebhookBody(pix=[event]))
 
     async def drain(self, limit: int = 10) -> int:
@@ -223,10 +223,13 @@ async def reach_pix(world: World) -> str:
     terms = await world.say(PATIENT, "Sim")
     assert terms.buttons == ["Aceito os termos", "Não aceito"]
     duration = await world.say(PATIENT, "Aceito os termos")
-    assert duration.content == "Valores: 30 minutos por R$ 60,00 ou 50 minutos por R$ 90,00.\n\nQuanto tempo você precisa?"
-    assert duration.buttons == ["30 minutos", "50 minutos"]
-    pix = await world.say(PATIENT, "30 minutos")
-    assert pix.content.startswith("Valor: R$ 60,00\n\nPix copia e cola:\nPIX-SIMULADO-")
+    assert duration.content == (
+        "Valores: 10 minutos por R$ 30,00, 20 minutos por R$ 50,00, 40 minutos por R$ 100,00 ou 60 minutos por R$ 150,00.\n\n"
+        "Quanto tempo você precisa?"
+    )
+    assert duration.buttons == ["10 minutos", "20 minutos", "40 minutos", "60 minutos"]  # more than 3: WhatsApp shows a list
+    pix = await world.say(PATIENT, "20 minutos")
+    assert pix.content.startswith("Valor: R$ 50,00\n\nPix copia e cola:\nPIX-SIMULADO-")
     assert pix.content.endswith("Se quiser desistir antes de pagar, mande CANCELAR.")
     request = world.patient_request()
     assert request.status == ImmediateStatus.AWAITING_PAYMENT.value
@@ -238,6 +241,7 @@ async def reach_pix(world: World) -> str:
 def immediate_care_enabled(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(settings, "IMMEDIATE_CARE_ENABLED", True)
     monkeypatch.setattr(settings, "IMMEDIATE_ALLOW_FAKE", True)  # simulated Pix and room
+    monkeypatch.setattr(settings, "IMMEDIATE_PRICES_CENTS", {10: 3000, 20: 5000, 40: 10000, 60: 15000})
 
 
 @pytest.mark.asyncio
@@ -255,7 +259,7 @@ async def test_patient_pays_professional_accepts_room_is_sent(db, redis_client) 
     assert await world.drain() == 1
     world.whatsapp.send_template.assert_awaited_once()
     offer = world.whatsapp.send_template.await_args.kwargs
-    assert offer["to"] == PSYCHOLOGIST and offer["name"] == "acolhimento_oferta" and offer["body_parameters"] == ("Maria", "30", "60,00")
+    assert offer["to"] == PSYCHOLOGIST and offer["name"] == "acolhimento_oferta" and offer["body_parameters"] == ("Maria", "20", "50,00")
     assert world.sent() == [(PATIENT, "Pagamento recebido! Estou avisando os psicólogos disponíveis. Te retorno em até 5 minutos.")]
     context = await world.chats.get_context(PATIENT, Channel.WHATSAPP)
     assert context is not None and context.state == "imediato_na_fila"
@@ -280,9 +284,9 @@ async def test_patient_pays_professional_accepts_room_is_sent(db, redis_client) 
         (
             PATIENT,
             f"Um psicólogo aceitou o seu atendimento! Entre na sala de vídeo: {request.patient_room_url}\n\n"
-            "A sessão dura 30 minutos e não é gravada.",
+            "A sessão dura 20 minutos e não é gravada.",
         ),
-        (PSYCHOLOGIST, f"Sala de vídeo do acolhimento: {request.professional_room_url}\n\nO paciente é Maria, sessão de 30 minutos."),
+        (PSYCHOLOGIST, f"Sala de vídeo do acolhimento: {request.professional_room_url}\n\nO paciente é Maria, sessão de 20 minutos."),
     ]
     context = await world.chats.get_context(PATIENT, Channel.WHATSAPP)
     assert context is not None and context.state == "imediato_na_fila"  # the patient can ask for the link again
@@ -312,9 +316,9 @@ async def test_nobody_accepts_refund_runs(db, redis_client) -> None:
     assert request.status == ImmediateStatus.EXPIRED.value
     assert request.refunded_at is not None and request.pix_refund_id == f"{txid}R1"
     contents = [content for _phone, content in world.sent()]
-    timeout_notice = "Nos últimos 5 minutos nenhum psicólogo ficou disponível. Vou devolver o seu Pix de R$ 60,00"
+    timeout_notice = "Nos últimos 5 minutos nenhum psicólogo ficou disponível. Vou devolver o seu Pix de R$ 50,00"
     assert any(content.startswith(timeout_notice) for content in contents)
-    assert "Pix de R$ 60,00 devolvido. Pode levar alguns minutos pra aparecer no seu banco. Quando quiser tentar de novo, mande RESET." in contents
+    assert "Pix de R$ 50,00 devolvido. Pode levar alguns minutos pra aparecer no seu banco. Quando quiser tentar de novo, mande RESET." in contents
     assert await world.chats.get_context(PATIENT, Channel.WHATSAPP) is None
 
     closed = await world.say(PATIENT, "oi")

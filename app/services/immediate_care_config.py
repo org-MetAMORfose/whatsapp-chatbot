@@ -27,6 +27,8 @@ def configuration_problems() -> list[str]:
     for name in ("BB_PIX_CLIENT_ID", "BB_PIX_CLIENT_SECRET", "BB_PIX_DEV_APP_KEY", "BB_PIX_CERT_PATH", "BB_PIX_KEY_PATH", "BB_PIX_CHAVE"):
         if not getattr(settings, name):
             problems.append(name)
+    if not settings.IMMEDIATE_PRICES_CENTS:
+        problems.append("IMMEDIATE_PRICES (formato minutos:centavos separados por vírgula, ex.: 10:3000,20:5000)")
     if not settings.PIX_WEBHOOK_TOKEN:
         problems.append("PIX_WEBHOOK_TOKEN")
     if not settings.DAILY_API_KEY:

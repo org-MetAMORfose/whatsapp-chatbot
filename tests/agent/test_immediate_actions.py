@@ -65,8 +65,12 @@ async def run(executor: ActionExecutor, key: str, content: str | None) -> Action
     return await executor.run([TransitionAction(action_key=key, is_required=True)], make_message(content))
 
 
+PRICES = {10: 3000, 20: 5000, 40: 10000, 60: 15000}
+
+
 @pytest.fixture(autouse=True)
 def immediate_care_enabled(monkeypatch):
+    monkeypatch.setattr(settings, "IMMEDIATE_PRICES_CENTS", dict(PRICES))
     monkeypatch.setattr(settings, "IMMEDIATE_CARE_ENABLED", True)
     monkeypatch.setattr(settings, "IMMEDIATE_ALLOW_FAKE", True)  # Pix and room are mocks here
     monkeypatch.setattr(settings, "IMMEDIATE_ROOM_GRACE_MINUTES", 15)
@@ -87,15 +91,16 @@ async def test_create_request_refuses_when_active():
 async def test_create_request_creates_charge_and_schedules_payment_timeout(monkeypatch):
     monkeypatch.setattr(settings, "IMMEDIATE_PAYMENT_TIMEOUT_SECONDS", 1800)
     executor, requests, gateway, outbox = make_executor()
-    result = await run(executor, "immediate_create_request", "30 minutos")
+    requests.create.return_value = make_request(ImmediateStatus.AWAITING_PAYMENT, duration_minutes=20, amount_cents=5000)
+    result = await run(executor, "immediate_create_request", "20 minutos")
     gateway.create_charge.assert_awaited_once()
     charge_kwargs = gateway.create_charge.await_args.kwargs
     assert len(charge_kwargs["txid"]) == 32 and charge_kwargs["txid"].isalnum()
-    assert charge_kwargs["amount_cents"] == 6000 and charge_kwargs["expires_seconds"] == 1800 and charge_kwargs["payer_name"] == "Maria Silva"
+    assert charge_kwargs["amount_cents"] == 5000 and charge_kwargs["expires_seconds"] == 1800 and charge_kwargs["payer_name"] == "Maria Silva"
     requests.create.assert_called_once_with(
         patient_person_id=7,
-        duration_minutes=30,
-        amount_cents=6000,
+        duration_minutes=20,
+        amount_cents=5000,
         pix_txid=charge_kwargs["txid"],
         pix_copia_cola="PIX-SIMULADO-CODIGO",
         expires_at=CHARGE.expires_at,
@@ -103,28 +108,45 @@ async def test_create_request_creates_charge_and_schedules_payment_timeout(monke
     outbox.enqueue.assert_called_once_with(
         "immediate:42:payment_timeout", "immediate.payment_timeout.v1", {"request_id": 42}, available_at=CHARGE.expires_at
     )
-    assert result.output == "Valor: R$ 60,00\n\nPix copia e cola:\nPIX-SIMULADO-CODIGO\n\n"
+    assert result.output == "Valor: R$ 50,00\n\nPix copia e cola:\nPIX-SIMULADO-CODIGO\n\n"
     assert result.data == {"immediate_active": False, "immediate_nobody_available": False, "immediate_request_id": 42}
     requests.get_active_for_patient.assert_called_once_with(7, now=NOW, room_grace_minutes=15)
 
 
 @pytest.mark.asyncio
-async def test_create_request_50_minutes_uses_second_price(monkeypatch):
-    monkeypatch.setattr(settings, "IMMEDIATE_PRICE_50_CENTS", 9050)
+@pytest.mark.parametrize(
+    ("minutes", "cents", "shown"), [(10, 3000, "R$ 30,00"), (20, 5000, "R$ 50,00"), (40, 10000, "R$ 100,00"), (60, 15000, "R$ 150,00")]
+)
+async def test_create_request_charges_the_price_of_the_chosen_duration(minutes, cents, shown):
     executor, requests, gateway, _outbox = make_executor()
-    requests.create.return_value = make_request(ImmediateStatus.AWAITING_PAYMENT, duration_minutes=50, amount_cents=9050)
-    result = await run(executor, "immediate_create_request", "50 minutos")
-    assert gateway.create_charge.await_args.kwargs["amount_cents"] == 9050
-    assert requests.create.call_args.kwargs["duration_minutes"] == 50
-    assert result.output.startswith("Valor: R$ 90,50\n")
+    requests.create.return_value = make_request(ImmediateStatus.AWAITING_PAYMENT, duration_minutes=minutes, amount_cents=cents)
+    result = await run(executor, "immediate_create_request", f"{minutes} minutos")
+    assert gateway.create_charge.await_args.kwargs["amount_cents"] == cents
+    assert requests.create.call_args.kwargs["duration_minutes"] == minutes
+    assert requests.create.call_args.kwargs["amount_cents"] == cents
+    assert result.output.startswith(f"Valor: {shown}\n")
 
 
 @pytest.mark.asyncio
-async def test_create_request_rejects_unknown_duration():
+async def test_a_price_changed_in_the_settings_is_what_gets_charged(monkeypatch):
+    monkeypatch.setattr(settings, "IMMEDIATE_PRICES_CENTS", {**PRICES, 20: 5550})
     executor, _requests, gateway, _outbox = make_executor()
-    with pytest.raises(ValueError):
-        await run(executor, "immediate_create_request", "uma hora")
+    await run(executor, "immediate_create_request", "20 minutos")
+    assert gateway.create_charge.await_args.kwargs["amount_cents"] == 5550
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("content", ["uma hora", "30 minutos"])
+async def test_a_duration_without_a_price_goes_to_the_failure_node_without_charging(content, caplog):
+    """A flow button left without a price in IMMEDIATE_PRICES must not charge a guessed value."""
+    executor, requests, gateway, outbox = make_executor()
+    result = await run(executor, "immediate_create_request", content)
+    assert result.output == ""
+    assert result.data == {"immediate_active": False, "immediate_nobody_available": False, "immediate_pix_failed": True}
     gateway.create_charge.assert_not_awaited()
+    requests.create.assert_not_called()
+    outbox.enqueue.assert_not_called()
+    assert any("IMMEDIATE_PRICES" in record.getMessage() for record in caplog.records)
 
 
 @pytest.mark.asyncio
@@ -202,7 +224,7 @@ async def test_create_request_refuses_when_nobody_available():
 @pytest.mark.asyncio
 async def test_create_request_reports_availability_in_data():
     executor, _requests, _gateway, _outbox = make_executor()
-    result = await run(executor, "immediate_create_request", "30 minutos")
+    result = await run(executor, "immediate_create_request", "20 minutos")
     assert result.data == {"immediate_active": False, "immediate_nobody_available": False, "immediate_request_id": 42}
 
 
@@ -268,12 +290,20 @@ async def test_gate_stays_closed_when_the_switch_is_on_but_production_config_is_
 
 
 @pytest.mark.asyncio
-async def test_prices_are_shown_before_the_duration_choice(monkeypatch):
-    monkeypatch.setattr(settings, "IMMEDIATE_PRICE_30_CENTS", 6000)
-    monkeypatch.setattr(settings, "IMMEDIATE_PRICE_50_CENTS", 9000)
+async def test_prices_are_shown_before_the_duration_choice():
     executor, _requests, _gateway, _outbox = make_executor()
     result = await run(executor, "immediate_prices", "Aceito os termos")
-    assert result.output == "Valores: 30 minutos por R$ 60,00 ou 50 minutos por R$ 90,00.\n\n"
+    assert result.output == (
+        "Valores: 10 minutos por R$ 30,00, 20 minutos por R$ 50,00, 40 minutos por R$ 100,00 ou 60 minutos por R$ 150,00.\n\n"
+    )
+
+
+@pytest.mark.asyncio
+async def test_a_single_price_is_shown_in_the_singular(monkeypatch):
+    monkeypatch.setattr(settings, "IMMEDIATE_PRICES_CENTS", {30: 6000})
+    executor, _requests, _gateway, _outbox = make_executor()
+    result = await run(executor, "immediate_prices", "Aceito os termos")
+    assert result.output == "Valor: 30 minutos por R$ 60,00.\n\n"
 
 
 @pytest.mark.asyncio
@@ -321,7 +351,7 @@ async def test_create_request_with_accepted_session_shows_the_room():
 async def test_create_request_bank_failure_routes_to_the_failure_node():
     executor, requests, gateway, outbox = make_executor()
     gateway.create_charge.side_effect = RuntimeError("bb down")
-    result = await run(executor, "immediate_create_request", "30 minutos")
+    result = await run(executor, "immediate_create_request", "20 minutos")
     assert result.output == ""
     assert result.data == {"immediate_active": False, "immediate_nobody_available": False, "immediate_pix_failed": True}
     requests.create.assert_not_called()

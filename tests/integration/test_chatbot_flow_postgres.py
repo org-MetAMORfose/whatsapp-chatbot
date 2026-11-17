@@ -71,10 +71,10 @@ async def test_seed_draft_publication_and_optional_action_deletion() -> None:
         assert all(action.config is None for transition in birth_date.transitions for action in transition.actions)
 
         with factory() as session:
-            assert session.scalar(select(func.count(FlowTransitionModel.id))) == 171
-            assert session.scalar(select(func.count(FlowTransitionActionModel.id))) == 189
+            assert session.scalar(select(func.count(FlowTransitionModel.id))) == 173
+            assert session.scalar(select(func.count(FlowTransitionActionModel.id))) == 197
             assert session.scalar(select(func.count(FlowActionDependencyModel.id))) == 0
-            assert session.scalar(select(func.count(FlowTransitionActionModel.id)).where(FlowTransitionActionModel.is_required)) == 19
+            assert session.scalar(select(func.count(FlowTransitionActionModel.id)).where(FlowTransitionActionModel.is_required)) == 21
             assert all(
                 not action.is_required
                 for node in flow.nodes.values()
