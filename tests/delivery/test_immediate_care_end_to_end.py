@@ -259,7 +259,7 @@ async def test_patient_pays_professional_accepts_room_is_sent(db, redis_client) 
     assert await world.drain() == 1
     world.whatsapp.send_template.assert_awaited_once()
     offer = world.whatsapp.send_template.await_args.kwargs
-    assert offer["to"] == PSYCHOLOGIST and offer["name"] == "acolhimento_oferta" and offer["body_parameters"] == ("Maria", "20", "50,00")
+    assert offer["to"] == PSYCHOLOGIST and offer["name"] == "acolhimento_solicitacao" and offer["body_parameters"] == ("Maria", "20", "50,00")
     assert world.sent() == [(PATIENT, "Pagamento recebido! Estou avisando os psicólogos disponíveis. Te retorno em até 5 minutos.")]
     context = await world.chats.get_context(PATIENT, Channel.WHATSAPP)
     assert context is not None and context.state == "imediato_na_fila"

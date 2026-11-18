@@ -157,7 +157,7 @@ async def test_offer_sends_template_to_each_available_and_moves_patient_to_queue
     for call, phone in zip(deps.whatsapp.send_template.await_args_list, [PRO_PHONE, "5511966665555"], strict=True):
         assert call.kwargs == {
             "to": phone,
-            "name": "acolhimento_oferta",
+            "name": "acolhimento_solicitacao",
             "language": "pt_BR",
             "body_parameters": ("Maria", "30", "60,00"),
             "callback_data": None,
@@ -167,7 +167,7 @@ async def test_offer_sends_template_to_each_available_and_moves_patient_to_queue
     assert all(call.kwargs == {"ttl_seconds": 300 + 3600} for call in deps.offers.mark.await_args_list)
     assert deps.people.create_message.call_count == 2
     recorded = deps.people.create_message.call_args.args[0]
-    assert recorded.is_from_user is False and recorded.content.startswith("[template:acolhimento_oferta:pt_BR] Maria | 30 | 60,00")
+    assert recorded.is_from_user is False and recorded.content.startswith("[template:acolhimento_solicitacao:pt_BR] Maria | 30 | 60,00")
     messages = deps.published()
     assert [(message.user_id, message.content) for message in messages] == [
         (PATIENT_PHONE, "Pagamento recebido! Estou avisando os psicólogos disponíveis. Te retorno em até 5 minutos.")

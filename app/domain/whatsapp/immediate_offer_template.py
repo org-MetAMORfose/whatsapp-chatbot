@@ -1,7 +1,11 @@
-"""Values expected by the approved `acolhimento_oferta` template (quick-reply button "Aceitar").
+"""Values expected by the approved `acolhimento_solicitacao` template (Utility, quick-reply button "Aceitar").
 
-Body registered in Meta: "Novo acolhimento imediato: {{1}} precisa de uma sessão de {{2}} minutos agora
-(R$ {{3}}). Toque em Aceitar nos próximos 5 minutos para ficar com o atendimento."
+Body registered in Meta: "Você está como DISPONÍVEL no acolhimento imediato e chegou uma solicitação: {{1}}, sessão de
+{{2}} minutos, R$ {{3}}. Para atender, toque em Aceitar em até 5 minutos; quem aceitar primeiro fica com o atendimento.
+Para parar de receber, envie INDISPONÍVEL."
+
+The first version (`acolhimento_oferta`) was approved as Marketing, which costs more and can be held back by WhatsApp;
+this wording, tied to the professional's DISPONÍVEL status, was approved as Utility.
 """
 
 from dataclasses import dataclass
@@ -24,7 +28,7 @@ class ImmediateOfferTemplate:
     duration_minutes: int
     amount_text: str
 
-    name: ClassVar[str] = "acolhimento_oferta"
+    name: ClassVar[str] = "acolhimento_solicitacao"
     language: ClassVar[str] = "pt_BR"
 
     def __post_init__(self) -> None:
