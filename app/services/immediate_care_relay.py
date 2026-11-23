@@ -34,6 +34,7 @@ from app.repository.sql.outbox_repository import OutboxRepository
 from app.repository.sql.person_repository import PersonRepository
 from app.repository.sql.professional_repository import ProfessionalRepository
 from app.repository.sql.transaction import transaction
+from app.services.immediate_care_config import in_test_list
 from app.services.immediate_payment import confirm_payment
 from app.services.pix.gateway import PixGateway, format_reais
 from app.services.video_room_service import VideoRoomService
@@ -167,11 +168,12 @@ class ImmediateCareRelay:
         await self._send_text(request_id, "offer", patient_phone, PAID_MESSAGE)
         await self.chats.create_context(patient_phone, Channel.WHATSAPP, QUEUE_NODE)
         remaining = max(1, int((request.expires_at - now).total_seconds()))
-        # A professional who is also the patient of this request never gets its offer.
+        # A professional who is also the patient of this request never gets its offer; in test mode, only listed numbers do.
         candidates = [
             professional
             for professional in self.professionals.list_available_for_immediate()
             if professional.person_id != request.patient_person_id
+            and in_test_list(professional.person.phone_number if professional.person is not None else "")
         ]
         if not candidates:
             logger.warning("Immediate request %s paid but no psychologist is available", request_id)

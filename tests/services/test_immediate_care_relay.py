@@ -4,7 +4,9 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
+import app.config.settings as settings
 from app.channel_adapters.whatsapp import WhatsAppAdapter
+from app.config.immediate_test_phones import parse_test_phones
 from app.domain.db.delivery_model import OutboxModel
 from app.domain.db.immediate_request_model import ImmediateRequestModel
 from app.domain.db.person_model import PersonModel
@@ -556,4 +558,14 @@ async def test_late_payment_found_by_the_bank_gets_a_fresh_offer_window() -> Non
     deps.requests.mark_paid.assert_called_once_with(
         TXID, e2e_id="E9", paid_at=NOW - timedelta(minutes=30), offer_deadline=NOW + timedelta(seconds=300)
     )
+    assert deps.finished_ok()
+
+
+@pytest.mark.asyncio
+async def test_in_test_mode_only_listed_professionals_get_the_offer(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(settings, "IMMEDIATE_TEST_PHONES", parse_test_phones("5511966665555"))
+    deps = Deps("immediate.offer.v1", request(ImmediateStatus.QUEUED), [available(), available("5511966665555")])
+    assert await deps.relay.process_next() is True
+    assert [call.kwargs["to"] for call in deps.whatsapp.send_template.await_args_list] == ["5511966665555"]
+    assert [call.args for call in deps.offers.mark.await_args_list] == [("5511966665555", Channel.WHATSAPP, 42)]
     assert deps.finished_ok()

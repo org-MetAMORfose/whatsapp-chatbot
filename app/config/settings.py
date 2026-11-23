@@ -8,6 +8,7 @@ from typing import Any, cast
 from dotenv import load_dotenv
 
 from .immediate_prices import DEFAULT_IMMEDIATE_PRICES, parse_prices
+from .immediate_test_phones import parse_test_phones
 from .logger import setup_logging
 
 
@@ -127,6 +128,8 @@ GMAIL_SECRET_CLIENT = __get_env_variable("GMAIL_SECRET_CLIENT", "")
 
 # Acolhimento imediato: Pix (Banco do Brasil ou simulado), vídeo (Daily) e prazos.
 IMMEDIATE_CARE_ENABLED = __get_bool_env_variable("IMMEDIATE_CARE_ENABLED", "false")
+# Teste em produção: com números aqui (separados por vírgula), só eles entram no acolhimento imediato.
+IMMEDIATE_TEST_PHONES = parse_test_phones(__get_env_variable("IMMEDIATE_TEST_PHONES", ""))
 # Só em testes locais: deixa ligar o atendimento com Pix e sala simulados.
 IMMEDIATE_ALLOW_FAKE = __get_bool_env_variable("IMMEDIATE_ALLOW_FAKE", "false")
 PIX_PROVIDER = __get_env_variable("PIX_PROVIDER", "fake")

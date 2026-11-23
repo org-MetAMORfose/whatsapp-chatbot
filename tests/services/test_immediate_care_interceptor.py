@@ -5,6 +5,7 @@ import pytest
 
 import app.config.settings as settings
 from app.agent.agent import Response
+from app.config.immediate_test_phones import parse_test_phones
 from app.domain.db.person_model import PersonModel
 from app.domain.db.professional_model import ProfessionalModel
 from app.domain.enum.channels import Channel
@@ -212,4 +213,22 @@ async def test_available_accepts_legacy_comma_area() -> None:
     interceptor, professionals, _requests, _offers, _outbox = make_interceptor(found=professional("Psicoterapia, Psiquiatria"))
     response = await interceptor.handle(message("Disponível"), PERSON)
     assert response == Response(content="Pronto! Você está disponível para acolhimento imediato. Quando quiser sair, mande INDISPONÍVEL.")
+    professionals.set_available_for_immediate.assert_called_once_with(9, True, now=NOW)
+
+
+@pytest.mark.asyncio
+async def test_in_test_mode_an_unlisted_professional_is_not_intercepted(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(settings, "IMMEDIATE_TEST_PHONES", parse_test_phones("5511988887777"))
+    interceptor, professionals, requests, _offers, _outbox = make_interceptor(found=professional(), offer=42)
+    for text in ("Disponível", "Indisponível", "Aceitar"):
+        assert await interceptor.handle(message(text), PERSON) is None
+    professionals.set_available_for_immediate.assert_not_called()
+    requests.accept.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_in_test_mode_a_listed_professional_can_become_available(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(settings, "IMMEDIATE_TEST_PHONES", parse_test_phones("(11) 97777-6666"))
+    interceptor, professionals, _requests, _offers, _outbox = make_interceptor(found=professional())
+    assert await interceptor.handle(message("Disponível"), PERSON) is not None
     professionals.set_available_for_immediate.assert_called_once_with(9, True, now=NOW)

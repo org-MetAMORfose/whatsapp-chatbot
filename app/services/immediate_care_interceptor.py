@@ -12,7 +12,7 @@ from app.repository.redis.immediate_offer_repository import ImmediateOfferReposi
 from app.repository.sql.immediate_request_repository import ImmediateRequestRepository
 from app.repository.sql.outbox_repository import OutboxRepository
 from app.repository.sql.professional_repository import ProfessionalRepository
-from app.services.immediate_care_config import immediate_care_enabled
+from app.services.immediate_care_config import immediate_care_open_for
 
 AVAILABLE_COMMANDS = frozenset({"disponivel"})
 UNAVAILABLE_COMMANDS = frozenset({"indisponivel"})
@@ -49,10 +49,10 @@ class ImmediateCareInterceptor:
     async def handle(self, message: Message, person: PersonModel) -> Response | None:
         """Answer a professional command, or None so the message follows the normal flow.
 
-        Closed feature: nothing is intercepted. "Aceitar" is only taken when an offer was sent to this number;
+        Closed feature (or a number outside the test list): nothing is intercepted. "Aceitar" is only taken when an offer was sent to this number;
         otherwise it goes to the flow untouched, so a button with the same text elsewhere keeps working.
         """
-        if not immediate_care_enabled():
+        if not immediate_care_open_for(message.user_id):
             return None
         command = normalize_text(message.content or "")
         if command not in AVAILABLE_COMMANDS | UNAVAILABLE_COMMANDS | ACCEPT_COMMANDS:

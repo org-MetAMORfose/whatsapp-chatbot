@@ -9,6 +9,7 @@ import hashlib
 import logging
 
 import app.config.settings as settings
+from app.config.immediate_test_phones import phone_key
 
 logger = logging.getLogger(__name__)
 GRAPH_URL = "https://graph.facebook.com"
@@ -48,6 +49,16 @@ def immediate_care_enabled() -> bool:
     return settings.IMMEDIATE_CARE_ENABLED and not configuration_problems()
 
 
+def in_test_list(phone: str) -> bool:
+    """True without a test list; in test mode (IMMEDIATE_TEST_PHONES), only for the listed numbers."""
+    return not settings.IMMEDIATE_TEST_PHONES or phone_key(phone) in settings.IMMEDIATE_TEST_PHONES
+
+
+def immediate_care_open_for(phone: str) -> bool:
+    """Open for this WhatsApp number: the feature is on and the number passes the test list."""
+    return immediate_care_enabled() and in_test_list(phone)
+
+
 def log_configuration() -> None:
     """Called once at startup by the API and the worker."""
     problems = configuration_problems()
@@ -58,3 +69,7 @@ def log_configuration() -> None:
         )
     elif settings.IMMEDIATE_CARE_ENABLED:
         logger.info("Acolhimento imediato aberto%s", " (Pix e sala simulados)" if settings.IMMEDIATE_ALLOW_FAKE else "")
+        if settings.IMMEDIATE_TEST_PHONES:
+            logger.warning(
+                "Acolhimento imediato em modo de teste: só %d números entram (IMMEDIATE_TEST_PHONES)", len(settings.IMMEDIATE_TEST_PHONES)
+            )

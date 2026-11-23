@@ -6,6 +6,7 @@ import pytest
 import app.config.settings as settings
 from app.agent.action_executor import ActionExecutor, ActionResult
 from app.agent.chat_flow import TransitionAction
+from app.config.immediate_test_phones import parse_test_phones
 from app.domain.db.immediate_request_model import ImmediateRequestModel
 from app.domain.db.person_model import PersonModel
 from app.domain.db.professional_model import ProfessionalModel
@@ -356,3 +357,22 @@ async def test_create_request_bank_failure_routes_to_the_failure_node():
     assert result.data == {"immediate_active": False, "immediate_nobody_available": False, "immediate_pix_failed": True}
     requests.create.assert_not_called()
     outbox.enqueue.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_in_test_mode_the_gate_only_opens_for_listed_numbers(monkeypatch):
+    executor, _requests, _gateway, _outbox = make_executor()
+    monkeypatch.setattr(settings, "IMMEDIATE_TEST_PHONES", parse_test_phones("5511988887777"))
+    assert (await run(executor, "immediate_gate", "Atendimento imediato")).data == {"immediate_disabled": True}
+    monkeypatch.setattr(settings, "IMMEDIATE_TEST_PHONES", parse_test_phones("5511988887777, (11) 99999-9999"))
+    assert (await run(executor, "immediate_gate", "Atendimento imediato")).data == {"immediate_disabled": False}
+
+
+@pytest.mark.asyncio
+async def test_in_test_mode_an_unlisted_patient_is_never_charged(monkeypatch):
+    monkeypatch.setattr(settings, "IMMEDIATE_TEST_PHONES", parse_test_phones("5511988887777"))
+    executor, requests, gateway, outbox = make_executor()
+    result = await run(executor, "immediate_create_request", "30 minutos")
+    assert result.data == {"immediate_disabled": True, "immediate_active": False}
+    gateway.create_charge.assert_not_awaited()
+    requests.create.assert_not_called()

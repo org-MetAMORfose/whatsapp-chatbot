@@ -3,7 +3,8 @@ import logging
 import pytest
 
 import app.config.settings as settings
-from app.services.immediate_care_config import configuration_problems, immediate_care_enabled, log_configuration
+from app.config.immediate_test_phones import parse_test_phones
+from app.services.immediate_care_config import configuration_problems, immediate_care_enabled, immediate_care_open_for, log_configuration
 
 COMPLETE = {
     "IMMEDIATE_CARE_ENABLED": True,
@@ -79,3 +80,28 @@ def test_a_published_api_key_keeps_the_feature_closed(complete: pytest.MonkeyPat
     complete.setattr(settings, "CHATBOT_API_KEY", "chave-vazada")
     assert not immediate_care_enabled()
     assert any("publicada" in problem for problem in configuration_problems())
+
+
+def test_without_a_test_list_the_feature_is_open_for_everyone(complete: pytest.MonkeyPatch) -> None:
+    complete.setattr(settings, "IMMEDIATE_TEST_PHONES", frozenset())
+    assert immediate_care_open_for("5511900000000")
+
+
+def test_with_a_test_list_only_those_numbers_get_in(complete: pytest.MonkeyPatch) -> None:
+    complete.setattr(settings, "IMMEDIATE_TEST_PHONES", parse_test_phones("5511958048414"))
+    assert immediate_care_open_for("5511958048414")
+    assert immediate_care_open_for("551158048414")  # same mobile as WhatsApp sends it without the ninth digit
+    assert not immediate_care_open_for("5511900000000")
+
+
+def test_a_listed_number_stays_out_while_the_feature_is_closed(complete: pytest.MonkeyPatch) -> None:
+    complete.setattr(settings, "IMMEDIATE_TEST_PHONES", parse_test_phones("5511958048414"))
+    complete.setattr(settings, "IMMEDIATE_CARE_ENABLED", False)
+    assert not immediate_care_open_for("5511958048414")
+
+
+def test_test_mode_is_logged_at_startup(complete: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture) -> None:
+    complete.setattr(settings, "IMMEDIATE_TEST_PHONES", parse_test_phones("5511958048414,5521987654321"))
+    with caplog.at_level(logging.INFO):
+        log_configuration()
+    assert "modo de teste" in caplog.text and "2 números" in caplog.text

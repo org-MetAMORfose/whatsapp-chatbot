@@ -41,7 +41,7 @@ from app.repository.sql.outbox_repository import OutboxRepository
 from app.repository.sql.patient_repository import PatientRepository
 from app.repository.sql.person_repository import PersonRepository
 from app.repository.sql.professional_repository import ProfessionalRepository
-from app.services.immediate_care_config import immediate_care_enabled
+from app.services.immediate_care_config import immediate_care_open_for
 from app.services.pix.gateway import PixGateway, format_reais
 
 
@@ -558,7 +558,7 @@ class ActionExecutor:
     async def immediate_create_request(self, message: Message) -> ActionResult:
         """Create the request and its Pix charge; the data fields route to the waiting, refusal and failure nodes."""
         requests, gateway = self._immediate()
-        if not immediate_care_enabled():
+        if not immediate_care_open_for(message.user_id):
             # The menu gate already refuses new entries; this covers a patient who was mid-flow when the switch went off.
             return ActionResult(output="", data={"immediate_disabled": True, "immediate_active": False})
         person = self.person_repository.get_by_phone_number_and_channel(message.user_id, message.channel)
@@ -637,8 +637,8 @@ class ActionExecutor:
         return ActionResult(output="", data={"immediate_paid": False})
 
     async def immediate_gate(self, message: Message) -> ActionResult:
-        """Keep the immediate care entry closed until IMMEDIATE_CARE_ENABLED is on and fully configured."""
-        return ActionResult(output="", data={"immediate_disabled": not immediate_care_enabled()})
+        """Keep the immediate care entry closed until IMMEDIATE_CARE_ENABLED is on and fully configured (test list included)."""
+        return ActionResult(output="", data={"immediate_disabled": not immediate_care_open_for(message.user_id)})
 
     async def immediate_prices(self, message: Message) -> ActionResult:
         """Prices before the duration choice (CDC: the patient sees the value before choosing), from the settings."""
