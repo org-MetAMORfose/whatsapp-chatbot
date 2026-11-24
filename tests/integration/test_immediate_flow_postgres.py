@@ -11,6 +11,7 @@ import sqlalchemy as sa
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 
+from app.agent.agent import normalize_text
 from app.agent.chat_flow import ChatFlow, Node, Transition
 from app.domain.enum.chatbot_flow import InputType, NodeType
 from app.repository.sql.chatbot_flow_repository import ChatFlowRepository
@@ -33,6 +34,7 @@ KEYS = (
     "imediato_indisponivel",
     "imediato_sem_profissional",
     "imediato_falha_pix",
+    "imediato_area",
 )
 
 
@@ -61,6 +63,25 @@ def config_of(transition: Transition) -> dict[str, Any]:
     config = transition.actions[0].config
     assert config is not None
     return config
+
+
+def assert_offers_scheduling(flow: ChatFlow, key: str) -> Node:
+    """Giving up on the immediate care ends in one button that continues on the chosen area's scheduling path."""
+    found = node(flow, key)
+    scheduling = node(flow, "paciente_inicio")
+    assert found.type == NodeType.MESSAGE and found.buttons == ["Agendar atendimento"]
+    assert found.message.endswith("Se preferir, posso te ajudar a agendar um atendimento nessa área.")
+    (button,) = found.transitions
+    assert button.target == "paciente_inicio"  # an unknown area asks for it again
+    routes = {
+        str(action.config["value"]): str(action.config["target_node_key"])
+        for action in button.actions
+        if action.config is not None and action.config["source"]["field"] == "immediate_area"
+    }
+    assert routes == {normalize_text(option.expected_value or ""): option.target for option in scheduling.transitions}
+    assert "immediate_area_route" in action_keys(button)
+    assert all(action.is_required is False for action in button.actions if action.action_key.startswith("immediate_"))
+    return found
 
 
 def route_of(transition: Transition) -> tuple[str, str]:
@@ -110,7 +131,8 @@ def test_immediate_nodes_are_published_and_loadable() -> None:
         assert targets(terms) == {"Aceito os termos": "imediato_duracao", "Não aceito": "imediato_recusa"}
         accept_terms = next(transition for transition in terms.transitions if transition.expected_value == "Aceito os termos")
         assert action_keys(accept_terms) == ["immediate_prices"] and accept_terms.actions[0].is_required is False
-        assert node(flow, "imediato_recusa").type == NodeType.END
+        assert "uma sessão única por vídeo com profissional de saúde da Rede" in terms.message
+        assert_offers_scheduling(flow, "imediato_recusa")
 
         duration = node(flow, "imediato_duracao")
         assert duration.buttons == ["10 minutos", "20 minutos", "40 minutos", "60 minutos"]
@@ -125,7 +147,8 @@ def test_immediate_nodes_are_published_and_loadable() -> None:
                 "immediate_pix_failed": "imediato_falha_pix",
             }
         assert node(flow, "imediato_em_andamento").type == NodeType.END
-        assert node(flow, "imediato_sem_profissional").type == NodeType.END
+        nobody = assert_offers_scheduling(flow, "imediato_sem_profissional")
+        assert nobody.message.startswith("Nenhum profissional dessa área está disponível")
         failure = node(flow, "imediato_falha_pix")
         assert failure.type == NodeType.END and failure.message.startswith("Não consegui gerar o Pix agora.")
 
@@ -141,7 +164,8 @@ def test_immediate_nodes_are_published_and_loadable() -> None:
         assert action_keys(waiting) == ["immediate_payment_status", "immediate_noop"]
         assert [action.is_required for action in waiting.actions] == [False, False]
         assert routes_of(waiting) == {"immediate_paid": "imediato_na_fila", "immediate_done": "imediato_encerrado"}
-        assert node(flow, "imediato_cancelado").type == NodeType.END
+        assert_offers_scheduling(flow, "imediato_cancelado")
+        assert "psicólogo" not in pix.message
 
         queue = node(flow, "imediato_na_fila")
         assert queue.type == NodeType.MESSAGE
@@ -154,9 +178,18 @@ def test_immediate_nodes_are_published_and_loadable() -> None:
         assert action_keys(queue_waiting) == ["immediate_payment_status"]
         assert route_of(queue_waiting) == ("immediate_done", "imediato_encerrado")
         assert node(flow, "imediato_encerrado").type == NodeType.END
+        assert "psicólogo" not in queue.message and queue.title == "Procurando um profissional"
 
+        # The area comes first, right after "Atendimento imediato": the same options the scheduling flow offers.
         menu = node(flow, "paciente_tipo_atendimento")
-        assert targets(menu)["atendimento imediato"] == "paciente_imediato"
+        assert targets(menu)["atendimento imediato"] == "imediato_area"
+        area_question = node(flow, "imediato_area")
+        scheduling = node(flow, "paciente_inicio")
+        assert area_question.type == NodeType.MESSAGE and area_question.message == "Em qual área você quer ser atendido?"
+        assert area_question.buttons == scheduling.buttons and len(area_question.buttons or []) >= 2
+        for transition in area_question.transitions:
+            assert transition.target == "paciente_imediato"
+            assert action_keys(transition) == ["redis_update_patient_area"]
         entry = next(transition for transition in menu.transitions if transition.expected_value == "atendimento imediato")
         assert action_keys(entry) == ["postgres_route_patient_registration", "immediate_gate"]
         gate = entry.actions[1]
@@ -241,7 +274,7 @@ def test_0019_accepts_the_placeholder_text_the_team_published_in_production() ->
                 sa.text("UPDATE chatbot_flow.node SET message = :message WHERE key = 'paciente_imediato'"),
                 {"message": "Qual área você quer atendimento imediato? Vamos te conectar o mais rápido possível com um profissional de saúde"},
             )
-        result = _alembic(scratch, "upgrade", "head")
+        result = _alembic(scratch, "upgrade", "0019_immediate_flow")
         assert result.returncode == 0, result.stderr
         with engine.connect() as connection:
             assert connection.scalar(sa.text("SELECT version_num FROM alembic_version")) == "0019_immediate_flow"
@@ -266,7 +299,7 @@ def test_0019_publishes_a_revision_that_marks_open_drafts_as_stale() -> None:
         service = ChatFlowAdminService(factory, AsyncMock())
         published = service.list_revisions()["published"]
         draft = service.create_draft(published["id"])
-        assert _alembic(scratch, "upgrade", "head").returncode == 0
+        assert _alembic(scratch, "upgrade", "0019_immediate_flow").returncode == 0
         revisions = service.list_revisions()
         assert revisions["published"]["version"] == 2
         assert [item["is_stale"] for item in revisions["drafts"] if item["id"] == draft["id"]] == [True]
@@ -274,6 +307,74 @@ def test_0019_publishes_a_revision_that_marks_open_drafts_as_stale() -> None:
         with engine.connect() as connection:
             assert connection.scalar(sa.text("SELECT max(version) FROM chatbot_flow.graph_revision WHERE status = 'PUBLISHED'")) == 3
             assert connection.scalar(sa.text("SELECT CAST(type AS text) FROM chatbot_flow.node WHERE key = 'paciente_imediato'")) == "END"
+        engine.dispose()
+    finally:
+        _drop(name)
+
+
+@pytest.mark.integration
+def test_0020_stops_without_writing_when_the_entry_no_longer_leads_to_the_triage() -> None:
+    name = "immediate_0020_edited"
+    scratch = _scratch_database(name)
+    try:
+        assert _alembic(scratch, "upgrade", "0019_immediate_flow").returncode == 0
+        engine = create_engine(scratch)
+        with engine.begin() as connection:
+            connection.execute(
+                sa.text(
+                    "UPDATE chatbot_flow.transition SET next_node_id = (SELECT id FROM chatbot_flow.node WHERE key = 'imediato_termos') "
+                    "WHERE lower(expected_value) = 'atendimento imediato'"
+                )
+            )
+        result = _alembic(scratch, "upgrade", "head")
+        assert result.returncode != 0
+        assert "Migração 0020 (acolhimento imediato para todas as áreas) não aplicada" in result.stderr
+        with engine.connect() as connection:
+            assert connection.scalar(sa.text("SELECT version_num FROM alembic_version")) == "0019_immediate_flow"
+            assert connection.scalar(sa.text("SELECT count(*) FROM chatbot_flow.node WHERE key = 'imediato_area'")) == 0
+            assert connection.scalar(sa.text("SELECT max(version) FROM chatbot_flow.graph_revision")) == 2
+        engine.dispose()
+    finally:
+        _drop(name)
+
+
+@pytest.mark.integration
+def test_0020_keeps_texts_the_team_rewrote_and_downgrade_restores_the_previous_flow() -> None:
+    name = "immediate_0020_round_trip"
+    scratch = _scratch_database(name)
+    try:
+        assert _alembic(scratch, "upgrade", "0019_immediate_flow").returncode == 0
+        engine = create_engine(scratch)
+        with engine.begin() as connection:
+            connection.execute(sa.text("UPDATE chatbot_flow.node SET message = 'Texto da equipe.' WHERE key = 'imediato_recusa'"))
+        assert _alembic(scratch, "upgrade", "head").returncode == 0
+        with engine.connect() as connection:
+            assert connection.scalar(sa.text("SELECT message FROM chatbot_flow.node WHERE key = 'imediato_recusa'")) == (
+                "Texto da equipe.\n\nSe preferir, posso te ajudar a agendar um atendimento nessa área."
+            )
+            columns = [
+                row[0]
+                for row in connection.execute(sa.text("SELECT column_name FROM information_schema.columns WHERE table_name = 'immediate_request'"))
+            ]
+            assert "area" in columns
+        result = _alembic(scratch, "downgrade", "0019_immediate_flow")
+        assert result.returncode == 0, result.stderr
+        with engine.connect() as connection:
+            assert connection.scalar(sa.text("SELECT count(*) FROM chatbot_flow.node WHERE key = 'imediato_area'")) == 0
+            assert connection.scalar(sa.text("SELECT CAST(type AS text) FROM chatbot_flow.node WHERE key = 'imediato_recusa'")) == "END"
+            assert connection.scalar(sa.text("SELECT message FROM chatbot_flow.node WHERE key = 'imediato_recusa'")) == "Texto da equipe."
+            assert (
+                connection.scalar(
+                    sa.text(
+                        "SELECT node.key FROM chatbot_flow.transition AS transition "
+                        "JOIN chatbot_flow.node AS node ON node.id = transition.next_node_id "
+                        "WHERE lower(transition.expected_value) = 'atendimento imediato'"
+                    )
+                )
+                == "paciente_imediato"
+            )
+            assert connection.scalar(sa.text("SELECT count(*) FROM chatbot_flow.transition_action WHERE action_key = 'immediate_area_route'")) == 0
+            assert "com um psicólogo da Rede" in connection.scalar(sa.text("SELECT message FROM chatbot_flow.node WHERE key = 'imediato_termos'"))
         engine.dispose()
     finally:
         _drop(name)

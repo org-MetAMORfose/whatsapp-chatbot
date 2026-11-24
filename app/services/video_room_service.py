@@ -49,7 +49,7 @@ class DailyService:
             if not isinstance(url, str) or not url:
                 raise RuntimeError("Daily did not return a room URL")
             patient = await self._token(client, headers, name, exp, "Paciente")
-            professional = await self._token(client, headers, name, exp, "Psicólogo(a)")
+            professional = await self._token(client, headers, name, exp, "Profissional")
         return VideoRoom(room_url=url, patient_url=f"{url}?t={patient}", professional_url=f"{url}?t={professional}")
 
     @staticmethod

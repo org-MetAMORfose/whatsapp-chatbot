@@ -9,7 +9,7 @@ from pydantic import BaseModel, ConfigDict
 
 from app.controllers.auth import ApiKeyHeader, require_chatbot_api_key
 from app.domain.db.professional_model import ProfessionalModel
-from app.domain.immediate_eligibility import is_eligible_for_immediate, is_psychologist
+from app.domain.immediate_eligibility import is_eligible_for_immediate
 from app.repository.sql.professional_repository import ProfessionalRepository
 
 
@@ -48,13 +48,11 @@ class ImmediateCareController:
         self.router.add_api_route("/immediate/professionals/{professional_id}/availability", self.set_availability, methods=["PATCH"])
 
     def set_approval(self, professional_id: int, body: ApprovalBody, chatbot_api_key: ApiKeyHeader = None) -> dict[str, object]:
-        """The team releases a psychologist (after checking the CRP); withdrawing also switches availability off."""
+        """The team releases a professional (after checking the register); withdrawing also switches availability off."""
         require_chatbot_api_key(chatbot_api_key)
         professional = self._professionals.get_by_id(professional_id)
         if professional is None:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Profissional não encontrado.")
-        if body.approved and not is_psychologist(professional):
-            raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="O acolhimento imediato é só para psicólogos.")
         updated = self._professionals.set_immediate_approval(professional_id, body.approved, now=datetime.now(UTC))
         if updated is None:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Profissional não encontrado.")
@@ -68,7 +66,7 @@ class ImmediateCareController:
         if body.available and not is_eligible_for_immediate(professional):
             raise HTTPException(
                 status_code=status.HTTP_409_CONFLICT,
-                detail="Só psicólogos liberados pela equipe podem ficar disponíveis para o acolhimento imediato.",
+                detail="Só profissionais liberados pela equipe podem ficar disponíveis para o acolhimento imediato.",
             )
         updated = self._professionals.set_available_for_immediate(professional.person_id, body.available, now=datetime.now(UTC))
         if updated is None:

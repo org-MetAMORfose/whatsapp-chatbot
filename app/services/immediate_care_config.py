@@ -35,7 +35,7 @@ def configuration_problems() -> list[str]:
     if not settings.DAILY_API_KEY:
         problems.append("DAILY_API_KEY (sem ela a sala de vídeo seria simulada)")
     if not settings.WHATSAPP_APP_SECRET:
-        problems.append("WHATSAPP_APP_SECRET (sem ela qualquer um forja mensagens no webhook, inclusive o Aceitar do psicólogo)")
+        problems.append("WHATSAPP_APP_SECRET (sem ela qualquer um forja mensagens no webhook, inclusive o Aceitar do profissional)")
     if not settings.CHATBOT_API_KEY:
         problems.append("CHATBOT_API_KEY")
     elif hashlib.sha256(settings.CHATBOT_API_KEY.encode()).hexdigest() in PUBLISHED_API_KEY_HASHES:

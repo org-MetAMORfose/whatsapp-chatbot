@@ -73,11 +73,11 @@ async def test_available_sets_flag_and_replies() -> None:
 
 
 @pytest.mark.asyncio
-async def test_available_refused_for_non_psychotherapy() -> None:
+async def test_available_works_for_every_area() -> None:
     interceptor, professionals, _requests, _offers, _outbox = make_interceptor(found=professional("Nutrição"))
     response = await interceptor.handle(message("disponivel"), PERSON)
-    assert response == Response(content="Por enquanto o acolhimento imediato é só para psicólogos.")
-    professionals.set_available_for_immediate.assert_not_called()
+    assert response is not None and response.content.startswith("Pronto! Você está disponível")
+    professionals.set_available_for_immediate.assert_called_once_with(9, True, now=NOW)
 
 
 @pytest.mark.asyncio
@@ -146,9 +146,7 @@ async def test_processor_answers_with_interceptor_before_the_flow() -> None:
     session = factory.return_value.__enter__.return_value
     session.get.return_value = None
     people = MagicMock()
-    people.get_or_create_person.return_value = PersonModel(
-        id=9, phone_number="5511977776666", channel=Channel.WHATSAPP, chat_mode=ChatMode.AUTOMATIC
-    )
+    people.get_or_create_person.return_value = PersonModel(id=9, phone_number="5511977776666", channel=Channel.WHATSAPP, chat_mode=ChatMode.AUTOMATIC)
     people.create_message.return_value = MagicMock(id=10)
     agent = MagicMock()
     agent._process_message = AsyncMock(return_value=Response(content="fluxo normal"))

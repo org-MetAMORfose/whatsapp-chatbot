@@ -58,12 +58,13 @@ def test_approval_releases_a_psychologist() -> None:
     professionals.set_immediate_approval.assert_called_once_with(3, True, now=ANY)
 
 
-def test_approval_refuses_non_psychologists() -> None:
+def test_approval_is_open_to_every_area() -> None:
     professionals = MagicMock()
     professionals.get_by_id.return_value = psychologist(area="Nutrição")
+    professionals.set_immediate_approval.return_value = psychologist(area="Nutrição", immediate_approved_at=NOW)
     response = _client(professionals).patch("/immediate/professionals/3/approval", json={"approved": True}, headers=HEADERS)
-    assert response.status_code == 409
-    professionals.set_immediate_approval.assert_not_called()
+    assert response.status_code == 200
+    professionals.set_immediate_approval.assert_called_once()
 
 
 def test_approval_can_be_withdrawn_from_anyone() -> None:

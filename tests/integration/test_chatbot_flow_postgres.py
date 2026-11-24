@@ -50,9 +50,9 @@ async def test_seed_draft_publication_and_optional_action_deletion() -> None:
         version, flow = ChatFlowRepository(factory).load()
         validation = ChatFlowValidator().validate(flow)
 
-        assert version == 2  # 0019 publishes a new revision
+        assert version == 3  # 0019 and 0020 each publish a new revision
         assert validation.valid, validation.model_dump()
-        assert len(flow.nodes) == 85
+        assert len(flow.nodes) == 86
 
         patient_area = flow.get("paciente_inicio")
         approach = flow.get("paciente_psico_abordagem")
@@ -71,8 +71,8 @@ async def test_seed_draft_publication_and_optional_action_deletion() -> None:
         assert all(action.config is None for transition in birth_date.transitions for action in transition.actions)
 
         with factory() as session:
-            assert session.scalar(select(func.count(FlowTransitionModel.id))) == 173
-            assert session.scalar(select(func.count(FlowTransitionActionModel.id))) == 197
+            assert session.scalar(select(func.count(FlowTransitionModel.id))) == 180
+            assert session.scalar(select(func.count(FlowTransitionActionModel.id))) == 216
             assert session.scalar(select(func.count(FlowActionDependencyModel.id))) == 0
             assert session.scalar(select(func.count(FlowTransitionActionModel.id)).where(FlowTransitionActionModel.is_required)) == 21
             assert all(
@@ -86,7 +86,7 @@ async def test_seed_draft_publication_and_optional_action_deletion() -> None:
             published = session.scalar(
                 select(FlowGraphRevisionModel).where(
                     FlowGraphRevisionModel.status == RevisionStatus.PUBLISHED,
-                    FlowGraphRevisionModel.version == 2,
+                    FlowGraphRevisionModel.version == 3,
                 )
             )
             assert end is not None
@@ -149,10 +149,10 @@ async def test_seed_draft_publication_and_optional_action_deletion() -> None:
 
         assert result == {
             "revision_id": draft["id"],
-            "version": 3,
+            "version": 4,
             "status": "PUBLISHED",
         }
-        assert publisher.calls == [(3, 86)]
+        assert publisher.calls == [(4, 87)]
 
         with factory() as session:
             created = session.scalar(select(FlowNodeModel).where(FlowNodeModel.key == "integration_start"))

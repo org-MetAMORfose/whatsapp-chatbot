@@ -1,4 +1,5 @@
 from datetime import UTC, datetime, timedelta
+from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
@@ -40,7 +41,7 @@ def make_request(status: ImmediateStatus, **extra: object) -> ImmediateRequestMo
     return request
 
 
-def make_executor(*, with_immediate: bool = True) -> tuple[ActionExecutor, MagicMock, MagicMock, MagicMock]:
+def make_executor(*, with_immediate: bool = True, patient_area: str | None = "nutricao") -> tuple[ActionExecutor, MagicMock, MagicMock, MagicMock]:
     person_repository = MagicMock()
     person_repository.get_by_phone_number_and_channel.return_value = PersonModel(
         id=7, name="Maria Silva", phone_number="5511999999999", channel=Channel.WHATSAPP
@@ -54,7 +55,9 @@ def make_executor(*, with_immediate: bool = True) -> tuple[ActionExecutor, Magic
     gateway.cancel_charge = AsyncMock(return_value=None)
     professional_repository = MagicMock()
     professional_repository.list_available_for_immediate.return_value = [eligible_psychologist()]
-    base = (MagicMock(), professional_repository, person_repository, MagicMock(), MagicMock(), outbox_repository, MagicMock())
+    patient_stage = MagicMock()
+    patient_stage.get_or_create_context = AsyncMock(return_value=SimpleNamespace(area=patient_area))
+    base = (MagicMock(), professional_repository, person_repository, MagicMock(), patient_stage, outbox_repository, MagicMock())
     if with_immediate:
         executor = ActionExecutor(*base, immediate_requests=requests, pix_gateway=gateway, now=lambda: NOW)
     else:
@@ -105,7 +108,10 @@ async def test_create_request_creates_charge_and_schedules_payment_timeout(monke
         pix_txid=charge_kwargs["txid"],
         pix_copia_cola="PIX-SIMULADO-CODIGO",
         expires_at=CHARGE.expires_at,
+        area="Nutrição",
     )
+    # The area the patient chose right after "Atendimento imediato" decides who must be available.
+    executor.professional_repository.list_available_for_immediate.assert_called_once_with("Nutrição")
     outbox.enqueue.assert_called_once_with(
         "immediate:42:payment_timeout", "immediate.payment_timeout.v1", {"request_id": 42}, available_at=CHARGE.expires_at
     )
@@ -171,7 +177,9 @@ async def test_payment_status_queued():
 @pytest.mark.asyncio
 async def test_payment_status_accepted_with_and_without_room():
     executor, requests, _gateway, _outbox = make_executor()
-    requests.get_active_for_patient.return_value = make_request(ImmediateStatus.ACCEPTED, room_url="https://exemplo.daily.co/sala", patient_room_url="https://exemplo.daily.co/sala?t=paciente")
+    requests.get_active_for_patient.return_value = make_request(
+        ImmediateStatus.ACCEPTED, room_url="https://exemplo.daily.co/sala", patient_room_url="https://exemplo.daily.co/sala?t=paciente"
+    )
     result = await run(executor, "immediate_payment_status", "oi")
     assert result.output == "Seu atendimento já foi aceito. Sala de vídeo: https://exemplo.daily.co/sala?t=paciente\n\n"
     assert result.data == {"immediate_paid": True, "immediate_done": True}
@@ -294,9 +302,7 @@ async def test_gate_stays_closed_when_the_switch_is_on_but_production_config_is_
 async def test_prices_are_shown_before_the_duration_choice():
     executor, _requests, _gateway, _outbox = make_executor()
     result = await run(executor, "immediate_prices", "Aceito os termos")
-    assert result.output == (
-        "Valores: 10 minutos por R$ 30,00, 20 minutos por R$ 50,00, 40 minutos por R$ 100,00 ou 60 minutos por R$ 150,00.\n\n"
-    )
+    assert result.output == ("Valores: 10 minutos por R$ 30,00, 20 minutos por R$ 50,00, 40 minutos por R$ 100,00 ou 60 minutos por R$ 150,00.\n\n")
 
 
 @pytest.mark.asyncio
@@ -341,7 +347,9 @@ async def test_create_request_with_open_pix_shows_the_existing_code():
 @pytest.mark.asyncio
 async def test_create_request_with_accepted_session_shows_the_room():
     executor, requests, gateway, _outbox = make_executor()
-    requests.get_active_for_patient.return_value = make_request(ImmediateStatus.ACCEPTED, room_url="https://exemplo.daily.co/sala", patient_room_url="https://exemplo.daily.co/sala?t=paciente")
+    requests.get_active_for_patient.return_value = make_request(
+        ImmediateStatus.ACCEPTED, room_url="https://exemplo.daily.co/sala", patient_room_url="https://exemplo.daily.co/sala?t=paciente"
+    )
     result = await run(executor, "immediate_create_request", "30 minutos")
     assert result.output == "Seu atendimento já foi aceito. Sala de vídeo: https://exemplo.daily.co/sala?t=paciente\n\n"
     assert result.data == {"immediate_active": True}
@@ -376,3 +384,18 @@ async def test_in_test_mode_an_unlisted_patient_is_never_charged(monkeypatch):
     assert result.data == {"immediate_disabled": True, "immediate_active": False}
     gateway.create_charge.assert_not_awaited()
     requests.create.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_area_route_tells_the_flow_which_area_the_patient_chose():
+    """Drives "Agendar atendimento" after giving up on the immediate care: straight to that area's scheduling path."""
+    for chosen, expected in (
+        ("nutricao", "nutricao"),
+        ("Psicoterapia", "psicoterapia"),
+        ("Clínico geral", "clinico geral"),
+        ("Psicanálise", "psicoterapia"),
+    ):
+        executor, _requests, _gateway, _outbox = make_executor(patient_area=chosen)
+        assert (await run(executor, "immediate_area_route", "Agendar atendimento")).data == {"immediate_area": expected}
+    executor, _requests, _gateway, _outbox = make_executor(patient_area=None)
+    assert not (await run(executor, "immediate_area_route", "Agendar atendimento")).data
