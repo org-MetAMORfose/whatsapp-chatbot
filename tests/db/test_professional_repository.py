@@ -125,3 +125,21 @@ def test_update(
     found = professional_repository.get_by_id(professional.id)
     assert found is not None
     assert found.email == "after@test.com"
+
+
+def test_get_by_phone_numbers_finds_the_professional_registered_under_another_form_of_the_number(
+    professional_repository: ProfessionalRepository,
+    make_professional,
+    make_person,
+) -> None:
+    person = make_person(phone_number="5531999799197")
+    channel = person.channel
+    professional = make_professional(person=person, professional_register="10031", email="nonodigito@test.com")
+
+    found = professional_repository.get_by_phone_numbers(["5531999799197"], channel)
+
+    assert found is not None
+    assert found.id == professional.id
+    assert found.person is not None and found.person.phone_number == "5531999799197"
+    assert professional_repository.get_by_phone_numbers(["5531888888888"], channel) is None
+    assert professional_repository.get_by_phone_numbers([], channel) is None

@@ -37,6 +37,7 @@ def message(content: str) -> Message:
 def make_interceptor(*, found: ProfessionalModel | None, offer: int | None = None, accepted: bool = True):
     professionals = MagicMock(spec=ProfessionalRepository)
     professionals.get_by_person_id.return_value = found
+    professionals.get_by_phone_numbers.return_value = None
     professionals.set_available_for_immediate.return_value = found
     requests = MagicMock(spec=ImmediateRequestRepository)
     requests.accept.return_value = accepted
@@ -232,3 +233,50 @@ async def test_in_test_mode_a_listed_professional_can_become_available(monkeypat
     interceptor, professionals, _requests, _offers, _outbox = make_interceptor(found=professional())
     assert await interceptor.handle(message("Disponível"), PERSON) is not None
     professionals.set_available_for_immediate.assert_called_once_with(9, True, now=NOW)
+
+
+# WhatsApp delivers most Brazilian numbers outside São Paulo without the ninth digit ("553199799197"), while the panel
+# registers the psychologist with it ("5531999799197"): a different person row, the same phone.
+WHATSAPP_PERSON = PersonModel(id=77, phone_number="553199799197", channel=Channel.WHATSAPP, name=None)
+
+
+def ninth_digit_message(content: str) -> Message:
+    return Message(message_id=1, channel=Channel.WHATSAPP, created_at=NOW, user_id="553199799197", chat_id="553199799197", content=content)
+
+
+def registered_with_ninth_digit() -> ProfessionalModel:
+    found = professional()
+    found.person = PersonModel(id=9, phone_number="5531999799197", channel=Channel.WHATSAPP, name="Dra. Ana")
+    return found
+
+
+@pytest.mark.asyncio
+async def test_available_recognizes_the_psychologist_registered_with_the_ninth_digit() -> None:
+    interceptor, professionals, _requests, _offers, _outbox = make_interceptor(found=None)
+    professionals.get_by_phone_numbers.return_value = registered_with_ninth_digit()
+    response = await interceptor.handle(ninth_digit_message("Disponível"), WHATSAPP_PERSON)
+    assert response is not None and response.content.startswith("Pronto! Você está disponível")
+    professionals.get_by_phone_numbers.assert_called_once_with(["5531999799197"], Channel.WHATSAPP)
+    professionals.set_available_for_immediate.assert_called_once_with(9, True, now=NOW)
+
+
+@pytest.mark.asyncio
+async def test_accept_finds_the_offer_sent_to_the_registered_number() -> None:
+    interceptor, professionals, requests, offers, outbox = make_interceptor(found=None, accepted=True)
+    professionals.get_by_phone_numbers.return_value = registered_with_ninth_digit()
+    offers.get = AsyncMock(side_effect=lambda phone, _channel: 42 if phone == "5531999799197" else None)
+    response = await interceptor.handle(ninth_digit_message("Aceitar"), WHATSAPP_PERSON)
+    assert response is not None and response.content.startswith("Você ficou com o atendimento!")
+    requests.accept.assert_called_once_with(42, professional_person_id=9, now=NOW)
+    outbox.enqueue.assert_called_once_with("immediate:42:accepted", "immediate.accepted.v1", {"request_id": 42})
+
+
+@pytest.mark.asyncio
+async def test_accept_loser_clears_the_offer_under_the_number_it_was_sent_to() -> None:
+    interceptor, professionals, requests, offers, _outbox = make_interceptor(found=None, accepted=False)
+    professionals.get_by_phone_numbers.return_value = registered_with_ninth_digit()
+    offers.get = AsyncMock(side_effect=lambda phone, _channel: 42 if phone == "5531999799197" else None)
+    requests.get.return_value = None
+    response = await interceptor.handle(ninth_digit_message("Aceitar"), WHATSAPP_PERSON)
+    assert response is not None and "já foi aceito" in response.content
+    offers.clear.assert_awaited_once_with("5531999799197", Channel.WHATSAPP)
