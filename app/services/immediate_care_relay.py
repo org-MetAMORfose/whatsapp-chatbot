@@ -17,6 +17,7 @@ from uuid import uuid4
 from sqlalchemy.orm import Session
 
 from app.channel_adapters.whatsapp import WhatsAppAdapter
+from app.config.immediate_test_phones import phone_key
 from app.context import AppContext
 from app.domain.db.delivery_model import OutboxModel
 from app.domain.db.immediate_request_model import ImmediateRequestModel
@@ -168,11 +169,13 @@ class ImmediateCareRelay:
         await self._send_text(request_id, "offer", patient_phone, PAID_MESSAGE)
         await self.chats.create_context(patient_phone, Channel.WHATSAPP, QUEUE_NODE)
         remaining = max(1, int((request.expires_at - now).total_seconds()))
-        # A professional who is also the patient of this request never gets its offer; in test mode, only listed numbers do.
+        # A professional who is also the patient of this request (same person, or the same phone with or without the ninth
+        # digit) never gets its offer; in test mode, only listed numbers do.
         candidates = [
             professional
             for professional in self.professionals.list_available_for_immediate()
             if professional.person_id != request.patient_person_id
+            and (professional.person is None or phone_key(professional.person.phone_number) != phone_key(patient_phone))
             and in_test_list(professional.person.phone_number if professional.person is not None else "")
         ]
         if not candidates:

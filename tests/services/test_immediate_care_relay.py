@@ -449,6 +449,17 @@ async def test_offer_skips_the_patient_when_they_are_also_an_available_professio
 
 
 @pytest.mark.asyncio
+async def test_offer_skips_the_patient_registered_as_professional_under_the_other_form_of_the_number() -> None:
+    """Same phone, two person rows: WhatsApp dropped the ninth digit for the patient, the panel kept it for the professional."""
+    waiting = request(ImmediateStatus.QUEUED)
+    waiting.patient.phone_number = "553199799197"
+    same_phone = available("5531999799197")
+    deps = Deps("immediate.offer.v1", waiting, [same_phone, available()])
+    await deps.relay.process_next()
+    assert [call.kwargs["to"] for call in deps.whatsapp.send_template.await_args_list] == [PRO_PHONE]
+
+
+@pytest.mark.asyncio
 async def test_accepted_without_professional_fails_for_retry() -> None:
     deps = Deps("immediate.accepted.v1", request(ImmediateStatus.ACCEPTED))
     await deps.relay.process_next()

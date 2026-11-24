@@ -1,13 +1,15 @@
 from __future__ import annotations
 
-from collections.abc import Callable
+from collections.abc import Callable, Sequence
 from datetime import datetime
 from typing import Any
 
 from sqlalchemy import select
 from sqlalchemy.orm import Session, joinedload
 
+from app.domain.db.person_model import PersonModel
 from app.domain.db.professional_model import ProfessionalModel
+from app.domain.enum.channels import Channel
 from app.domain.immediate_eligibility import is_eligible_for_immediate
 from app.domain.matching.profile import professional_profile
 from app.repository.sql.transaction import commit, session_scope
@@ -83,6 +85,20 @@ class ProfessionalRepository:
         with session_scope(self._session_factory) as session:
             stmt = select(ProfessionalModel).options(joinedload(ProfessionalModel.person)).where(ProfessionalModel.person_id == person_id)
             return session.execute(stmt).unique().scalar_one_or_none()
+
+    def get_by_phone_numbers(self, phone_numbers: Sequence[str], channel: Channel) -> ProfessionalModel | None:
+        """The professional whose person has one of these numbers (the same phone written in different forms)."""
+        if not phone_numbers:
+            return None
+        with session_scope(self._session_factory) as session:
+            stmt = (
+                select(ProfessionalModel)
+                .join(ProfessionalModel.person)
+                .options(joinedload(ProfessionalModel.person))
+                .where(PersonModel.phone_number.in_(list(phone_numbers)), PersonModel.channel == channel)
+                .order_by(ProfessionalModel.id)
+            )
+            return session.execute(stmt).unique().scalars().first()
 
     def update(self, professional: ProfessionalModel) -> ProfessionalModel:
         with session_scope(self._session_factory) as session:

@@ -8,6 +8,7 @@ from app.agent.agent import Response, normalize_text
 from app.domain.db.person_model import PersonModel
 from app.domain.immediate_eligibility import is_psychologist, is_released_for_immediate
 from app.domain.message import Message
+from app.domain.phone_variants import brazilian_phone_variants
 from app.repository.redis.immediate_offer_repository import ImmediateOfferRepository
 from app.repository.sql.immediate_request_repository import ImmediateRequestRepository
 from app.repository.sql.outbox_repository import OutboxRepository
@@ -57,31 +58,42 @@ class ImmediateCareInterceptor:
         command = normalize_text(message.content or "")
         if command not in AVAILABLE_COMMANDS | UNAVAILABLE_COMMANDS | ACCEPT_COMMANDS:
             return None
-        professional = self._professionals.get_by_person_id(person.id)
+        # WhatsApp may identify the sender without the ninth digit while the panel registered the psychologist with it
+        # (or the other way round): that is another person row for the same phone, so the other form is tried too.
+        phones = brazilian_phone_variants(message.user_id)
+        professional = self._professionals.get_by_person_id(person.id) or self._professionals.get_by_phone_numbers(
+            phones[1:], message.channel
+        )
         if professional is None:
             return None
         if command in ACCEPT_COMMANDS:
-            return await self._accept(message, person)
+            return await self._accept(message, professional.person_id, phones)
         available = command in AVAILABLE_COMMANDS
         if available and not is_released_for_immediate(professional):
             return Response(content=NOT_RELEASED_REPLY)
         if available and not is_psychologist(professional):
             return Response(content=ONLY_PSYCHOLOGISTS_REPLY)
-        self._professionals.set_available_for_immediate(person.id, available, now=self._now())
+        self._professionals.set_available_for_immediate(professional.person_id, available, now=self._now())
         return Response(content=AVAILABLE_REPLY if available else UNAVAILABLE_REPLY)
 
-    async def _accept(self, message: Message, person: PersonModel) -> Response | None:
-        request_id = await self._offers.get(message.user_id, message.channel)
+    async def _accept(self, message: Message, person_id: int, phones: list[str]) -> Response | None:
+        # The offer is remembered under the number it was sent to (the registered one), in whichever form.
+        offer_phone, request_id = message.user_id, None
+        for phone in phones:
+            request_id = await self._offers.get(phone, message.channel)
+            if request_id is not None:
+                offer_phone = phone
+                break
         if request_id is None:
             return None
-        if not self._requests.accept(request_id, professional_person_id=person.id, now=self._now()):
+        if not self._requests.accept(request_id, professional_person_id=person_id, now=self._now()):
             current = self._requests.get(request_id)
-            if current is not None and current.professional_person_id == person.id:
+            if current is not None and current.professional_person_id == person_id:
                 # A repeated tap by the winner: their own room link again, or "on its way" while the room is being created.
                 if current.professional_room_url:
                     return Response(content=ALREADY_YOURS_WITH_ROOM_REPLY.format(url=current.professional_room_url))
                 return Response(content=ALREADY_YOURS_REPLY)
-            await self._offers.clear(message.user_id, message.channel)
+            await self._offers.clear(offer_phone, message.channel)
             return Response(content=ALREADY_TAKEN_REPLY)
         # The offer stays remembered until its TTL (deadline + 1 h), so a repeated tap is answered instead of reaching the flow.
         self._outbox.enqueue(f"immediate:{request_id}:accepted", "immediate.accepted.v1", {"request_id": request_id})
