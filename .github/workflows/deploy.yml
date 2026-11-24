@@ -198,10 +198,14 @@ jobs:
             sed -i 's/^[[:space:]]*//' .env
 
             # The Pix certificate only exists in GitHub Secrets and on this server (secrets/ is git- and docker-ignored).
+            # Docker created ./secrets as root when it first bind-mounted it, so the files are written through a container.
             if [ -n "$BB_PIX_CERT_B64" ] && [ -n "$BB_PIX_KEY_B64" ]; then
-              mkdir -p secrets
-              (umask 077 && printf '%s' "$BB_PIX_CERT_B64" | base64 -d > secrets/bb-pix.crt && printf '%s' "$BB_PIX_KEY_B64" | base64 -d > secrets/bb-pix.key)
-              grep -q 'BEGIN CERTIFICATE' secrets/bb-pix.crt && grep -q 'PRIVATE KEY' secrets/bb-pix.key
+              docker run --rm -e BB_PIX_CERT_B64 -e BB_PIX_KEY_B64 -v "$PWD/secrets:/secrets" redis:7-alpine sh -ec '
+                umask 077
+                printf "%s" "$BB_PIX_CERT_B64" | base64 -d > /secrets/bb-pix.crt
+                printf "%s" "$BB_PIX_KEY_B64" | base64 -d > /secrets/bb-pix.key
+                grep -q "BEGIN CERTIFICATE" /secrets/bb-pix.crt
+                grep -q "PRIVATE KEY" /secrets/bb-pix.key'
             fi
 
             echo "Starting deployment..."
