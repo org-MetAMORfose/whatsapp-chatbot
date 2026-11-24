@@ -27,6 +27,11 @@ PLACEHOLDER = {
     "description": "Encaminhamento externo para atendimento imediato.",
     "message": "Você pode pedir atendimento imediato por este link:\n\n[URL em construção]",
 }
+# Placeholder texts the upgrade may replace: the seeded one and the one the team published in production (revision 14).
+PLACEHOLDER_MESSAGES = (
+    PLACEHOLDER["message"],
+    "Qual área você quer atendimento imediato? Vamos te conectar o mais rápido possível com um profissional de saúde",
+)
 
 TRIAGE_1 = {
     "title": "Triagem do atendimento imediato (1 de 3)",
@@ -244,8 +249,8 @@ def _upgrade_problems(connection: Connection) -> list[str]:
     if placeholder is None:
         problems.append("o nó 'paciente_imediato' não existe (foi renomeado ou apagado no editor)")
     else:
-        if placeholder[1] != "END" or placeholder[2] != PLACEHOLDER["message"]:
-            problems.append("o nó 'paciente_imediato' foi editado: não é mais o fim com o texto '[URL em construção]'")
+        if placeholder[1] != "END" or placeholder[2] not in PLACEHOLDER_MESSAGES:
+            problems.append("o nó 'paciente_imediato' foi editado: não é mais o fim com um dos textos provisórios conhecidos")
         outgoing = connection.scalar(
             sa.text("SELECT count(*) FROM chatbot_flow.transition WHERE node_id = :node_id"), {"node_id": placeholder[0]}
         )

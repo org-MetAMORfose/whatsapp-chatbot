@@ -1,4 +1,5 @@
 """The immediate care nodes published by migration 0019, read back from PostgreSQL (FLOW_TEST_DATABASE_URL)."""
+
 import os
 import subprocess
 import sys
@@ -223,6 +224,31 @@ def test_0019_stops_without_writing_when_the_production_flow_was_edited() -> Non
             )
             assert connection.scalar(sa.text("SELECT count(*) FROM chatbot_flow.node WHERE key LIKE 'imediato%'")) == 0
             assert connection.scalar(sa.text("SELECT max(version) FROM chatbot_flow.graph_revision")) == 1
+        engine.dispose()
+    finally:
+        _drop(name)
+
+
+@pytest.mark.integration
+def test_0019_accepts_the_placeholder_text_the_team_published_in_production() -> None:
+    """Production (revision 14, 06/11/2026) swapped the link text for a question but kept the node a dead end."""
+    name = "immediate_0019_production_text"
+    scratch = _scratch_database(name)
+    try:
+        engine = create_engine(scratch)
+        with engine.begin() as connection:
+            connection.execute(
+                sa.text("UPDATE chatbot_flow.node SET message = :message WHERE key = 'paciente_imediato'"),
+                {"message": "Qual área você quer atendimento imediato? Vamos te conectar o mais rápido possível com um profissional de saúde"},
+            )
+        result = _alembic(scratch, "upgrade", "head")
+        assert result.returncode == 0, result.stderr
+        with engine.connect() as connection:
+            assert connection.scalar(sa.text("SELECT version_num FROM alembic_version")) == "0019_immediate_flow"
+            assert connection.scalar(sa.text("SELECT CAST(type AS text) FROM chatbot_flow.node WHERE key = 'paciente_imediato'")) == "MESSAGE"
+            assert "Você está pensando em se machucar" in connection.scalar(
+                sa.text("SELECT message FROM chatbot_flow.node WHERE key = 'paciente_imediato'")
+            )
         engine.dispose()
     finally:
         _drop(name)
