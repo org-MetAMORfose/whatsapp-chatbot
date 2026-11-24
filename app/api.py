@@ -1,17 +1,21 @@
 """HTTP ingress and management endpoints, with no background message consumers."""
 
+import logging
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from typing import Any
 
 from fastapi import FastAPI
 
+import app.config.settings as settings
 from app.channel_adapters.whatsapp import WhatsAppAdapter
 from app.config import infra
 from app.controllers.chatbot_flow_controller import ChatbotFlowController
 from app.controllers.faq_knowledge_controller import FaqKnowledgeController
 from app.controllers.health_controller import HealthController
+from app.controllers.immediate_care_controller import ImmediateCareController
 from app.controllers.matching_follow_up_controller import MatchingFollowUpController
+from app.controllers.pix_webhook_controller import PixWebhookController, WebhookTokenLogFilter
 from app.controllers.registration_controller import RegistrationController
 from app.controllers.send_message_controller import SendMessageController
 from app.controllers.upload_media_controller import UploadMediaController
@@ -22,12 +26,16 @@ from app.repository.redis.chatbot_flow_cache import ChatFlowCache
 from app.repository.redis.matching_follow_up_repository import MatchingFollowUpRepository
 from app.repository.sql.chatbot_flow_repository import ChatFlowRepository
 from app.repository.sql.faq_knowledge_repository import FaqKnowledgeRepository
+from app.repository.sql.immediate_request_repository import ImmediateRequestRepository
 from app.repository.sql.outbox_repository import OutboxRepository
 from app.repository.sql.patient_repository import PatientRepository
 from app.repository.sql.person_repository import PersonRepository
 from app.repository.sql.professional_repository import ProfessionalRepository
 from app.services.chatbot_flow_admin_service import ChatFlowAdminService
 from app.services.google_sheets_service import GoogleSheetsService
+from app.services.immediate_care_config import log_configuration as log_immediate_care_configuration
+from app.services.pix.banco_do_brasil import BancoDoBrasilPixGateway
+from app.services.pix.gateway import pix_gateway_from_settings
 from app.services.receiver_service import MessageReceiverService
 from app.services.registration_service import RegistrationService
 
@@ -97,6 +105,21 @@ def create_app() -> FastAPI:
             MatchingFollowUpRepository(redis),
         ).router
     )
+    immediate_requests = ImmediateRequestRepository(factory)
+    log_immediate_care_configuration()
+    pix_gateway = pix_gateway_from_settings()
+    logging.getLogger("uvicorn.access").addFilter(WebhookTokenLogFilter())
+    app.include_router(
+        PixWebhookController(
+            factory,
+            immediate_requests,
+            outbox,
+            token=settings.PIX_WEBHOOK_TOKEN,
+            offer_timeout_seconds=settings.IMMEDIATE_OFFER_TIMEOUT_SECONDS,
+            verify_with_bank=pix_gateway.get_charge if isinstance(pix_gateway, BancoDoBrasilPixGateway) else None,
+        ).router
+    )
+    app.include_router(ImmediateCareController(professionals).router)
     media = create_media_service()
     if media is not None:
         app.include_router(UploadMediaController(media).router)

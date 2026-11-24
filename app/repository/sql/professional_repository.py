@@ -8,6 +8,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session, joinedload
 
 from app.domain.db.professional_model import ProfessionalModel
+from app.domain.immediate_eligibility import is_eligible_for_immediate
 from app.domain.matching.profile import professional_profile
 from app.repository.sql.transaction import commit, session_scope
 
@@ -89,3 +90,44 @@ class ProfessionalRepository:
             commit(session)
             session.refresh(merged)
             return merged
+
+    def set_available_for_immediate(self, person_id: int, available: bool, *, now: datetime) -> ProfessionalModel | None:
+        with session_scope(self._session_factory) as session:
+            stmt = select(ProfessionalModel).options(joinedload(ProfessionalModel.person)).where(ProfessionalModel.person_id == person_id)
+            professional = session.execute(stmt).unique().scalar_one_or_none()
+            if professional is None:
+                return None
+            professional.available_for_immediate = available
+            professional.immediate_availability_updated_at = now
+            commit(session)
+            session.refresh(professional)
+            return professional
+
+    def set_immediate_approval(self, professional_id: int, approved: bool, *, now: datetime) -> ProfessionalModel | None:
+        """Release (or withdraw) a professional for immediate care; withdrawing also switches availability off."""
+        with session_scope(self._session_factory) as session:
+            stmt = select(ProfessionalModel).options(joinedload(ProfessionalModel.person)).where(ProfessionalModel.id == professional_id)
+            professional = session.execute(stmt).unique().scalar_one_or_none()
+            if professional is None:
+                return None
+            if approved:
+                professional.immediate_approved_at = professional.immediate_approved_at or now
+            else:
+                professional.immediate_approved_at = None
+                if professional.available_for_immediate:
+                    professional.available_for_immediate = False
+                    professional.immediate_availability_updated_at = now
+            commit(session)
+            session.refresh(professional)
+            return professional
+
+    def list_available_for_immediate(self) -> list[ProfessionalModel]:
+        """Released psychologists who opted in to immediate care, with their person loaded."""
+        with session_scope(self._session_factory) as session:
+            stmt = (
+                select(ProfessionalModel)
+                .options(joinedload(ProfessionalModel.person))
+                .where(ProfessionalModel.available_for_immediate.is_(True))
+                .order_by(ProfessionalModel.id)
+            )
+            return [professional for professional in session.execute(stmt).unique().scalars().all() if is_eligible_for_immediate(professional)]

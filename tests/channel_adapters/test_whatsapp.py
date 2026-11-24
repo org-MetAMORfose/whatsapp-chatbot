@@ -293,3 +293,21 @@ async def test_template_requires_success_receipt(mock_client_cls):
     mock_client_cls.return_value = context
     with pytest.raises(RuntimeError):
         await WhatsAppAdapter(access_token="fake-token").send_template("5511988887777", "matching_paciente", "pt_BR", ("Ana", "Psicoterapia", "link"))
+
+
+def test_graph_url_is_configurable_only_in_local_tests(monkeypatch: pytest.MonkeyPatch) -> None:
+    import app.config.settings as config
+
+    monkeypatch.setattr(config, "IMMEDIATE_ALLOW_FAKE", False)
+    monkeypatch.setattr(config, "WHATSAPP_GRAPH_URL", "http://graph.local")
+    production = WhatsAppAdapter(access_token="t", phone_number_id="123456", graph_url="http://localhost:8099/")
+    assert production.base_url == f"https://graph.facebook.com/{production.version}/123456"
+    assert WhatsAppAdapter(access_token="t", phone_number_id="123456").base_url.startswith("https://graph.facebook.com/")
+
+    monkeypatch.setattr(config, "IMMEDIATE_ALLOW_FAKE", True)
+    explicit = WhatsAppAdapter(access_token="t", phone_number_id="123456", graph_url="http://localhost:8099/")
+    assert explicit.base_url == f"http://localhost:8099/{explicit.version}/123456"
+
+    monkeypatch.setattr(config, "WHATSAPP_GRAPH_URL", "http://graph.local")
+    from_settings = WhatsAppAdapter(access_token="t", phone_number_id="123456")
+    assert from_settings.base_url == f"http://graph.local/{from_settings.version}/123456"

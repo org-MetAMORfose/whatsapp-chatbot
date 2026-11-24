@@ -7,6 +7,8 @@ from typing import Any, cast
 
 from dotenv import load_dotenv
 
+from .immediate_prices import DEFAULT_IMMEDIATE_PRICES, parse_prices
+from .immediate_test_phones import parse_test_phones
 from .logger import setup_logging
 
 
@@ -101,6 +103,10 @@ REDIS_PASSWORD = __get_env_variable("REDIS_PASSWORD", "")
 WHATSAPP_VERIFY_TOKEN = __get_env_variable("WHATSAPP_VERIFY_TOKEN", "")
 WHATSAPP_ACCESS_TOKEN = __get_env_variable("WHATSAPP_ACCESS_TOKEN", "")
 WHATSAPP_PHONE_NUMBER_ID = __get_env_variable("WHATSAPP_PHONE_NUMBER_ID", "")
+# App Secret do app da Meta: confere a assinatura X-Hub-Signature-256 de cada webhook recebido.
+WHATSAPP_APP_SECRET = __get_env_variable("WHATSAPP_APP_SECRET", "")
+# Endereço da Graph API; só em testes locais (IMMEDIATE_ALLOW_FAKE=true) pode apontar para um servidor falso.
+WHATSAPP_GRAPH_URL = __get_env_variable("WHATSAPP_GRAPH_URL", "https://graph.facebook.com")
 WHATSAPP_WEBHOOK_PORT = int(
     __get_env_variable("WHATSAPP_WEBHOOK_PORT", "8000"))
 
@@ -119,3 +125,28 @@ GOOGLE_PROFESSIONALS_SPREADSHEET_URL = __get_env_variable(
 
 GMAIL_ID_CLIENT = __get_env_variable("GMAIL_ID_CLIENT", "")
 GMAIL_SECRET_CLIENT = __get_env_variable("GMAIL_SECRET_CLIENT", "")
+
+# Acolhimento imediato: Pix (Banco do Brasil ou simulado), vídeo (Daily) e prazos.
+IMMEDIATE_CARE_ENABLED = __get_bool_env_variable("IMMEDIATE_CARE_ENABLED", "false")
+# Teste em produção: com números aqui (separados por vírgula), só eles entram no acolhimento imediato.
+IMMEDIATE_TEST_PHONES = parse_test_phones(__get_env_variable("IMMEDIATE_TEST_PHONES", ""))
+# Só em testes locais: deixa ligar o atendimento com Pix e sala simulados.
+IMMEDIATE_ALLOW_FAKE = __get_bool_env_variable("IMMEDIATE_ALLOW_FAKE", "false")
+PIX_PROVIDER = __get_env_variable("PIX_PROVIDER", "fake")
+BB_PIX_CLIENT_ID = __get_env_variable("BB_PIX_CLIENT_ID", "")
+BB_PIX_CLIENT_SECRET = __get_env_variable("BB_PIX_CLIENT_SECRET", "")
+BB_PIX_DEV_APP_KEY = __get_env_variable("BB_PIX_DEV_APP_KEY", "")
+BB_PIX_CERT_PATH = __get_env_variable("BB_PIX_CERT_PATH", "")
+BB_PIX_KEY_PATH = __get_env_variable("BB_PIX_KEY_PATH", "")
+BB_PIX_CHAVE = __get_env_variable("BB_PIX_CHAVE", "")
+BB_PIX_BASE_URL = __get_env_variable("BB_PIX_BASE_URL", "https://api-pix.hm.bb.com.br/pix/v2")
+BB_PIX_OAUTH_URL = __get_env_variable("BB_PIX_OAUTH_URL", "https://oauth.hm.bb.com.br/oauth/token")
+PIX_WEBHOOK_TOKEN = __get_env_variable("PIX_WEBHOOK_TOKEN", "")
+PUBLIC_BASE_URL = __get_env_variable("PUBLIC_BASE_URL", "")
+# "minutos:centavos" separated by commas, in the order the patient sees them (app/config/immediate_prices.py).
+IMMEDIATE_PRICES = __get_env_variable("IMMEDIATE_PRICES", DEFAULT_IMMEDIATE_PRICES)
+IMMEDIATE_PRICES_CENTS = parse_prices(IMMEDIATE_PRICES)
+IMMEDIATE_OFFER_TIMEOUT_SECONDS = int(__get_env_variable("IMMEDIATE_OFFER_TIMEOUT_SECONDS", "300"))
+IMMEDIATE_PAYMENT_TIMEOUT_SECONDS = int(__get_env_variable("IMMEDIATE_PAYMENT_TIMEOUT_SECONDS", "1800"))
+IMMEDIATE_ROOM_GRACE_MINUTES = int(__get_env_variable("IMMEDIATE_ROOM_GRACE_MINUTES", "15"))
+DAILY_API_KEY = __get_env_variable("DAILY_API_KEY", "")

@@ -171,3 +171,10 @@ O endpoint `POST /send` retorna `202 {"status":"accepted"}` após enfileirar.
 
 Consulte [arquitetura, migração e operação](docs/event-driven.md) e
 [verificação de memória](docs/memory-validation.md).
+
+## Acolhimento imediato
+
+Atendimento pago por Pix (Banco do Brasil) oferecido aos psicólogos disponíveis e
+atendido por vídeo (Daily) em até 5 minutos, com estorno automático quando ninguém
+aceita. Fluxo, variáveis, modelo da Meta e passos de produção em
+[docs/acolhimento-imediato.md](docs/acolhimento-imediato.md).

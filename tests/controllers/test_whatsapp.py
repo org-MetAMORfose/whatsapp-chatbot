@@ -1,5 +1,6 @@
 import logging
 from datetime import UTC, datetime, timedelta
+from typing import Any
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
@@ -309,3 +310,67 @@ def test_parse_media_without_media_id_is_ignored() -> None:
     )
 
     assert parsed is None
+
+
+def _signed_app(monkeypatch: pytest.MonkeyPatch, secret: str) -> tuple[Any, MagicMock]:
+    from fastapi import FastAPI
+    from fastapi.testclient import TestClient
+
+    import app.config.settings as config
+
+    monkeypatch.setattr(config, "WHATSAPP_APP_SECRET", secret)
+    handler = MagicMock()
+    handler.handle = AsyncMock()
+    app = FastAPI()
+    app.include_router(WhatsAppController(message_handler=handler).router)
+    return TestClient(app), handler
+
+
+def _signature(secret: str, body: bytes) -> str:
+    import hashlib
+    import hmac
+
+    return "sha256=" + hmac.new(secret.encode(), body, hashlib.sha256).hexdigest()
+
+
+FORGED_ACCEPT = (
+    b'{"entry":[{"changes":[{"value":{"messages":[{"id":"wamid.1","from":"5511999990000",'
+    b'"timestamp":"1700000000","type":"button","button":{"text":"Aceitar"}}]}}]}]}'
+)
+
+
+def test_webhook_rejects_unsigned_and_forged_messages_when_the_app_secret_is_set(monkeypatch: pytest.MonkeyPatch) -> None:
+    client, handler = _signed_app(monkeypatch, "segredo-do-app")
+
+    unsigned = client.post("/", content=FORGED_ACCEPT, headers={"content-type": "application/json"})
+    forged = client.post(
+        "/", content=FORGED_ACCEPT, headers={"content-type": "application/json", "X-Hub-Signature-256": _signature("outro", FORGED_ACCEPT)}
+    )
+
+    assert unsigned.status_code == 403
+    assert forged.status_code == 403
+    handler.handle.assert_not_awaited()
+
+
+def test_webhook_accepts_a_message_signed_with_the_app_secret(monkeypatch: pytest.MonkeyPatch) -> None:
+    client, handler = _signed_app(monkeypatch, "segredo-do-app")
+
+    response = client.post(
+        "/",
+        content=FORGED_ACCEPT,
+        headers={"content-type": "application/json", "X-Hub-Signature-256": _signature("segredo-do-app", FORGED_ACCEPT)},
+    )
+
+    assert response.status_code == 200
+    handler.handle.assert_awaited_once()
+    assert handler.handle.await_args.args[0].content == "Aceitar"
+
+
+def test_signature_check_needs_the_exact_body() -> None:
+    from app.controllers.whatsapp_controller import signature_is_valid
+
+    signature = _signature("s", b'{"a":1}')
+    assert signature_is_valid(b'{"a":1}', signature, "s")
+    assert not signature_is_valid(b'{"a": 1}', signature, "s")
+    assert not signature_is_valid(b'{"a":1}', None, "s")
+    assert not signature_is_valid(b'{"a":1}', signature.removeprefix("sha256="), "s")

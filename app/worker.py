@@ -14,6 +14,7 @@ if TYPE_CHECKING:
 from redis.exceptions import RedisError
 from sqlalchemy import text
 
+import app.config.settings as settings
 from app.config import infra
 from app.context import AppContext
 from app.infra.message_queue import Delivery, MessageQueue
@@ -127,6 +128,7 @@ async def run() -> None:
     from app.infra.media_factory import create_media_service
     from app.repository.redis.chat_repository import ChatRepository
     from app.repository.redis.chatbot_flow_cache import ChatFlowCache
+    from app.repository.redis.immediate_offer_repository import ImmediateOfferRepository
     from app.repository.redis.matching_follow_up_repository import MatchingFollowUpRepository
     from app.repository.redis.patient_stage_repository import PatientStageRepository
     from app.repository.redis.professional_stage_repository import ProfessionalStageRepository
@@ -134,14 +136,20 @@ async def run() -> None:
     from app.repository.sql.chatbot_flow_repository import ChatFlowRepository
     from app.repository.sql.faq_knowledge_repository import FaqKnowledgeRepository
     from app.repository.sql.faq_session_repository import FaqSessionRepository
+    from app.repository.sql.immediate_request_repository import ImmediateRequestRepository
     from app.repository.sql.patient_repository import PatientRepository
     from app.repository.sql.person_repository import PersonRepository
     from app.repository.sql.professional_repository import ProfessionalRepository
     from app.services.dispatcher_service import MessageDispatcherService
     from app.services.email_service import GmailSmtpAdapter
+    from app.services.immediate_care_config import log_configuration as log_immediate_care_configuration
+    from app.services.immediate_care_interceptor import ImmediateCareInterceptor
+    from app.services.immediate_care_relay import ImmediateCareRelay
     from app.services.inbound_processor import InboundProcessor
     from app.services.matching_completed_relay import MatchingCompletedRelay
     from app.services.matching_email_relay import MatchingEmailRelay
+    from app.services.pix.gateway import pix_gateway_from_settings
+    from app.services.video_room_service import video_room_service_from_settings
 
     ctx = AppContext()
     loop = asyncio.get_running_loop()
@@ -166,6 +174,12 @@ async def run() -> None:
             await outbound.initialize()
             people = PersonRepository(factory)
             outbox = OutboxRepository(factory)
+            professionals = ProfessionalRepository(factory)
+            immediate_requests = ImmediateRequestRepository(factory)
+            immediate_offers = ImmediateOfferRepository(redis)
+            chat_repository = ChatRepository(redis)
+            log_immediate_care_configuration()
+            pix_gateway = pix_gateway_from_settings()
             media = create_media_service()
             flow_cache = ChatFlowCache(redis, ChatFlowRepository(factory))
             await flow_cache.refresh()
@@ -173,8 +187,8 @@ async def run() -> None:
                 ctx=ctx,
                 inbound=inbound,
                 outbound=outbound,
-                chat_repository=ChatRepository(redis),
-                professional_repository=ProfessionalRepository(factory),
+                chat_repository=chat_repository,
+                professional_repository=professionals,
                 professional_stage_repository=ProfessionalStageRepository(redis),
                 person_repository=people,
                 patient_repository=PatientRepository(factory),
@@ -184,6 +198,8 @@ async def run() -> None:
                 faq_session_repository=FaqSessionRepository(factory),
                 flow_provider=flow_cache,
                 sheets_stage_repository=SheetsStageRepository(redis),
+                immediate_requests=immediate_requests,
+                pix_gateway=pix_gateway,
             )
             processor = InboundProcessor(
                 factory,
@@ -193,12 +209,28 @@ async def run() -> None:
                 outbound,
                 media,
                 MatchingFollowUpRepository(redis),
+                interceptor=ImmediateCareInterceptor(professionals, immediate_requests, immediate_offers, outbox),
             )
             dispatcher = MessageDispatcherService(ctx, outbound, people)
             whatsapp = WhatsAppAdapter(s3_service=media)
             dispatcher.register_adapter(WhatsAppAdapter.channel, whatsapp)
             matching_notifications = MatchingCompletedRelay(outbox, whatsapp)
             matching_emails = MatchingEmailRelay(outbox, GmailSmtpAdapter())
+            immediate_relay = ImmediateCareRelay(
+                outbox,
+                whatsapp,
+                outbound,
+                immediate_requests,
+                professionals,
+                people,
+                immediate_offers,
+                chat_repository,
+                video_room_service_from_settings(),
+                pix_gateway,
+                factory,
+                offer_timeout_seconds=settings.IMMEDIATE_OFFER_TIMEOUT_SECONDS,
+                room_grace_minutes=settings.IMMEDIATE_ROOM_GRACE_MINUTES,
+            )
 
             async def send(delivery: Delivery) -> None:
                 await dispatcher.dispatch(delivery.message)
@@ -222,6 +254,7 @@ async def run() -> None:
                 asyncio.create_task(matching_relay(outbox, ctx)),
                 asyncio.create_task(matching_notifications.run(ctx)),
                 asyncio.create_task(matching_emails.run(ctx)),
+                asyncio.create_task(immediate_relay.run(ctx)),
                 asyncio.create_task(heartbeat()),
             ]
             stopping = asyncio.create_task(ctx.wait_for_shutdown())
