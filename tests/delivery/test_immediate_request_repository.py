@@ -156,9 +156,12 @@ def test_professional_availability_toggle_and_listing(factory):
     assert updated is not None and updated.available_for_immediate is True and updated.immediate_availability_updated_at == NOW
     professionals.set_available_for_immediate(nutritionist.person_id, True, now=NOW)
     listed = professionals.list_available_for_immediate()
-    assert [professional.person.phone_number for professional in listed] == ["5511900000002"]
+    assert [professional.person.phone_number for professional in listed] == ["5511900000002", "5511900000003"]
+    assert [professional.person.phone_number for professional in professionals.list_available_for_immediate("Psicoterapia")] == ["5511900000002"]
+    assert [professional.person.phone_number for professional in professionals.list_available_for_immediate("nutricao")] == ["5511900000003"]
+    assert professionals.list_available_for_immediate("Psiquiatria") == []
     professionals.set_available_for_immediate(psychologist.person_id, False, now=NOW)
-    assert professionals.list_available_for_immediate() == []
+    assert professionals.list_available_for_immediate("Psicoterapia") == []
     assert professionals.set_available_for_immediate(999999, True, now=NOW) is None
 
 

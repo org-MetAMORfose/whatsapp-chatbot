@@ -27,7 +27,7 @@ from app.domain.enum.chat_state import ChatState
 from app.domain.enum.faq_answer_status import FaqAnswerStatus
 from app.domain.enum.faq_session_outcome import FaqSessionOutcome
 from app.domain.enum.immediate_status import ImmediateStatus
-from app.domain.matching.profile import PSYCHOTHERAPY, append_specialty_answer, area, patient_request, professional_profile
+from app.domain.matching.profile import PSYCHOTHERAPY, append_specialty_answer, area, key, patient_request, professional_profile
 from app.domain.message import Message
 from app.domain.redis.patient_stage import PatientStageContext
 from app.domain.sheets import PatientSheet, ProfessionalSheet
@@ -213,6 +213,7 @@ class ActionExecutor:
             "immediate_cancel": self.immediate_cancel,
             "immediate_gate": self.immediate_gate,
             "immediate_prices": self.immediate_prices,
+            "immediate_area_route": self.immediate_area_route,
             "immediate_noop": self.immediate_noop,
             "faq_process_question": self.faq_process_question,
             "faq_continue_or_satisfy": self.faq_continue_or_satisfy,
@@ -567,7 +568,9 @@ class ActionExecutor:
         active = requests.get_active_for_patient(person.id, now=self._now(), room_grace_minutes=settings.IMMEDIATE_ROOM_GRACE_MINUTES)
         if active is not None:
             return self._already_active(active)
-        if not self.professional_repository.list_available_for_immediate():
+        # The patient picked the area right after "Atendimento imediato"; only professionals of that area count.
+        chosen_area = area((await self.patient_stage_repository.get_or_create_context(message)).area)
+        if not self.professional_repository.list_available_for_immediate(chosen_area):
             return ActionResult(output="", data={"immediate_active": False, "immediate_nobody_available": True})
         minutes = duration_from_text(message.content, settings.IMMEDIATE_PRICES_CENTS)
         if minutes is None:
@@ -590,6 +593,7 @@ class ActionExecutor:
             pix_txid=txid,
             pix_copia_cola=charge.copia_cola,
             expires_at=charge.expires_at,
+            area=chosen_area,
         )
         self.outbox_repository.enqueue(
             f"immediate:{request.id}:payment_timeout", "immediate.payment_timeout.v1", {"request_id": request.id}, available_at=charge.expires_at
@@ -648,6 +652,11 @@ class ActionExecutor:
         if len(options) == 1:
             return ActionResult(output=f"Valor: {options[0]}.\n\n")
         return ActionResult(output=f"Valores: {', '.join(options[:-1])} ou {options[-1]}.\n\n")
+
+    async def immediate_area_route(self, message: Message) -> ActionResult:
+        """The area chosen for the immediate care, so "Agendar atendimento" continues on that area's scheduling path."""
+        chosen_area = area((await self.patient_stage_repository.get_or_create_context(message)).area)
+        return ActionResult(output="", data={"immediate_area": key(chosen_area)} if chosen_area else {})
 
     async def immediate_noop(self, message: Message) -> ActionResult:
         """Carries an action_transition config without doing anything itself."""

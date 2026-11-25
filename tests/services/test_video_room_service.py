@@ -50,7 +50,7 @@ async def test_daily_creates_a_private_room_and_one_token_per_person():
     assert [str(request.url) for request in calls[1:]] == ["https://api.daily.co/v1/meeting-tokens"] * 2
     assert token_bodies == [
         {"room_name": "acolhimento-1-abc", "exp": int(EXPIRES.timestamp()), "user_name": name, "is_owner": False, "eject_at_token_exp": True}
-        for name in ("Paciente", "Psicólogo(a)")
+        for name in ("Paciente", "Profissional")
     ]
     assert not any("recording" in key for body in token_bodies for key in body)
 

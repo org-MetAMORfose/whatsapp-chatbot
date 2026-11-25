@@ -282,9 +282,9 @@ def test_seeded_chatbot_flow_is_complete_and_loadable(database):
     from app.repository.sql.chatbot_flow_repository import ChatFlowRepository
 
     with database.connect() as db:
-        assert db.scalar(text("SELECT count(*) FROM chatbot_flow.node")) == 85
-        assert db.scalar(text("SELECT count(*) FROM chatbot_flow.transition")) == 173
-        assert db.scalar(text("SELECT count(*) FROM chatbot_flow.transition_action")) == 197
+        assert db.scalar(text("SELECT count(*) FROM chatbot_flow.node")) == 86
+        assert db.scalar(text("SELECT count(*) FROM chatbot_flow.transition")) == 180
+        assert db.scalar(text("SELECT count(*) FROM chatbot_flow.transition_action")) == 216
         assert db.scalar(text("SELECT count(*) FROM chatbot_flow.input_error_message")) == 8
         assert (
             db.scalar(
@@ -315,7 +315,7 @@ def test_seeded_chatbot_flow_is_complete_and_loadable(database):
             WHERE action_key NOT LIKE 'sheets_%' AND NOT is_required
         """)
             )
-            == 171
+            == 190
         )
         required_actions = dict(db.execute(text("""
             SELECT action_key, count(*)
@@ -339,8 +339,8 @@ def test_seeded_chatbot_flow_is_complete_and_loadable(database):
 
     revision, flow = ChatFlowRepository(sessionmaker(database, expire_on_commit=False)).load()
 
-    assert revision == 2  # 0019 publishes a new revision so workers reload and older drafts show as stale
-    assert len(flow.nodes) == 85
+    assert revision == 3  # 0019 and 0020 each publish a new revision so workers reload and older drafts show as stale
+    assert len(flow.nodes) == 86
     start = flow.get("start")
     birth_date = flow.get("paciente_data_nascimento")
     assert start is not None

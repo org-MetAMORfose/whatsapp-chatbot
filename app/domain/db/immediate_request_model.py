@@ -28,6 +28,7 @@ class ImmediateRequestModel(Base):
     patient_person_id: Mapped[int] = mapped_column(ForeignKey("person.id"), nullable=False)
     professional_person_id: Mapped[int | None] = mapped_column(ForeignKey("person.id"))
     duration_minutes: Mapped[int] = mapped_column(Integer, nullable=False)
+    area: Mapped[str | None] = mapped_column(String)  # the area the patient chose; offers go only to professionals of it
     amount_cents: Mapped[int] = mapped_column(Integer, nullable=False)
     status: Mapped[str] = mapped_column(String, nullable=False, default=ImmediateStatus.AWAITING_PAYMENT.value)
     pix_txid: Mapped[str | None] = mapped_column(String, unique=True)

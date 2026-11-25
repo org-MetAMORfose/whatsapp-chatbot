@@ -48,13 +48,15 @@ REFUND_FAILED = "NAO_REALIZADO"
 # The offer is remembered past its deadline so a late "Aceitar" hears "o prazo acabou" instead of going to the flow.
 OFFER_MEMORY_GRACE_SECONDS = 3600
 
-PAID_MESSAGE = "Pagamento recebido! Estou avisando os psicólogos disponíveis. Te retorno em até 5 minutos."
+PAID_MESSAGE = "Pagamento recebido! Estou avisando os profissionais disponíveis. Te retorno em até 5 minutos."
 TIMEOUT_MESSAGE = (
-    "Nos últimos 5 minutos nenhum psicólogo ficou disponível. Vou devolver o seu Pix de {amount} automaticamente; "
+    "Nos últimos 5 minutos nenhum profissional ficou disponível. Vou devolver o seu Pix de {amount} automaticamente; "
     "você recebe a confirmação por aqui."
 )
 REFUNDED_MESSAGE = "Pix de {amount} devolvido. Pode levar alguns minutos pra aparecer no seu banco. Quando quiser tentar de novo, mande RESET."
-ACCEPTED_PATIENT_MESSAGE = "Um psicólogo aceitou o seu atendimento! Entre na sala de vídeo: {url}\n\nA sessão dura {minutes} minutos e não é gravada."
+ACCEPTED_PATIENT_MESSAGE = (
+    "Um profissional aceitou o seu atendimento! Entre na sala de vídeo: {url}\n\nA sessão dura {minutes} minutos e não é gravada."
+)
 ACCEPTED_PROFESSIONAL_MESSAGE = "Sala de vídeo do acolhimento: {url}\n\nO paciente é {name}, sessão de {minutes} minutos."
 PAYMENT_EXPIRED_MESSAGE = "O Pix expirou e nada foi cobrado. Se ainda quiser, mande RESET e peça de novo."
 REFUND_FAILED_MESSAGE = (
@@ -173,13 +175,13 @@ class ImmediateCareRelay:
         # digit) never gets its offer; in test mode, only listed numbers do.
         candidates = [
             professional
-            for professional in self.professionals.list_available_for_immediate()
+            for professional in self.professionals.list_available_for_immediate(request.area)
             if professional.person_id != request.patient_person_id
             and (professional.person is None or phone_key(professional.person.phone_number) != phone_key(patient_phone))
             and in_test_list(professional.person.phone_number if professional.person is not None else "")
         ]
         if not candidates:
-            logger.warning("Immediate request %s paid but no psychologist is available", request_id)
+            logger.warning("Immediate request %s paid but no professional of area %r is available", request_id, request.area)
         for professional in candidates:
             phone = professional.person.phone_number if professional.person is not None else ""
             try:

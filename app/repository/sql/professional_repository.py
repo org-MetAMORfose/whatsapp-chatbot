@@ -10,7 +10,7 @@ from sqlalchemy.orm import Session, joinedload
 from app.domain.db.person_model import PersonModel
 from app.domain.db.professional_model import ProfessionalModel
 from app.domain.enum.channels import Channel
-from app.domain.immediate_eligibility import is_eligible_for_immediate
+from app.domain.immediate_eligibility import is_eligible_for_immediate, works_in_area
 from app.domain.matching.profile import professional_profile
 from app.repository.sql.transaction import commit, session_scope
 
@@ -137,8 +137,8 @@ class ProfessionalRepository:
             session.refresh(professional)
             return professional
 
-    def list_available_for_immediate(self) -> list[ProfessionalModel]:
-        """Released psychologists who opted in to immediate care, with their person loaded."""
+    def list_available_for_immediate(self, area: str | None = None) -> list[ProfessionalModel]:
+        """Released professionals who opted in to immediate care (of one area, when given), with their person loaded."""
         with session_scope(self._session_factory) as session:
             stmt = (
                 select(ProfessionalModel)
@@ -146,4 +146,8 @@ class ProfessionalRepository:
                 .where(ProfessionalModel.available_for_immediate.is_(True))
                 .order_by(ProfessionalModel.id)
             )
-            return [professional for professional in session.execute(stmt).unique().scalars().all() if is_eligible_for_immediate(professional)]
+            return [
+                professional
+                for professional in session.execute(stmt).unique().scalars().all()
+                if is_eligible_for_immediate(professional) and works_in_area(professional, area)
+            ]

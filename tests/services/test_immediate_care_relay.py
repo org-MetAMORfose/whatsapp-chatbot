@@ -30,8 +30,7 @@ PATIENT_ROOM = f"{ROOM}?t=paciente"
 PRO_ROOM = f"{ROOM}?t=profissional"
 REFUNDED_TEXT = "Pix de R$ 60,00 devolvido. Pode levar alguns minutos pra aparecer no seu banco. Quando quiser tentar de novo, mande RESET."
 REFUND_FAILED_TEXT = (
-    "Não consegui devolver o seu Pix de R$ 60,00 automaticamente. A equipe da MetAMORfose vai fazer a devolução manualmente "
-    "e te avisa por aqui."
+    "Não consegui devolver o seu Pix de R$ 60,00 automaticamente. A equipe da MetAMORfose vai fazer a devolução manualmente e te avisa por aqui."
 )
 PAYMENT_EXPIRED_TEXT = "O Pix expirou e nada foi cobrado. Se ainda quiser, mande RESET e peça de novo."
 
@@ -172,7 +171,7 @@ async def test_offer_sends_template_to_each_available_and_moves_patient_to_queue
     assert recorded.is_from_user is False and recorded.content.startswith("[template:acolhimento_solicitacao:pt_BR] Maria | 30 | 60,00")
     messages = deps.published()
     assert [(message.user_id, message.content) for message in messages] == [
-        (PATIENT_PHONE, "Pagamento recebido! Estou avisando os psicólogos disponíveis. Te retorno em até 5 minutos.")
+        (PATIENT_PHONE, "Pagamento recebido! Estou avisando os profissionais disponíveis. Te retorno em até 5 minutos.")
     ]
     assert messages[0].event_id == f"immediate:42:offer:{PATIENT_PHONE}" and messages[0].chat_id == PATIENT_PHONE
     deps.chats.create_context.assert_awaited_once_with(PATIENT_PHONE, Channel.WHATSAPP, "imediato_na_fila")
@@ -185,7 +184,7 @@ async def test_offer_with_no_available_professionals_still_waits() -> None:
     await deps.relay.process_next()
     deps.whatsapp.send_template.assert_not_awaited()
     assert [message.content for message in deps.published()] == [
-        "Pagamento recebido! Estou avisando os psicólogos disponíveis. Te retorno em até 5 minutos."
+        "Pagamento recebido! Estou avisando os profissionais disponíveis. Te retorno em até 5 minutos."
     ]
     deps.chats.create_context.assert_awaited_once_with(PATIENT_PHONE, Channel.WHATSAPP, "imediato_na_fila")
     assert deps.finished_ok()
@@ -218,7 +217,7 @@ async def test_timeout_expires_enqueues_refund_and_notifies() -> None:
     deps.requests.expire.assert_called_once_with(42)
     deps.outbox.enqueue.assert_called_once_with("immediate:42:refund", "immediate.refund.v1", {"request_id": 42})
     assert [message.content for message in deps.published()] == [
-        "Nos últimos 5 minutos nenhum psicólogo ficou disponível. Vou devolver o seu Pix de R$ 60,00 automaticamente; "
+        "Nos últimos 5 minutos nenhum profissional ficou disponível. Vou devolver o seu Pix de R$ 60,00 automaticamente; "
         "você recebe a confirmação por aqui."
     ]
     deps.chats.delete_context.assert_awaited_once_with(PATIENT_PHONE, Channel.WHATSAPP)
@@ -344,7 +343,7 @@ async def test_offer_isolates_bad_professional_records() -> None:
     deps.whatsapp.send_template.assert_awaited_once()
     assert deps.whatsapp.send_template.await_args.kwargs["to"] == PRO_PHONE
     assert [message.content for message in deps.published()] == [
-        "Pagamento recebido! Estou avisando os psicólogos disponíveis. Te retorno em até 5 minutos."
+        "Pagamento recebido! Estou avisando os profissionais disponíveis. Te retorno em até 5 minutos."
     ]
     deps.chats.create_context.assert_awaited_once_with(PATIENT_PHONE, Channel.WHATSAPP, "imediato_na_fila")
     assert deps.finished_ok()
@@ -419,7 +418,7 @@ async def test_accepted_creates_room_once_and_notifies_both() -> None:
     assert [(message.user_id, message.content) for message in deps.published()] == [
         (
             PATIENT_PHONE,
-            f"Um psicólogo aceitou o seu atendimento! Entre na sala de vídeo: {PATIENT_ROOM}\n\nA sessão dura 30 minutos e não é gravada.",
+            f"Um profissional aceitou o seu atendimento! Entre na sala de vídeo: {PATIENT_ROOM}\n\nA sessão dura 30 minutos e não é gravada.",
         ),
         (PRO_PHONE, f"Sala de vídeo do acolhimento: {PRO_ROOM}\n\nO paciente é Maria, sessão de 30 minutos."),
     ]
@@ -457,6 +456,13 @@ async def test_offer_skips_the_patient_registered_as_professional_under_the_othe
     deps = Deps("immediate.offer.v1", waiting, [same_phone, available()])
     await deps.relay.process_next()
     assert [call.kwargs["to"] for call in deps.whatsapp.send_template.await_args_list] == [PRO_PHONE]
+
+
+@pytest.mark.asyncio
+async def test_offer_asks_only_for_professionals_of_the_area_the_patient_chose() -> None:
+    deps = Deps("immediate.offer.v1", request(ImmediateStatus.QUEUED, area="Nutrição"), [available()])
+    await deps.relay.process_next()
+    deps.professionals.list_available_for_immediate.assert_called_once_with("Nutrição")
 
 
 @pytest.mark.asyncio

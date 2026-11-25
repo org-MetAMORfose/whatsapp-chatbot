@@ -215,7 +215,10 @@ async def reach_pix(world: World) -> str:
     await world.say(PATIENT, "Quero ser paciente")
     menu = await world.say(PATIENT, "Maria Silva")
     assert menu.buttons == ["Atendimento imediato", "Agendar atendimento"]
-    triage = await world.say(PATIENT, "Atendimento imediato")
+    area_question = await world.say(PATIENT, "Atendimento imediato")
+    assert area_question.content == "Em qual área você quer ser atendido?"
+    assert area_question.buttons == ["Psicoterapia", "Psiquiatria", "Nutrição", "Clínico geral"]
+    triage = await world.say(PATIENT, "Psicoterapia")
     assert triage.content.startswith("Antes de continuar, algumas perguntas rápidas.") and triage.buttons == ["Não", "Sim"]
     assert (await world.say(PATIENT, "Não")).buttons == ["Não", "Sim"]
     age = await world.say(PATIENT, "Não")
@@ -260,12 +263,12 @@ async def test_patient_pays_professional_accepts_room_is_sent(db, redis_client) 
     world.whatsapp.send_template.assert_awaited_once()
     offer = world.whatsapp.send_template.await_args.kwargs
     assert offer["to"] == PSYCHOLOGIST and offer["name"] == "acolhimento_solicitacao" and offer["body_parameters"] == ("Maria", "20", "50,00")
-    assert world.sent() == [(PATIENT, "Pagamento recebido! Estou avisando os psicólogos disponíveis. Te retorno em até 5 minutos.")]
+    assert world.sent() == [(PATIENT, "Pagamento recebido! Estou avisando os profissionais disponíveis. Te retorno em até 5 minutos.")]
     context = await world.chats.get_context(PATIENT, Channel.WHATSAPP)
     assert context is not None and context.state == "imediato_na_fila"
     waiting = await world.say(PATIENT, "e aí?")
     assert waiting.content == (
-        "Pagamento recebido!\n\nEstou procurando um psicólogo disponível. Te aviso aqui assim que alguém aceitar, em até 5 minutos."
+        "Pagamento recebido!\n\nEstou procurando um profissional disponível. Te aviso aqui assim que alguém aceitar, em até 5 minutos."
     )
 
     reply = await world.professional_says("Aceitar")
@@ -283,7 +286,7 @@ async def test_patient_pays_professional_accepts_room_is_sent(db, redis_client) 
     assert world.sent()[1:] == [
         (
             PATIENT,
-            f"Um psicólogo aceitou o seu atendimento! Entre na sala de vídeo: {request.patient_room_url}\n\n"
+            f"Um profissional aceitou o seu atendimento! Entre na sala de vídeo: {request.patient_room_url}\n\n"
             "A sessão dura 20 minutos e não é gravada.",
         ),
         (PSYCHOLOGIST, f"Sala de vídeo do acolhimento: {request.professional_room_url}\n\nO paciente é Maria, sessão de 20 minutos."),
@@ -316,10 +319,49 @@ async def test_nobody_accepts_refund_runs(db, redis_client) -> None:
     assert request.status == ImmediateStatus.EXPIRED.value
     assert request.refunded_at is not None and request.pix_refund_id == f"{txid}R1"
     contents = [content for _phone, content in world.sent()]
-    timeout_notice = "Nos últimos 5 minutos nenhum psicólogo ficou disponível. Vou devolver o seu Pix de R$ 50,00"
+    timeout_notice = "Nos últimos 5 minutos nenhum profissional ficou disponível. Vou devolver o seu Pix de R$ 50,00"
     assert any(content.startswith(timeout_notice) for content in contents)
     assert "Pix de R$ 50,00 devolvido. Pode levar alguns minutos pra aparecer no seu banco. Quando quiser tentar de novo, mande RESET." in contents
     assert await world.chats.get_context(PATIENT, Channel.WHATSAPP) is None
 
     closed = await world.say(PATIENT, "oi")
     assert closed.buttons is not None and "Quero ser paciente" in closed.buttons
+
+
+@pytest.mark.asyncio
+async def test_area_without_a_professional_on_call_leads_to_scheduling_in_that_area(db, redis_client) -> None:
+    """Only a psychologist is on call; the patient wants Nutrição: no charge, and one button continues the scheduling of Nutrição."""
+    await redis_client.flushdb()
+    world = World(db, redis_client)
+    world.seed_psychologist(available=True)
+    await world.say(PATIENT, "oi")
+    await world.say(PATIENT, "Quero ser paciente")
+    await world.say(PATIENT, "Maria Silva")
+    await world.say(PATIENT, "Atendimento imediato")
+    await world.say(PATIENT, "Nutrição")
+    await world.say(PATIENT, "Não")
+    await world.say(PATIENT, "Não")
+    await world.say(PATIENT, "Sim")
+    await world.say(PATIENT, "Aceito os termos")
+    nobody = await world.say(PATIENT, "10 minutos")
+    assert nobody.content == (
+        "Nenhum profissional dessa área está disponível para atendimento imediato agora, então não vou gerar a cobrança. "
+        "Se preferir, posso te ajudar a agendar um atendimento nessa área."
+    )
+    assert nobody.buttons == ["Agendar atendimento"]
+    with db() as session:
+        assert session.query(ImmediateRequestModel).count() == 0
+
+    # The area is already known: the scheduling flow continues right after its area question (never asks it again).
+    scheduling = await world.say(PATIENT, "Agendar atendimento")
+    with db() as session:
+        after_area = session.execute(
+            text(
+                "SELECT target.message FROM chatbot_flow.transition AS transition "
+                "JOIN chatbot_flow.node AS node ON node.id = transition.node_id "
+                "JOIN chatbot_flow.node AS target ON target.id = transition.next_node_id "
+                "WHERE node.key = 'paciente_inicio' AND transition.expected_value = 'nutricao'"
+            )
+        ).scalar_one()
+    assert after_area.strip() in scheduling.content
+    assert "Qual área você deseja receber atendimento" not in scheduling.content

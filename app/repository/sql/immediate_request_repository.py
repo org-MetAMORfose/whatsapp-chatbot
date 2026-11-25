@@ -34,10 +34,12 @@ class ImmediateRequestRepository:
         pix_txid: str,
         pix_copia_cola: str,
         expires_at: datetime,
+        area: str | None = None,
     ) -> ImmediateRequestModel:
         request = ImmediateRequestModel(
             patient_person_id=patient_person_id,
             duration_minutes=duration_minutes,
+            area=area,
             amount_cents=amount_cents,
             status=AWAITING,
             pix_txid=pix_txid,

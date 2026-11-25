@@ -6,7 +6,7 @@ from datetime import UTC, datetime
 
 from app.agent.agent import Response, normalize_text
 from app.domain.db.person_model import PersonModel
-from app.domain.immediate_eligibility import is_psychologist, is_released_for_immediate
+from app.domain.immediate_eligibility import is_released_for_immediate
 from app.domain.message import Message
 from app.domain.phone_variants import brazilian_phone_variants
 from app.repository.redis.immediate_offer_repository import ImmediateOfferRepository
@@ -21,7 +21,6 @@ ACCEPT_COMMANDS = frozenset({"aceitar"})
 
 AVAILABLE_REPLY = "Pronto! Você está disponível para acolhimento imediato. Quando quiser sair, mande INDISPONÍVEL."
 UNAVAILABLE_REPLY = "Combinado, você não vai mais receber ofertas de acolhimento imediato. Mande DISPONÍVEL quando quiser voltar."
-ONLY_PSYCHOLOGISTS_REPLY = "Por enquanto o acolhimento imediato é só para psicólogos."
 NOT_RELEASED_REPLY = (
     "Seu cadastro ainda não foi liberado para o acolhimento imediato. Assim que a equipe da MetAMORfose liberar, "
     "você poderá ficar disponível."
@@ -71,8 +70,6 @@ class ImmediateCareInterceptor:
         available = command in AVAILABLE_COMMANDS
         if available and not is_released_for_immediate(professional):
             return Response(content=NOT_RELEASED_REPLY)
-        if available and not is_psychologist(professional):
-            return Response(content=ONLY_PSYCHOLOGISTS_REPLY)
         self._professionals.set_available_for_immediate(professional.person_id, available, now=self._now())
         return Response(content=AVAILABLE_REPLY if available else UNAVAILABLE_REPLY)
 
