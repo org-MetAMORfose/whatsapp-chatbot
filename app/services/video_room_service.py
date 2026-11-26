@@ -28,7 +28,8 @@ class VideoRoomService(Protocol):
 
 
 class DailyService:
-    """Private room for two, ejected at expiry. Recording and transcription are never started by this code."""
+    """Private room for two, ejected at expiry, with the call screens in Portuguese. Recording and transcription are never
+    started by this code."""
 
     def __init__(self, api_key: str, *, transport: httpx.AsyncBaseTransport | None = None) -> None:
         self._api_key = api_key
@@ -39,7 +40,14 @@ class DailyService:
         room = {
             "name": name,
             "privacy": "private",
-            "properties": {"exp": exp, "max_participants": 2, "eject_at_room_exp": True, "enable_prejoin_ui": True, "enable_knocking": False},
+            "properties": {
+                "exp": exp,
+                "max_participants": 2,
+                "eject_at_room_exp": True,
+                "enable_prejoin_ui": True,
+                "enable_knocking": False,
+                "lang": "pt-BR",
+            },
         }
         headers = {"Authorization": f"Bearer {self._api_key}"}
         async with httpx.AsyncClient(timeout=30.0, transport=self._transport) as client:

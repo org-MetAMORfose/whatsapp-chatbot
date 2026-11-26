@@ -44,6 +44,7 @@ async def test_daily_creates_a_private_room_and_one_token_per_person():
             "eject_at_room_exp": True,
             "enable_prejoin_ui": True,
             "enable_knocking": False,
+            "lang": "pt-BR",
         },
     }
     token_bodies = [json.loads(request.content)["properties"] for request in calls[1:]]
